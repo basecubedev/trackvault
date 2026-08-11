@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:x="urn:unrelated">
+  <wpt lat="52.2000" lon="13.2000">
+    <name>Something the writer called an action</name>
+    <extensions>
+      <x:rtePointAction>3</x:rtePointAction>
+    </extensions>
+  </wpt>
+  <trk>
+    <name>Synthetic track beside a foreign action element</name>
+    <trkseg>
+      <trkpt lat="52.2000" lon="13.2000">
+        <ele>50.0</ele>
+        <time>2026-07-13T09:00:00Z</time>
+      </trkpt>
+      <trkpt lat="52.2010" lon="13.2010">
+        <ele>51.0</ele>
+        <time>2026-07-13T09:01:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

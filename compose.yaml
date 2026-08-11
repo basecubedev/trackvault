@@ -7,8 +7,17 @@ services:
       - "8080:8080"
     environment:
       GPX_VIEW_DATA_DIR: /data
+      # Set GPX_VIEW_IMPORT_DIR and mount a read-only directory below to enable
+      # `gpx-view scan`. Unset, the feature is off.
     volumes:
-      # Reserves the stable data path for later persistence work. Nothing is
-      # written there yet.
-      - ./data:/data
+      # A managed volume, not a host bind mount. Docker initialises a named
+      # volume from the image, so /data arrives owned by the non-root runtime
+      # user and stays writable without `chmod 777` and without running as root.
+      # A bind mount would arrive with the host directory's ownership instead;
+      # see README.md for how to use one deliberately.
+      - gpx-view-data:/data
+      # - ./import:/import:ro
     restart: unless-stopped
+
+volumes:
+  gpx-view-data:

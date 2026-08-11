@@ -1,11 +1,12 @@
 # Business contracts
 
-These invariants hold for every future feature of GPX-View. They are written down
-before the importer exists, because they constrain how the importer may be built.
+These invariants hold for every feature of GPX-View, present and future. Most were
+written down before the first importer existed, because they constrain how an
+importer may be built.
 
 Items marked *implemented* are executable and protected by tests in
-`tests/contract/` and `tests/unit/`. Everything else is a documented contract for
-work that has not started.
+`tests/contract/`, `tests/unit/` and `tests/integration/`. Everything else is a
+documented contract for work that has not started.
 
 ## Input format is never the domain model
 
@@ -40,8 +41,10 @@ processing, not the imported file. They therefore live on the processing run:
 ProcessingRun
 ─────────────────────────
 raw import identity
-importer / importer_version
-normalization_schema_version
+processing profile
+    importer / importer_version
+    normalization_schema_version
+    classifier / classifier_version
 processed_at
 status + error code
 ```
@@ -52,6 +55,30 @@ status + error code
 A run either succeeded or failed, and a failed run must name a stable error code.
 "Failed silently" is not a state the model can express, which is what makes a
 failed import recoverable rather than invisible.
+
+### Processing currency
+
+*Implemented as `gpx_view.domain.ProcessingProfile`,
+`gpx_view.domain.is_processing_current` and
+`gpx_view.application.InstalledProcessing`.*
+
+The five versions are one value because they answer one question together: was
+the stored generation produced by the processing this build installs? A run
+records the whole profile, and one function compares it with the installed one.
+
+> Semantically different output must not claim the same version.
+
+A change to the normalized identity, the candidate set, the evidence semantics or
+the interpretation of a field is a version bump. An internal refactoring with
+identical output is not. Renaming a version is not an option either: a run that
+claims a version whose output it could not have produced makes every later
+currency decision wrong.
+
+A generation counts as **not** current when any component differs, when the run
+cannot prove which processing produced it, when there is no successful run at
+all, when its adapter is no longer installed, or when its profile is *newer* than
+the installed one. History is never rewritten to make an old run look current:
+what ran back then is not knowable now.
 
 ## Duplicates
 
@@ -113,18 +140,21 @@ Example:
 
 ```
 kind       RECORDED
-confidence 0.97
-evidence   gps_accuracy_present
+confidence 0.95
+method     evidence-weights / 2
+evidence   track_element_present
+           timestamps_present
+           gps_accuracy_present
            course_measurements_present
-           natural_timestamp_distribution
 ```
 
 ```
 kind       PLANNED
-confidence 0.95
-evidence   route_planner_source
-           synthetic_timestamps
-           no_gps_accuracy
+confidence 0.75
+method     evidence-weights / 2
+evidence   route_element_present
+           timestamps_absent
+           measurement_metadata_absent
 ```
 
 Enforced invariants:
@@ -135,8 +165,94 @@ Enforced invariants:
 - A `RECORDED` or `PLANNED` result must state at least one evidence code. Without
   evidence the only permitted answer is `UNKNOWN`.
 
-No productive classification heuristic exists yet. This contract fixes the shape of
-the answer, not how it is found.
+## Classification rules
+
+*Implemented as `gpx_view.domain.classify`, method `evidence-weights`, version 2.*
+
+The classifier receives **evidence codes and nothing else**. It cannot see a
+creator string, a filename or a namespace, which makes "a source name never
+decides a track kind" a structural property rather than a promise: a lookup table
+from a vendor to a kind is impossible to write here, not merely forbidden.
+
+The guiding rule is conservatism:
+
+> A false `unknown` is preferable to false certainty.
+
+Two generic observations carry the decision:
+
+| Supports `recorded` | Why |
+| --- | --- |
+| `gps_accuracy_present` | a device that measures positions reports how well it measured -- dilution of precision, satellite count, fix type. A routing engine has nothing to report. |
+| `course_measurements_present` | a measured heading comes from hardware. |
+
+| Supports `planned` | Why |
+| --- | --- |
+| `route_element_present` | the source described this as planning structure, not as a recording. |
+| `route_instructions_present` | the document carries turn-by-turn navigation instructions. They exist because a route was computed for them; a recording has nowhere to get them from. |
+| `measurement_metadata_absent` | nothing measured anything about these positions at all. |
+| `timestamps_absent` | weak support only, and never on its own. |
+
+Decision:
+
+- `RECORDED` needs measurement evidence and a clear lead over the planned side.
+- `PLANNED` needs a clear lead, at least one *positive* observation, and at least
+  two distinct observations in total. Absence alone is never enough -- a recording
+  stripped of its metadata looks exactly like planning data -- and no single
+  structural feature decides either: a route element or a turn instruction says
+  how the geometry was *produced*, not that nobody then travelled it.
+- Anything else is `UNKNOWN`, which stays a normal, permanent result.
+
+Strong measurement evidence outweighs a planning signal, because riding a computed
+route is still riding: two independent measurement values can only come from a
+device that actually moved through the positions. One measurement value against
+one planning signal decides nothing.
+
+Timing decides nothing. Route planners write synthetic times and recordings get
+stripped of them, so neither the presence nor the absence of timestamps moves the
+verdict on its own, and no timing-pattern heuristic is attempted at this stage.
+
+An external link decides nothing either, and version 2 of these rules exists
+because version 1 let it. A GPX `<link>` is a related web resource: applications
+write their own home page into it, planners write a permalink, and both look
+identical from here. Paired with `measurement_metadata_absent` -- an absence that
+describes a stripped recording just as well -- it was enough to reach a verdict,
+so an ordinary recording exported by an application that mentions its own website
+came out `PLANNED`. `external_link_present` is now weighed on neither side. It
+stays provenance worth keeping and stops being a business signal.
+
+That is a deliberate loss of certainty. Documents that used to come out `PLANNED`
+on a link alone now come out `UNKNOWN`, which is the direction of error this
+project chose, and a user override exists for exactly those cases.
+
+Confidence is derived from how far the winning side led, and `UNKNOWN` scores
+zero: it is the answer given when the evidence supports no kind, so there is no
+support to express.
+
+## Evidence codes
+
+*Implemented as `gpx_view.domain.EvidenceCode`.*
+
+An importer states *what it saw*; it never states what that means. Codes are
+lower case, underscore separated, and part of the stored data: renaming one
+invalidates every stored explanation, so they are not renamed between parser
+versions.
+
+```
+track_element_present          route_element_present
+route_instructions_present     timestamps_present
+timestamps_absent              gps_accuracy_present
+course_measurements_present    measurement_metadata_absent
+external_link_present          activity_metadata_present
+```
+
+`source_link_present` is **deprecated** and no longer produced. It claimed the
+document declared where its geometry *came from*, which is more than an exchange
+format's link element says; `external_link_present` states the observation
+without the claim. The old code keeps its old meaning in results written by
+classifier version 1, so those explanations stay readable, and reprocessing
+replaces them.
+
+They are observations, never user-facing text.
 
 ## Detected vs. effective classification
 
@@ -185,7 +301,8 @@ and planned aggregates.
 A convenience accessor on the normalized track is allowed, but only as a
 projection that reads `classification.effective_kind`. Persisting a normalized
 track stores the detected result and any override, never a third derived kind
-column.
+column, and the HTTP payload projects both so a reader can tell a verdict from a
+correction.
 
 ## Activity
 
@@ -302,18 +419,25 @@ format
 creator
 application
 vendor
-source links
+external links
 extensions summary
 ```
 
 Examples:
 
 ```
-format       GPX 1.1
-creator      Locus Map
-application  Locus Map 4.x
-source link  komoot.de
+format         GPX 1.1
+creator        Locus Map
+application    Locus Map 4.x
+external link  https://example.test/route/7
 ```
+
+They are **external links**, not source links. A GPX `<link>` is a related web
+resource: an application writes its own home page into it as readily as a planner
+writes a permalink, and both look identical from here. Calling the field a
+*source* link claimed the document declared where its geometry came from, which
+is more than the exchange format states — the same overstatement that let
+classifier version 1 reach `PLANNED` on a link alone.
 
 > Source metadata is evidence and provenance information, not business authority.
 
@@ -330,8 +454,10 @@ if source == "komoot":
 The classification step weighs evidence and may still answer `UNKNOWN`. Source
 metadata is preserved so a decision can be explained and revisited.
 
-The record is not implemented yet; its field set is part of the first importer's
-output contract.
+*Implemented as `gpx_view.domain.SourceMetadata`:* exchange format, format
+version, creator, external links and a sorted summary of the extension namespaces a
+document used. It stays format-independent -- a FIT importer fills the same
+fields and gets none of its own.
 
 ## Vendor and format extensions
 
@@ -339,6 +465,46 @@ output contract.
 - Unknown extensions must not needlessly fail the parse.
 - Relevant unknown source metadata should be preservable for later reprocessing.
 - Domain models still must not adopt arbitrary XML fragments as business fields.
+
+> An unknown namespace is metadata, not semantic authority.
+
+An extension element is interpreted on its **namespaced** name, from a small
+table of schemas the project has evidence for. A local name on its own is a word
+rather than a schema: `course` in a track-point extension is a measured heading,
+`course` in a golf application's namespace is a golf course. Matching a local
+name in any namespace let a foreign document manufacture the measurement evidence
+that decides `RECORDED`.
+
+An element from an unknown namespace therefore produces no activity and no
+evidence. It still never fails the parse, and the namespace survives in the
+extension summary, so the raw import can be reprocessed once that schema gains a
+meaning.
+
+## Duplicates and raw integrity
+
+*Implemented as `gpx_view.application.RawArtifactState` and the
+`ImportTracks` duplicate path.*
+
+An exact duplicate is a no-op only while the archive can still produce the bytes
+it says it holds:
+
+```
+DB metadata + hash-valid managed artifact   -> duplicate
+DB metadata + missing artifact              -> repaired from the same bytes
+DB metadata + wrong bytes                   -> fail closed
+managed artifact without DB metadata        -> adopted, not written again
+```
+
+> A known database record does not prove its managed raw artifact is healthy.
+
+Recognising a content hash proves the archive *once* held those bytes. Answering
+"already imported" on the row alone means an archive that lost an artifact keeps
+saying so to the only offer of those bytes it will ever get again.
+
+Repair is not a guess: the bytes offered again hash to the digest the raw import
+is filed under, which is the same proof the first import needed. It restores the
+copy and appends no processing run, because the normalized generation was never
+in question.
 
 ## Single import authority
 
@@ -352,3 +518,58 @@ GPX, FIT and similar files are personal movement data. See
 `docs/developer/agent-rules.md`, section "Personal GPS data". Committed test
 fixtures are synthetic or explicitly cleared, never real personal recordings, and
 coordinates or raw payloads never end up in normal logs or exception messages.
+
+## Import limits and error codes
+
+*Implemented as `gpx_view.application.ImportLimits` and `ImportErrorCode`.*
+
+Imported files are untrusted input. Configurable limits bound what one document
+may cost before anything is stored: input bytes, tracks per document, segments per
+track and total positions. The defaults comfortably cover an ordinary long GPS
+recording; they exist to bound a hostile or broken file, not to ration normal use.
+
+Every refusal names one stable code:
+
+```
+unsupported_format        invalid_gpx              unsafe_xml
+import_too_large          too_many_tracks          too_many_track_segments
+too_many_track_points     invalid_coordinate       invalid_timestamp
+raw_storage_failed        raw_storage_missing      raw_storage_corrupt
+persistence_failed        track_not_found
+```
+
+The three storage codes are three different problems for whoever has to fix them.
+`raw_storage_missing` is recoverable -- offering the same bytes again restores the
+managed copy, because they hash to the digest the raw import is filed under.
+`raw_storage_corrupt` is not: an artifact whose bytes are not the ones its name
+claims is evidence of disk corruption or tampering, so it is never overwritten,
+and recovery is an operator decision.
+
+`invalid_gpx` names the format on purpose: "not GPX at all" and "broken GPX" are
+different problems for whoever has to fix the file.
+
+An error carries a code and a short structural detail. It never carries a
+coordinate, a payload excerpt, a file system path or a stack trace: diagnostics
+must not become a side channel for personal movement data.
+
+## Time
+
+*Partly implemented; the display decision is deliberately open.*
+
+- Timestamps are parsed timezone-aware and stored as unambiguous UTC instants. A
+  value without a zone is refused rather than guessed at.
+- Point order is source data and is never rearranged, and a missing timestamp
+  stays missing rather than being interpolated.
+- A track's temporal extent is the earliest and latest instant its own positions
+  carry.
+
+> A document's export time is not an activity start time.
+
+A GPX `<metadata><time>` is when the file was written. It is deliberately not
+normalized into any track field, because an export date months after the activity
+would otherwise fall into the wrong month of a future statistic. The raw import
+keeps it.
+
+Which timezone instants are *displayed* or bucketed in -- and therefore which
+month a late-evening activity counts towards -- is a separate decision that comes
+with the statistics feature.

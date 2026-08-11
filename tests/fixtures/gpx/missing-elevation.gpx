@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Synthetic track without elevation</name>
+    <trkseg>
+      <trkpt lat="47.0000" lon="11.0000"><time>2026-04-03T06:00:00Z</time></trkpt>
+      <trkpt lat="47.0010" lon="11.0010"><time>2026-04-03T06:01:00Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

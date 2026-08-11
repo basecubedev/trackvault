@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:x="urn:unrelated">
+  <trk>
+    <name>Synthetic track with a foreign activity element</name>
+    <extensions>
+      <x:activity>walking</x:activity>
+    </extensions>
+    <trkseg>
+      <trkpt lat="52.1000" lon="13.1000">
+        <ele>40.0</ele>
+        <time>2026-07-12T09:00:00Z</time>
+      </trkpt>
+      <trkpt lat="52.1010" lon="13.1010">
+        <ele>41.0</ele>
+        <time>2026-07-12T09:01:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

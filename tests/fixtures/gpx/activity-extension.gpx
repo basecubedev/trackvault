@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticRecorder 1.0"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:locus="https://www.locusmap.app">
+  <trk>
+    <name>Synthetic track with an activity extension</name>
+    <extensions>
+      <locus:activity>hiking</locus:activity>
+    </extensions>
+    <trkseg>
+      <trkpt lat="46.0000" lon="10.0000"><time>2026-08-01T05:30:00Z</time></trkpt>
+      <trkpt lat="46.0010" lon="10.0010"><time>2026-08-01T05:35:00Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

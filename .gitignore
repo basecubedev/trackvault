@@ -37,3 +37,10 @@ junit*.xml
 # Synthetic, explicitly cleared fixtures live under tests/fixtures/ and are exempt.
 *.gpx
 !tests/fixtures/**/*.gpx
+
+# Local reference tracks: real private recordings and routes a developer may keep
+# here for exploration and local regression runs. The whole directory is excluded,
+# not just the extensions we happen to know today, so a sidecar file, an export
+# note or a future FIT recording cannot slip in either. The suite never requires
+# this directory to exist.
+/import-tracks/

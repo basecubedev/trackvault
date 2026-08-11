@@ -127,6 +127,31 @@ VENDOR_NAMES = frozenset(
 
 SOURCE_AGNOSTIC_LAYERS = ("domain", "application", "api")
 
+# Storage technology belongs to one package. Everything else speaks to it through
+# the repository port.
+PERSISTENCE_MODULES = frozenset({"sqlite3", "sqlalchemy", "alembic", "psycopg", "asyncpg"})
+
+PERSISTENCE_PACKAGE = "gpx_view.infrastructure.database"
+
+# Exchange format names must not become type names outside the adapter that owns
+# the format. The *values* of the public error codes deliberately do name a
+# format -- "not GPX at all" and "broken GPX" are different problems for whoever
+# has to fix the file -- but no class or function outside the adapter may.
+FORMAT_NAMES = ("gpx", "fit", "tcx", "kml", "geojson", "xml")
+
+FORMAT_ADAPTER_PACKAGES = ("gpx_view.infrastructure.gpx",)
+
+# Where the meaning of a vendor extension schema is decided. Naming concrete
+# namespaces is what an adapter is for; knowing them anywhere else would make a
+# vendor's vocabulary part of the business model.
+EXTENSION_SEMANTICS_MODULE = "gpx_view.infrastructure.gpx.extensions"
+
+# An adapter observes; it must not be able to decide a business verdict. Not
+# naming the types at all is a stronger guarantee than promising not to use them:
+# a lookup table mapping a creator string to a kind would be just as forbidden as
+# an `if`, and an AST check for `if source == "..."` would not catch it.
+VERDICT_TYPES = ("TrackKind", "ClassificationResult", "TrackClassification")
+
 
 def _module_name(path: Path) -> str:
     """Return the dotted module name of a file inside ``src/``."""
@@ -360,3 +385,128 @@ def test_composition_root_holds_no_business_logic() -> None:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     ]
     assert functions == ["create_app"]
+
+
+def _package_of(module: Path) -> str:
+    """Return the dotted package a module file belongs to."""
+    return _module_name(module).rpartition(".")[0]
+
+
+def _referenced_names(tree: ast.AST) -> Iterator[str]:
+    """Yield every bare name and attribute name a module mentions."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            yield node.id
+        elif isinstance(node, ast.Attribute):
+            yield node.attr
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                yield alias.name
+
+
+@pytest.mark.contract
+def test_storage_technology_stays_inside_the_database_package() -> None:
+    """Infrastructure owns SQLite, and one package inside it owns the driver."""
+    violations = [
+        f"{_module_name(module)} imports {imported}"
+        for layer in LAYERS
+        for module in _layer_modules(layer)
+        for imported in _imported_modules(module)
+        if _root_module(imported) in PERSISTENCE_MODULES
+        and not _module_name(module).startswith(PERSISTENCE_PACKAGE)
+    ]
+    assert not violations, f"only {PERSISTENCE_PACKAGE} may know the storage driver: {violations}"
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize("layer", FORMAT_FREE_LAYERS)
+def test_no_format_specific_type_is_defined_outside_its_adapter(layer: str) -> None:
+    """`GpxImporter` belongs to the GPX adapter; no inner layer defines its like."""
+    violations = []
+    for module in _layer_modules(layer):
+        tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+        violations.extend(
+            f"{_module_name(module)}.{name}"
+            for name in _defined_names(tree)
+            if any(token in name.lower() for token in FORMAT_NAMES)
+        )
+    assert not violations, (
+        f"layer '{layer}' must not name an exchange format in a type: {violations}"
+    )
+
+
+@pytest.mark.contract
+def test_a_format_adapter_cannot_decide_a_track_kind() -> None:
+    """An adapter observes evidence; only the classifier reaches a verdict.
+
+    The adapter does not mention the verdict types at all, which also rules out a
+    hidden mapping table from a creator or namespace to a kind -- the failure mode
+    an "no `if source == ...`" check would not catch.
+    """
+    violations = []
+    for package in FORMAT_ADAPTER_PACKAGES:
+        directory = SRC_ROOT / Path(*package.split("."))
+        for module in sorted(directory.rglob("*.py")):
+            tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+            violations.extend(
+                f"{_module_name(module)} references {name}"
+                for name in _referenced_names(tree)
+                if name in VERDICT_TYPES
+            )
+    assert not violations, f"a format adapter must not reach a verdict: {violations}"
+
+
+@pytest.mark.contract
+def test_vendor_extension_semantics_stay_inside_the_format_adapter() -> None:
+    """Only the adapter that owns a format may know what a vendor schema means.
+
+    The adapter maps ``(namespace, element)`` onto evidence and activities, which
+    is exactly its job. The moment an inner layer imports that table, a vendor's
+    vocabulary has become part of the business model -- and the "no
+    `if source == ...`" checks would not notice, because a namespace lookup is
+    not a comparison against a creator string.
+    """
+    violations = [
+        f"{_module_name(module)} imports {EXTENSION_SEMANTICS_MODULE}"
+        for layer in LAYERS
+        for module in _layer_modules(layer)
+        for imported in _imported_modules(module)
+        if imported == EXTENSION_SEMANTICS_MODULE
+        and not _module_name(module).startswith(FORMAT_ADAPTER_PACKAGES[0])
+    ]
+    assert not violations, f"extension semantics belong to the format adapter: {violations}"
+
+
+@pytest.mark.contract
+def test_the_extension_semantics_module_belongs_to_the_adapter_package() -> None:
+    """The table exists, and it exists where the format is understood."""
+    module = SRC_ROOT / Path(*EXTENSION_SEMANTICS_MODULE.split(".")).with_suffix(".py")
+
+    assert module.is_file(), f"{EXTENSION_SEMANTICS_MODULE} is missing"
+    assert _module_name(module).startswith(FORMAT_ADAPTER_PACKAGES[0])
+
+
+@pytest.mark.contract
+def test_the_api_knows_no_concrete_repository() -> None:
+    """Routes call use cases; which storage answers them is not their business."""
+    imports = {
+        imported for module in _layer_modules("api") for imported in _imported_modules(module)
+    }
+    assert not [name for name in imports if name.startswith("gpx_view.infrastructure")]
+
+
+@pytest.mark.contract
+def test_every_adapter_package_is_reachable_only_through_infrastructure() -> None:
+    """Adapters are wired in one place, so a second wiring cannot drift."""
+    wiring = {
+        _module_name(module)
+        for layer in LAYERS
+        for module in _layer_modules(layer)
+        if any(
+            imported.startswith("gpx_view.infrastructure.gpx")
+            or imported.startswith("gpx_view.infrastructure.database")
+            or imported.startswith("gpx_view.infrastructure.filesystem")
+            for imported in _imported_modules(module)
+        )
+    }
+    assert all(name.startswith("gpx_view.infrastructure") for name in wiring), wiring

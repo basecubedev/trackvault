@@ -118,6 +118,21 @@ Full detail in `docs/technical/contracts.md`. Non-negotiable:
 - `exact_duplicate != semantic_duplicate`. Byte-identical detection and
   same-activity detection are different problems; no premature heuristic for the
   second.
+- **Persisted processing semantics require an explicit version bump.** A change
+  to the normalized identity, the candidate set, the evidence semantics or the
+  interpretation of a field means a new importer, normalization or classifier
+  version. An internal refactoring with identical output does not. A run that
+  claims a version whose output it could not have produced makes every later
+  currency decision wrong.
+- **A known database record does not prove its managed raw artifact is healthy.**
+  Recognising a content hash proves the archive *once* held those bytes. A
+  duplicate is healthy only with a hash-valid managed artifact beside its
+  metadata; a missing artifact is repairable from the same bytes, and a corrupt
+  one fails closed and is never overwritten.
+- **Unknown XML namespaces are metadata, not semantic authority.** Extension
+  elements are interpreted on the namespaced name, from a small table of schemas
+  this project has evidence for. An element that merely shares a local name
+  decides nothing, and an unknown namespace never fails a parse either.
 
 ## 6. Architecture boundaries
 
@@ -171,10 +186,25 @@ contract test in the same commit, and say so.
   non-sensitive placeholder values.
 - No absolute local paths in committed files.
 - Dependencies are added deliberately, one at a time, with a stated reason.
+- **A path check must still be valid at open time.** The import directory and
+  everything below the data directory are untrusted, whatever user the process
+  runs as. Checking a path and then opening it leaves a window in which the path
+  can be swapped, so discovery and opening belong to one boundary: open the
+  directory once, open entries relative to that descriptor without following
+  symbolic links, and decide what a name refers to with `fstat` on the open
+  file. Reads stay bounded, and an open must not be able to block indefinitely.
+  The configured roots themselves are operator configuration and stay trusted.
 
 ## 10. Personal GPS data
 
 GPS files are private movement data about real people.
+
+- **Private movement data is created with restrictive permissions.** Directories
+  GPX-View creates are `0700`, files `0600` -- the database, its journal files,
+  the managed raw artifacts and the temporaries they are written through. The
+  mode is stated to the call that creates the object, never applied afterwards,
+  and never left to the umask. Existing files are reported, not chmodded: they
+  may carry an operator's own access decision.
 
 - Never commit personal GPX, FIT or TCX recordings, not even "temporarily".
 - Never copy a private track into a public test fixture. Committed fixtures are
@@ -186,6 +216,16 @@ GPS files are private movement data about real people.
   source file.
 - `*.gpx` is git-ignored by default, with an exception only for `tests/fixtures/`.
   Do not weaken that rule.
+- `./import-tracks/` is the local reference directory: real private recordings and
+  planned routes a developer keeps to explore against. The **whole directory** is
+  git-ignored, not the filenames that happen to be in it today, so a sidecar file
+  or a future FIT recording is covered too. It is optional -- nothing in the suite
+  may require it to exist, and CI must never need it. Tests that read it carry the
+  `local_tracks` marker and skip when it is absent. They are additional real
+  regression evidence, never a substitute for a committed synthetic fixture, and
+  no production rule may be tuned to make those two particular files come out a
+  certain way. `tests/contract/test_private_data_contract.py` enforces the
+  exclusion.
 
 ## 11. Source code language
 

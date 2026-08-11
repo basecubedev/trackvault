@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:locus="https://www.locusmap.app">
+  <metadata>
+    <name>One document, two unrelated candidates</name>
+  </metadata>
+  <trk>
+    <name>Plain track</name>
+    <trkseg>
+      <trkpt lat="47.0000" lon="11.0000">
+        <ele>800.0</ele>
+        <time>2026-06-03T07:00:00Z</time>
+      </trkpt>
+      <trkpt lat="47.0050" lon="11.0050">
+        <ele>820.0</ele>
+        <time>2026-06-03T07:05:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+  <rte>
+    <name>Computed route</name>
+    <rtept lat="47.5000" lon="11.5000">
+      <ele>900.0</ele>
+      <extensions>
+        <locus:rtePointAction>3</locus:rtePointAction>
+      </extensions>
+    </rtept>
+    <rtept lat="47.5050" lon="11.5050">
+      <ele>910.0</ele>
+      <extensions>
+        <locus:rtePointAction>4</locus:rtePointAction>
+      </extensions>
+    </rtept>
+  </rte>
+</gpx>

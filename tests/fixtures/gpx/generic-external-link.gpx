@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Synthetic track with an external link</name>
+    <link href="https://example.test/application">
+      <text>The application that wrote this file</text>
+    </link>
+  </metadata>
+  <trk>
+    <name>Synthetic track with an external link</name>
+    <trkseg>
+      <trkpt lat="50.0000" lon="6.0000">
+        <ele>200.0</ele>
+        <time>2026-06-02T09:00:00Z</time>
+      </trkpt>
+      <trkpt lat="50.0050" lon="6.0040">
+        <ele>204.0</ele>
+        <time>2026-06-02T09:04:00Z</time>
+      </trkpt>
+      <trkpt lat="50.0100" lon="6.0080">
+        <ele>208.0</ele>
+        <time>2026-06-02T09:08:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

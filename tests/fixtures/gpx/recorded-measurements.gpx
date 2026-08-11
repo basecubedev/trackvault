@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticRecorder 1.0"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
+  <metadata>
+    <name>Synthetic recording export</name>
+    <time>2026-05-04T20:00:00Z</time>
+  </metadata>
+  <trk>
+    <name>Synthetic morning walk</name>
+    <type>walking</type>
+    <trkseg>
+      <trkpt lat="51.0000" lon="7.0000">
+        <ele>40.0</ele>
+        <time>2026-05-04T08:00:00Z</time>
+        <hdop>1.2</hdop>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:course>90.0</gpxtpx:course>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="51.0010" lon="7.0005">
+        <ele>41.5</ele>
+        <time>2026-05-04T08:00:07Z</time>
+        <hdop>1.4</hdop>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:course>88.5</gpxtpx:course>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="51.0020" lon="7.0011">
+        <ele>43.0</ele>
+        <time>2026-05-04T08:00:19Z</time>
+        <hdop>0.9</hdop>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:course>91.2</gpxtpx:course>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="51.0031" lon="7.0016">
+        <ele>44.5</ele>
+        <time>2026-05-04T08:00:24Z</time>
+        <hdop>1.1</hdop>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

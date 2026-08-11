@@ -31,8 +31,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     GPX_VIEW_PORT=8080 \
     GPX_VIEW_DATA_DIR=/data
 
-RUN groupadd --system app \
-    && useradd --system --gid app --home-dir /app --shell /usr/sbin/nologin app \
+# A fixed uid/gid keeps ownership predictable across rebuilds, which matters as
+# soon as an operator wants to bind-mount a host directory instead of using the
+# managed volume.
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app \
     && mkdir -p /app /data \
     && chown -R app:app /app /data
 

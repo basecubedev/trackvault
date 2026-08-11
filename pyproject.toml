@@ -5,6 +5,7 @@ description = "Local web application for managing, analysing and visualising pla
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "defusedxml>=0.7.1",
     "fastapi>=0.115",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
@@ -18,7 +19,11 @@ dev = [
     "pytest>=8.3",
     "pytest-cov>=6.0",
     "ruff>=0.8",
+    "types-defusedxml>=0.7",
 ]
+
+[project.scripts]
+gpx-view = "gpx_view.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -71,8 +76,9 @@ extra_checks = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-# Docker tests are opt-in: `uv run pytest -m docker`.
-addopts = "--strict-markers --strict-config -ra -m 'not docker'"
+# Docker tests and the local reference regression are opt-in:
+# `uv run pytest -m docker`, `uv run pytest -m local_tracks`.
+addopts = "--strict-markers --strict-config -ra -m 'not docker and not local_tracks'"
 markers = [
     "unit: isolated test of a single unit of behaviour",
     "contract: verifies a documented project or API contract",
@@ -80,6 +86,11 @@ markers = [
     "docker: requires a working local Docker daemon (opt-in)",
     "e2e: drives the application end to end",
     "regression: pins behaviour that was broken before",
+    "gpx: exercises the GPX adapter",
+    "persistence: exercises the SQLite store or the raw import storage",
+    "storage: exercises the managed raw import storage authority",
+    "reprocessing: exercises reprocessing and the current normalized generation",
+    "local_tracks: requires private local reference files under ./import-tracks (opt-in)",
 ]
 
 [tool.coverage.run]

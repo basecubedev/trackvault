@@ -21,6 +21,10 @@ ARCHITECTURE_ANCHORS = (
     "normalization boundary",
     "raw import",
     "processing provenance",
+    "processing currency",
+    "import integrity",
+    "the autosync boundary",
+    "privacy at rest",
     "single import authority",
     "immutable source evidence",
     "projection only",
@@ -42,6 +46,9 @@ CONTRACTS_ANCHORS = (
     "provenance must never be silently discarded or conflated",
     "actual vs. planned aggregates",
     "activity is independent of file format, source and track kind",
+    "semantically different output must not claim the same version",
+    "a known database record does not prove its managed raw artifact is healthy",
+    "an unknown namespace is metadata, not semantic authority",
 )
 
 
@@ -65,9 +72,31 @@ def test_contracts_document_states_invariant(anchor: str) -> None:
 
 
 @pytest.mark.contract
-def test_deferred_decisions_are_named_rather_than_implemented() -> None:
-    """The architecture names what is intentionally not built yet."""
-    architecture = _read(ARCHITECTURE_DOC)
+@pytest.mark.parametrize(
+    "deferred",
+    [
+        "analysis algorithms",
+        "frontend technology",
+        "semantic duplicate",
+        "authentication",
+        "file system watcher",
+    ],
+)
+def test_deferred_decisions_are_named_rather_than_implemented(deferred: str) -> None:
+    """The architecture names what is intentionally not built yet.
 
-    for deferred in ("normalizedtrack", "trackimporter", "persistence schema"):
-        assert deferred in architecture
+    Naming a gap is what stops "preparation" code from being written against a
+    guessed interface. The list changes as work lands; what must not change is
+    that open decisions are stated instead of silently pre-empted.
+    """
+    assert deferred in _read(ARCHITECTURE_DOC)
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    "anchor",
+    ["gpx 1.1 and gpx 1.0", "import port", "persistence", "managed raw storage", "input paths"],
+)
+def test_the_architecture_documents_the_implemented_pipeline(anchor: str) -> None:
+    """What was built is described where the boundaries are described."""
+    assert anchor in _read(ARCHITECTURE_DOC)

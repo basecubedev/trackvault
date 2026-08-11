@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Synthetic first track</name>
+    <trkseg>
+      <trkpt lat="50.0000" lon="6.0000"/>
+      <trkpt lat="50.0010" lon="6.0010"/>
+    </trkseg>
+  </trk>
+  <trk>
+    <name>Synthetic second track</name>
+    <trkseg>
+      <trkpt lat="50.1000" lon="6.1000"/>
+      <trkpt lat="50.1010" lon="6.1010"/>
+      <trkpt lat="50.1020" lon="6.1020"/>
+    </trkseg>
+  </trk>
+</gpx>

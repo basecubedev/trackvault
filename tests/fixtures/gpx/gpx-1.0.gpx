@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.0" creator="SyntheticLegacyRecorder"
+     xmlns="http://www.topografix.com/GPX/1/0">
+  <name>Synthetic legacy export</name>
+  <url>https://legacy.example.test/track/7</url>
+  <trk>
+    <name>Synthetic legacy track</name>
+    <trkseg>
+      <trkpt lat="49.0000" lon="8.0000">
+        <ele>120.0</ele>
+        <time>2026-02-11T13:00:00Z</time>
+        <course>180.0</course>
+        <hdop>2.0</hdop>
+      </trkpt>
+      <trkpt lat="49.0010" lon="8.0010">
+        <ele>122.0</ele>
+        <time>2026-02-11T13:00:30Z</time>
+        <course>178.0</course>
+        <hdop>2.2</hdop>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

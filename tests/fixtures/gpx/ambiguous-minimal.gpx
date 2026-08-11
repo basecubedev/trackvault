@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Synthetic undecidable track</name>
+    <trkseg>
+      <trkpt lat="48.0000" lon="9.0000">
+        <ele>500.0</ele>
+        <time>2026-07-01T10:00:00Z</time>
+      </trkpt>
+      <trkpt lat="48.0020" lon="9.0020">
+        <ele>505.0</ele>
+        <time>2026-07-01T10:02:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

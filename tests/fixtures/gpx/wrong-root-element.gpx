@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- written by a tool that usually emits <gpx> documents -->
+<trackList xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Synthetic document with the wrong root element</name>
+  </trk>
+</trackList>

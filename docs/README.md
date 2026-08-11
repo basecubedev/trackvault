@@ -2,11 +2,14 @@
 
 | Document | Purpose |
 | --- | --- |
-| [technical/architecture.md](technical/architecture.md) | Product definition, the `input format != domain model` invariant, layers and boundaries, canonical normalized track, raw imports, single import authority, single-source-of-truth table, deferred decisions |
-| [technical/contracts.md](technical/contracts.md) | Business invariants: track kind, classification and user override, activity, metric provenance, actual vs. planned aggregates, source metadata, duplicates |
+| [technical/architecture.md](technical/architecture.md) | Product definition, the `input format != domain model` invariant, layers and boundaries, canonical normalized track, raw imports and processing provenance, the GPX adapter, persistence and managed raw storage, single import authority and input paths, logging, single-source-of-truth table, deferred decisions |
+| [technical/contracts.md](technical/contracts.md) | Business invariants: track kind, classification rules and user override, evidence codes, activity, metric provenance, actual vs. planned aggregates, source metadata, duplicates, import limits and error codes, time |
 | [developer/agent-rules.md](developer/agent-rules.md) | Canonical rules for agents and contributors |
 | [adr/0001-project-foundation.md](adr/0001-project-foundation.md) | Why Python, uv, FastAPI, layering, Docker, and what was deferred |
 | [adr/0002-source-agnostic-track-model.md](adr/0002-source-agnostic-track-model.md) | Why GPX is an adapter and not the domain, and the resulting authority rules |
+| [adr/0003-import-and-persistence-model.md](adr/0003-import-and-persistence-model.md) | The first production import slice: raw imports vs. processing runs, the normalized model, evidence-based classification, SQLite, managed raw storage, one import use case |
+| [adr/0004-processing-generations-and-candidate-identity.md](adr/0004-processing-generations-and-candidate-identity.md) | Stable candidate identity, the current normalized generation, explicit reprocessing, verified raw storage, and why an external link decides no track kind |
+| [adr/0005-processing-currency-and-local-filesystem-authority.md](adr/0005-processing-currency-and-local-filesystem-authority.md) | The processing profile and `--outdated`, raw-import integrity and repair, namespace-aware extension schemas, the import-directory open boundary, and permissions for private data |
 
 Three documents are protected by executable contract tests in `tests/contract/`:
 

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticRoutePlanner"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:locus="https://www.locusmap.app">
+  <metadata>
+    <name>Synthetic computed route</name>
+  </metadata>
+  <wpt lat="54.0000" lon="9.0000">
+    <name>Turn left</name>
+    <extensions>
+      <locus:rtePointAction>3</locus:rtePointAction>
+    </extensions>
+  </wpt>
+  <wpt lat="54.0100" lon="9.0100">
+    <name>Turn right</name>
+    <extensions>
+      <locus:rtePointAction>4</locus:rtePointAction>
+    </extensions>
+  </wpt>
+  <trk>
+    <name>Synthetic computed route</name>
+    <trkseg>
+      <trkpt lat="54.0000" lon="9.0000"><ele>5.0</ele></trkpt>
+      <trkpt lat="54.0050" lon="9.0050"><ele>7.0</ele></trkpt>
+      <trkpt lat="54.0100" lon="9.0100"><ele>9.0</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

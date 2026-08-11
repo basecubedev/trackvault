@@ -12,24 +12,41 @@ standard library's infrastructure corners (``xml``, ``sqlite3``, ``pathlib``,
 
 from gpx_view.domain.activity import Activity
 from gpx_view.domain.classification import ClassificationResult, TrackClassification
+from gpx_view.domain.classifier import classify
+from gpx_view.domain.evidence import EvidenceCode, in_canonical_order
+from gpx_view.domain.geometry import TrackPoint, TrackSegment
 from gpx_view.domain.metric_provenance import MetricProvenance
 from gpx_view.domain.processing import (
     NORMALIZATION_SCHEMA_VERSION,
+    ProcessingProfile,
     ProcessingRun,
     ProcessingStatus,
+    is_processing_current,
 )
 from gpx_view.domain.raw_import import InputChannel, RawImport
+from gpx_view.domain.source_metadata import SourceMetadata
+from gpx_view.domain.track import ImportedTrack, NormalizedTrack
 from gpx_view.domain.track_kind import TrackKind
 
 __all__ = [
     "NORMALIZATION_SCHEMA_VERSION",
     "Activity",
     "ClassificationResult",
+    "EvidenceCode",
+    "ImportedTrack",
     "InputChannel",
     "MetricProvenance",
+    "NormalizedTrack",
+    "ProcessingProfile",
     "ProcessingRun",
     "ProcessingStatus",
     "RawImport",
+    "SourceMetadata",
     "TrackClassification",
     "TrackKind",
+    "TrackPoint",
+    "TrackSegment",
+    "classify",
+    "in_canonical_order",
+    "is_processing_current",
 ]

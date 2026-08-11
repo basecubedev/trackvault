@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Synthetic paused recording</name>
+    <trkseg>
+      <trkpt lat="50.0000" lon="6.0000">
+        <time>2026-04-02T07:00:00Z</time>
+      </trkpt>
+      <trkpt lat="50.0010" lon="6.0010">
+        <time>2026-04-02T07:01:00Z</time>
+      </trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="50.0100" lon="6.0100">
+        <time>2026-04-02T07:30:00Z</time>
+      </trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="50.0200" lon="6.0200">
+        <time>2026-04-02T08:00:00Z</time>
+      </trkpt>
+      <trkpt lat="50.0210" lon="6.0210">
+        <time>2026-04-02T08:02:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

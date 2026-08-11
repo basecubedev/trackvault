@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Synthetic track without geometry</name>
+  </trk>
+  <trk>
+    <name>Synthetic track with geometry</name>
+    <trkseg>
+      <trkpt lat="46.0000" lon="10.0000">
+        <ele>300.0</ele>
+        <time>2026-06-05T05:00:00Z</time>
+      </trkpt>
+      <trkpt lat="46.0050" lon="10.0050">
+        <ele>310.0</ele>
+        <time>2026-06-05T05:05:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

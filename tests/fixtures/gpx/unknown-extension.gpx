@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:unknown="http://unknown.example.test/schema/v9">
+  <trk>
+    <name>Synthetic track with unknown extensions</name>
+    <extensions>
+      <unknown:mood level="7">contemplative</unknown:mood>
+      <unknown:crew>
+        <unknown:member>nobody</unknown:member>
+      </unknown:crew>
+    </extensions>
+    <trkseg>
+      <trkpt lat="45.0000" lon="12.0000">
+        <time>2026-08-02T05:30:00Z</time>
+        <extensions>
+          <unknown:sparkle>1.0</unknown:sparkle>
+        </extensions>
+      </trkpt>
+      <trkpt lat="45.0010" lon="12.0010">
+        <time>2026-08-02T05:31:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

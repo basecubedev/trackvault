@@ -1,4 +1,8 @@
-"""HTTP contract of the health endpoint."""
+"""HTTP contract of the health endpoint.
+
+The published API surface as a whole is pinned in
+``tests/contract/test_track_api_contract.py``.
+"""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,11 +25,3 @@ def test_healthz_is_published_in_the_openapi_schema(client: TestClient) -> None:
 
     assert "/healthz" in schema["paths"]
     assert "get" in schema["paths"]["/healthz"]
-
-
-@pytest.mark.contract
-def test_no_track_endpoints_exist_yet(client: TestClient) -> None:
-    """The foundation exposes no business endpoints; features come with contracts."""
-    paths = set(client.get("/openapi.json").json()["paths"])
-
-    assert paths == {"/healthz"}

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="SyntheticExporter"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:x="urn:unrelated">
+  <trk>
+    <name>Synthetic track with foreign measurement-looking elements</name>
+    <trkseg>
+      <trkpt lat="52.0000" lon="13.0000">
+        <ele>34.0</ele>
+        <time>2026-07-11T09:00:00Z</time>
+        <extensions>
+          <x:hdop>1.2</x:hdop>
+          <x:course>123</x:course>
+        </extensions>
+      </trkpt>
+      <trkpt lat="52.0010" lon="13.0010">
+        <ele>35.0</ele>
+        <time>2026-07-11T09:01:00Z</time>
+        <extensions>
+          <x:sat>9</x:sat>
+          <x:fix>3d</x:fix>
+        </extensions>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

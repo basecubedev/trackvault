@@ -13,3 +13,13 @@ explicit ports (``typing.Protocol``) that infrastructure adapters implement, and
 it knows no concrete parser: no GPX, FIT or TCX type may appear here. It must not
 import FastAPI, the API layer, or concrete infrastructure adapters.
 """
+
+from gpx_view.application.errors import ImportErrorCode, TrackImportError
+from gpx_view.application.importing import ImportLimits, TrackImporter
+
+__all__ = [
+    "ImportErrorCode",
+    "ImportLimits",
+    "TrackImportError",
+    "TrackImporter",
+]
