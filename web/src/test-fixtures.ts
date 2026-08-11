@@ -138,6 +138,7 @@ export function track(overrides: Partial<Track> = {}): Track {
     },
     point_count: 831,
     segment_count: 1,
+    geometry_sha256: 'f'.repeat(64),
     same_recording_ids: [],
     approximate_location: null,
     source: {
@@ -162,6 +163,10 @@ export function geometry(overrides: Partial<Geometry> = {}): Geometry {
     point_count: 2,
     total_point_count: 831,
     simplified: true,
+    // The identity of the line this answer draws, which the archive states and
+    // nothing here recomputes. A test that wants a *different* drawing says so
+    // by overriding this, exactly as the archive would.
+    shape_sha256: 'a'.repeat(64),
     segments: [
       {
         points: [
@@ -405,12 +410,24 @@ export function mapAttribution(
   }
 }
 
+/**
+ * The content hash the fixture package is delivered under.
+ *
+ * A real one: sixty-four hex digits, with the source identity and the tile
+ * template both derived from it exactly as the archive derives them. A fixture
+ * whose identities do not agree with each other cannot fail a test that depends
+ * on their agreeing.
+ */
+export const DELIVERY_ID = `abc123def456${'0'.repeat(52)}`
+
 export function mapSource(overrides: Partial<MapSource> = {}): MapSource {
+  const delivery = overrides.delivery_id ?? DELIVERY_ID
   return {
     region_id: 'geofabrik:europe/monaco',
     region_name: 'Monaco',
-    source_id: 'map-abc123def456',
-    tiles_url: '/api/v1/maps/tiles/abc123/{z}/{x}/{y}.mvt',
+    source_id: `map-${delivery.slice(0, 12)}`,
+    delivery_id: delivery,
+    tiles_url: `/api/v1/maps/tiles/${delivery}/{z}/{x}/{y}.mvt`,
     tile_schema: 'shortbread',
     tile_schema_version: '1.0',
     bounds: {
@@ -446,7 +463,7 @@ export function installedMap(overrides: Partial<InstalledMap> = {}): InstalledMa
     format: 'mbtiles',
     tile_schema: 'shortbread',
     tile_schema_version: '1.0',
-    delivery_id: 'abc123',
+    delivery_id: DELIVERY_ID,
     size_bytes: 1_720_320,
     bounds: {
       min_longitude: 7.4,

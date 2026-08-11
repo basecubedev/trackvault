@@ -673,6 +673,11 @@
             "title": "Segments",
             "type": "array"
           },
+          "shape_sha256": {
+            "description": "Content identity of the line **this response** draws: its positions, in order, and where its segments begin and end. It identifies the shape a client is holding, so a reduced projection identifies the reduction -- a different `max_points`, or a changed simplification, is a different value. Deliberately not the track's `geometry_sha256`, which names the *recording* and treats a route export that flattened a paused ride as the same thing: one ride, two pictures. Instants and elevation are not in it, because a flat map does not draw them.",
+            "title": "Shape Sha256",
+            "type": "string"
+          },
           "simplified": {
             "description": "Whether the shape was reduced for presentation",
             "title": "Simplified",
@@ -694,6 +699,7 @@
           "point_count",
           "total_point_count",
           "simplified",
+          "shape_sha256",
           "segments"
         ],
         "title": "GeometryResponse",
@@ -1101,6 +1107,11 @@
           "bounds": {
             "$ref": "#/components/schemas/BoundsResponse"
           },
+          "delivery_id": {
+            "description": "Content hash of the package behind this source, and the identity its tiles are served under. Stated rather than left to be read out of the tile template: a page keeping anything derived from a drawn basemap has to name which basemap it drew, and parsing an address for an identity makes the identity whatever the address looks like.",
+            "title": "Delivery Id",
+            "type": "string"
+          },
           "max_zoom": {
             "title": "Max Zoom",
             "type": "integer"
@@ -1140,6 +1151,7 @@
           "region_id",
           "region_name",
           "source_id",
+          "delivery_id",
           "tiles_url",
           "tile_schema",
           "tile_schema_version",
@@ -2221,6 +2233,18 @@
           "classification": {
             "$ref": "#/components/schemas/ClassificationResponse"
           },
+          "geometry_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Content identity of the **recording** this track's geometry describes: its normalized positions and instants, which is what `same_recording_ids` is decided by. It changes when reprocessing changes a position and stays put when a user renames the track. It is deliberately not the identity of a drawing -- it treats a route export that flattened a paused ride as the same recording, and a map draws those two differently. Anything keyed on what a track *looks like* wants `shape_sha256` from the geometry resource. Null means the archive does not know it: a track stored before the value existed and not processed since.",
+            "title": "Geometry Sha256"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -2283,6 +2307,7 @@
           "analysis",
           "point_count",
           "segment_count",
+          "geometry_sha256",
           "source",
           "approximate_location",
           "same_recording_ids"

@@ -146,6 +146,7 @@ Everything here is bundled into the assets the container serves.
 | `globals` | 16.5.0 | Environment globals for the linter | MIT |
 | `vitest` | 3.2.4 | Unit and component test runner | MIT |
 | `jsdom` | 27.0.0 | Browser environment for component tests | MIT |
+| `fake-indexeddb` | 6.2.5 | The one browser API `jsdom` does not implement, for the minimap cache tests | Apache-2.0 |
 | `@testing-library/react` | 16.3.0 | Component testing | MIT |
 | `@testing-library/user-event` | 14.6.1 | Simulating real user interaction in component tests | MIT |
 | `@testing-library/jest-dom` | 6.9.1 | Assertions about rendered markup | MIT |

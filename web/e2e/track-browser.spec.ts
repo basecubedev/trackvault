@@ -41,7 +41,7 @@ test('a row shows where its track went', async ({ page }) => {
   // A picture rather than a map component: twenty-five WebGL contexts is more
   // than a browser grants a page, and the sixteenth would cost the first its
   // canvas. See `src/map/minimap.ts`.
-  await expect(preview.locator('img')).toHaveAttribute('src', /^data:image\/png/)
+  await expect(preview.locator('img')).toHaveAttribute('src', /^blob:/)
   // The picture belongs to the track beside it, and says whose it is.
   const title = await row.locator('.track-row__title a').innerText()
   expect(await preview.locator('img').getAttribute('alt')).toContain(title)

@@ -28,6 +28,45 @@ class IntersectionObserverStub implements IntersectionObserver {
   }
 }
 
+/**
+ * Read a blob's bytes, which `jsdom` can do and does not offer a method for.
+ *
+ * Every browser this application supports has had `Blob.prototype.arrayBuffer`
+ * for years; `jsdom` still only exposes the `FileReader` route to the same
+ * bytes. Bridging it here rather than in the code under test keeps a test
+ * environment's gap out of a module that has no such gap in a browser.
+ */
+if (typeof Blob.prototype.arrayBuffer !== 'function') {
+  Blob.prototype.arrayBuffer = function readBytes(this: Blob): Promise<ArrayBuffer> {
+    return new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        resolve(reader.result as ArrayBuffer)
+      }
+      reader.onerror = () => {
+        reject(reader.error ?? new Error('the blob could not be read'))
+      }
+      reader.readAsArrayBuffer(this)
+    })
+  }
+}
+
+/**
+ * Address a blob so an `<img>` can show it, which `jsdom` also does not do.
+ *
+ * Each address is distinct, so a component that shows a picture and a component
+ * that shows a different one cannot pass a test by accident.
+ */
+let addresses = 0
+
+if (typeof URL.createObjectURL !== 'function') {
+  URL.createObjectURL = (): string => {
+    addresses += 1
+    return `blob:trackvault/${String(addresses)}`
+  }
+  URL.revokeObjectURL = (): void => {}
+}
+
 const environment = globalThis as unknown as Record<string, unknown>
 
 environment['ResizeObserver'] ??= ResizeObserverStub

@@ -262,6 +262,46 @@ def test_coverage_over_an_installed_region_offers_a_same_origin_source(
     assert "http" not in payload["glyphs_url"]
 
 
+def test_coverage_names_the_package_it_offers_by_its_delivery_identity(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """The same content hash the manager reports, stated rather than left in a URL.
+
+    A page that keeps anything derived from a drawn basemap needs to say *which*
+    basemap it drew. Reading that out of the tile template would make a client
+    parse an address for an identity, and the identity would then be whatever the
+    address happened to look like.
+    """
+    deployment.install(MONACO)
+    installed = client.get("/api/v1/maps").json()["maps"][0]
+
+    source = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()["sources"][0]
+
+    delivery_id = source["delivery_id"]
+    assert delivery_id == installed["delivery_id"]
+    assert len(delivery_id) == 64
+    assert source["tiles_url"] == f"/api/v1/maps/tiles/{delivery_id}/{{z}}/{{x}}/{{y}}.mvt"
+
+
+def test_replacing_a_package_changes_the_delivery_identity_coverage_reports(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """Different bytes behind one region are a different delivery, and say so.
+
+    This is what lets anything keyed on a drawn basemap fall out of use by
+    itself: nobody has to find and purge it, because it is no longer what the
+    archive says is behind the track.
+    """
+    deployment.install(MONACO)
+    before = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()["sources"][0]
+
+    deployment.install(MONACO, place_name="Andersdorf")
+    after = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()["sources"][0]
+
+    assert after["region_id"] == before["region_id"]
+    assert after["delivery_id"] != before["delivery_id"]
+
+
 def test_coverage_carries_the_attribution_of_the_package_it_offers(
     client: TestClient, deployment: Deployment
 ) -> None:

@@ -20,6 +20,10 @@ import type { BasemapStyle, MapTheme } from './style'
  * browser's cache after the first row has paid for them -- the archive serves
  * them immutable under a content hash, which is exactly the case a cache is for.
  *
+ * This module knows nothing about the picture being kept. `src/cache/` decides
+ * whether one has to be drawn at all, and everything here that decides what the
+ * result *looks like* is published as `MINIMAP_RENDER_VERSION` for it to read.
+ *
  * Everything decidable without WebGL lives in `geojson.ts` and `style.ts` and
  * is tested there. This is the camera.
  */
@@ -39,8 +43,24 @@ export const MINIMAP_HEIGHT = 96
 /** The theme a preview draws in. Muted enough that the track is the subject. */
 export const MINIMAP_THEME: MapTheme = 'outdoor'
 
-const PADDING_PIXELS = 6
-const MAX_ZOOM = 14
+export const MINIMAP_PADDING = 6
+export const MINIMAP_MAX_ZOOM = 14
+
+export const MINIMAP_RENDER_VERSION = 1
+/**
+ * What this module draws, as a number somebody has to change on purpose.
+ *
+ * Everything above is a value a cache key can read. This stands for everything
+ * below that is not: the two track lines, their colours and widths, which
+ * events the camera waits for. Change any of that and a picture drawn by the
+ * previous build is no longer a picture this build would produce -- so bump
+ * this in the same commit, and every kept rendering falls out of use by itself.
+ *
+ * Deliberately a constant rather than a hash of the source. A digest of this
+ * file would change for a renamed local and stay the same for a colour moved
+ * into `style.ts`, which is precisely backwards.
+ */
+
 const CONCURRENT_RENDERS = 2
 const RENDER_TIMEOUT_MS = 15_000
 
@@ -57,17 +77,22 @@ let running = 0
 const waiting: (() => void)[] = []
 
 /**
- * Draw one track over one basemap and return it as a `data:` image URL.
+ * Draw one track over one basemap and return the picture as a PNG.
  *
- * Rejects when the style could not be loaded at all. A basemap that is merely
- * incomplete is not a failure: the track is the subject, and a picture of it
- * over a partly drawn map is worth more than an empty box.
+ * A `Blob` rather than a `data:` URL, because the picture now outlives the page
+ * that drew it: bytes are what a store keeps, and base64 in a string would be a
+ * third more of somebody's disk for a form nothing needs.
+ *
+ * Rejects when the style could not be loaded at all, or when the canvas could
+ * not be read back. A basemap that is merely incomplete is not a failure: the
+ * track is the subject, and a picture of it over a partly drawn map is worth
+ * more than an empty box.
  */
 export async function renderTrackMinimap({
   collection,
   bounds,
   style,
-}: MinimapRequest): Promise<string> {
+}: MinimapRequest): Promise<Blob> {
   await enterQueue()
   const frame = offscreenFrame()
   try {
@@ -86,7 +111,7 @@ export async function renderTrackMinimap({
       attributionControl: false,
       fadeDuration: 0,
       bounds,
-      fitBoundsOptions: { padding: PADDING_PIXELS, maxZoom: MAX_ZOOM, duration: 0 },
+      fitBoundsOptions: { padding: MINIMAP_PADDING, maxZoom: MINIMAP_MAX_ZOOM, duration: 0 },
       // Without this the canvas is cleared before anything can read it back,
       // which is the whole point of building this map.
       canvasContextAttributes: { preserveDrawingBuffer: true },
@@ -100,7 +125,7 @@ export async function renderTrackMinimap({
       }
       drawTrack(map, collection)
       await settled(map, 'idle')
-      return map.getCanvas().toDataURL('image/png')
+      return await photograph(map.getCanvas())
     } finally {
       map.remove()
     }
@@ -108,6 +133,23 @@ export async function renderTrackMinimap({
     frame.remove()
     leaveQueue()
   }
+}
+
+/**
+ * Read the drawn canvas back as a PNG.
+ *
+ * `toBlob` hands back `null` when the browser could not encode the canvas at
+ * all -- a lost WebGL context is the realistic way that happens. It is reported
+ * rather than resolved as an empty picture, so nothing keeps a blank image
+ * under a key that says it is a track.
+ */
+function photograph(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((image) => {
+      if (image === null) reject(new Error('the drawn map could not be read back'))
+      else resolve(image)
+    }, 'image/png')
+  })
 }
 
 /** The same two lines the detail map draws, so one track looks like itself. */

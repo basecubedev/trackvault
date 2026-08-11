@@ -991,6 +991,11 @@ export interface components {
             /** Segments */
             segments: components["schemas"]["SegmentResponse"][];
             /**
+             * Shape Sha256
+             * @description Content identity of the line **this response** draws: its positions, in order, and where its segments begin and end. It identifies the shape a client is holding, so a reduced projection identifies the reduction -- a different `max_points`, or a changed simplification, is a different value. Deliberately not the track's `geometry_sha256`, which names the *recording* and treats a route export that flattened a paused ride as the same thing: one ride, two pictures. Instants and elevation are not in it, because a flat map does not draw them.
+             */
+            shape_sha256: string;
+            /**
              * Simplified
              * @description Whether the shape was reduced for presentation
              */
@@ -1246,6 +1251,11 @@ export interface components {
         MapSourceResponse: {
             attribution: components["schemas"]["AttributionResponse"];
             bounds: components["schemas"]["BoundsResponse"];
+            /**
+             * Delivery Id
+             * @description Content hash of the package behind this source, and the identity its tiles are served under. Stated rather than left to be read out of the tile template: a page keeping anything derived from a drawn basemap has to name which basemap it drew, and parsing an address for an identity makes the identity whatever the address looks like.
+             */
+            delivery_id: string;
             /** Max Zoom */
             max_zoom: number;
             /** Min Zoom */
@@ -1838,6 +1848,11 @@ export interface components {
             /** @description Roughly where the track was, from region rectangles. Never exact. */
             approximate_location: components["schemas"]["ApproximateLocationResponse"] | null;
             classification: components["schemas"]["ClassificationResponse"];
+            /**
+             * Geometry Sha256
+             * @description Content identity of the **recording** this track's geometry describes: its normalized positions and instants, which is what `same_recording_ids` is decided by. It changes when reprocessing changes a position and stays put when a user renames the track. It is deliberately not the identity of a drawing -- it treats a route export that flattened a paused ride as the same recording, and a map draws those two differently. Anything keyed on what a track *looks like* wants `shape_sha256` from the geometry resource. Null means the archive does not know it: a track stored before the value existed and not processed since.
+             */
+            geometry_sha256: string | null;
             /** Id */
             id: number;
             metadata: components["schemas"]["UserMetadataResponse"];

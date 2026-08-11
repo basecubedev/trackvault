@@ -18,6 +18,7 @@ function geometry(segments: [number, number][][]): Geometry {
     point_count: segments.reduce((total, points) => total + points.length, 0),
     total_point_count: segments.reduce((total, points) => total + points.length, 0),
     simplified: false,
+    shape_sha256: 'a'.repeat(64),
     segments: segments.map((points) => ({
       points: points.map(([longitude, latitude]) => ({
         longitude,
@@ -169,6 +170,7 @@ describe('a profile draws the same shape as the geometry', () => {
       point_count: 3,
       total_point_count: 3,
       simplified: false,
+      shape_sha256: 'a'.repeat(64),
       segments: profile.segments.map((segment) => ({
         points: segment.samples.map((entry) => ({
           latitude: entry.latitude,

@@ -10,13 +10,21 @@ from collections.abc import Iterator
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
 
 from trackvault.application.import_tracks import ImportRequest
 from trackvault.config import Settings
-from trackvault.domain import TrackClassification, classify
+from trackvault.domain import (
+    TrackClassification,
+    TrackPoint,
+    TrackSegment,
+    classify,
+    recording_fingerprint,
+    shape_fingerprint,
+)
 from trackvault.infrastructure.assembly import build_services, import_limits_from
 from trackvault.infrastructure.gpx import GpxImporter
 from trackvault.main import create_app
@@ -149,6 +157,226 @@ def test_segment_boundaries_survive_the_http_projection(tmp_path: Path) -> None:
         payload = fresh.get(f"/api/v1/tracks/{outcome.track_ids[0]}/geometry").json()
 
     assert [len(segment["points"]) for segment in payload["segments"]] == [2, 1, 2]
+
+
+# --- Geometry identity ------------------------------------------------------
+#
+# Two identities, because there are two questions and one value cannot answer
+# both. A track says which *recording* it is, which is what groups two exports
+# of one afternoon. A geometry response says which *line* it draws, which is
+# what anything holding a picture of it needs. They disagree exactly where a
+# route export flattened a paused recording, and that disagreement is the point.
+#
+# Both are published rather than recomputed by a client: an identity invented in
+# a browser would be a second answer to a question the archive already answers.
+
+
+_RUN_POSITIONS = ((51.0, 7.0), (51.1, 7.1), (51.2, 7.2), (51.3, 7.3))
+
+
+def _two_runs(first: int, second: int) -> bytes:
+    """Return a GPX whose four positions are split into two runs of the given sizes.
+
+    The same ground, walked once and written down twice with the pause in a
+    different place. Nothing else about the two documents differs.
+    """
+    assert first + second == len(_RUN_POSITIONS)
+    runs = (_RUN_POSITIONS[:first], _RUN_POSITIONS[first:])
+    segments = "".join(
+        "<trkseg>"
+        + "".join(f'<trkpt lat="{lat}" lon="{lon}"><ele>10</ele></trkpt>' for lat, lon in run)
+        + "</trkseg>"
+        for run in runs
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<gpx version="1.1" creator="contract" xmlns="http://www.topografix.com/GPX/1/1">'
+        f"<trk><name>Two runs</name>{segments}</trk></gpx>"
+    ).encode()
+
+
+def _segments_of(payload: dict[str, object]) -> list[TrackSegment]:
+    """Rebuild the normalized segments a geometry response describes."""
+    segments = cast(list[dict[str, list[dict[str, object]]]], payload["segments"])
+    return [
+        TrackSegment(
+            points=tuple(
+                TrackPoint(
+                    latitude=float(cast(float, point["latitude"])),
+                    longitude=float(cast(float, point["longitude"])),
+                    time=(
+                        None
+                        if point["time"] is None
+                        else datetime.fromisoformat(cast(str, point["time"]))
+                    ),
+                )
+                for point in segment["points"]
+            )
+        )
+        for segment in segments
+    ]
+
+
+def test_a_track_states_the_identity_of_the_geometry_it_currently_has(
+    archive: TestClient,
+) -> None:
+    """Sixty-four lowercase hex digits, and the same in a listing as in a detail read."""
+    listed = _recording(archive)
+    identity = listed["geometry_sha256"]
+
+    assert isinstance(identity, str)
+    assert len(identity) == 64
+    assert identity == identity.lower()
+    assert set(identity) <= set("0123456789abcdef")
+    assert archive.get(f"/api/v1/tracks/{listed['id']}").json()["geometry_sha256"] == identity
+
+
+def test_the_published_identity_is_the_identity_of_the_current_geometry(
+    archive: TestClient,
+) -> None:
+    """Not a stored label beside the shape: a projection *of* the shape.
+
+    Rebuilt here from the canonical geometry the same API answers with, so a
+    reprocessing that changes a single position changes this value with it. That
+    is the whole reason a client may key derived state on it.
+    """
+    track_id = _recording_id(archive)
+
+    geometry = archive.get(f"/api/v1/tracks/{track_id}/geometry").json()
+    listed = archive.get(f"/api/v1/tracks/{track_id}").json()
+
+    assert listed["geometry_sha256"] == recording_fingerprint(_segments_of(geometry))
+
+
+def test_two_tracks_of_different_geometry_have_different_identities(
+    archive: TestClient,
+) -> None:
+    """It describes the geometry, never the row it is stored in."""
+    tracks = archive.get("/api/v1/tracks").json()["tracks"]
+
+    identities = {track["geometry_sha256"] for track in tracks}
+
+    assert len(identities) == len(tracks) == 2
+
+
+def test_the_identity_follows_the_geometry_through_a_reprocess(tmp_path: Path) -> None:
+    """It is republished from what the new generation holds, not carried over.
+
+    The distinction only shows when a reprocess changes something, and by then
+    a stale label would already have been handed to a client as this track's
+    current shape. What is checked here is the mechanism: after a regeneration
+    the published identity is still the identity of the geometry the archive now
+    answers with, whatever that turned out to be.
+    """
+    settings = Settings(data_dir=tmp_path / "data")
+    services = build_services(settings)
+    services.prepare_storage()
+    outcome = services.import_tracks(
+        ImportRequest(content=(FIXTURES / "recorded-measurements.gpx").read_bytes())
+    )
+
+    services.reprocess(outcome.sha256)
+
+    track_id = outcome.track_ids[0]
+    with TestClient(create_app(settings)) as fresh:
+        geometry = fresh.get(f"/api/v1/tracks/{track_id}/geometry").json()
+        track = fresh.get(f"/api/v1/tracks/{track_id}").json()
+    assert track["geometry_sha256"] == recording_fingerprint(_segments_of(geometry))
+
+
+def test_a_geometry_response_states_the_identity_of_the_line_it_draws(
+    archive: TestClient,
+) -> None:
+    """Sixty-four lowercase hex digits, over exactly the shape that was answered."""
+    track_id = _recording_id(archive)
+
+    payload = archive.get(f"/api/v1/tracks/{track_id}/geometry").json()
+
+    identity = payload["shape_sha256"]
+    assert isinstance(identity, str)
+    assert len(identity) == 64
+    assert identity == identity.lower()
+    assert identity == shape_fingerprint(_segments_of(payload))
+
+
+def test_the_same_positions_split_differently_are_a_different_line(tmp_path: Path) -> None:
+    """The defect this contract exists for.
+
+    Two documents with the same positions and the same number of runs, split a
+    position apart. They are drawn as different pairs of lines, so anything
+    keyed on what they look like has to be able to tell them apart. The
+    *recording* identity says they are one ride -- correctly -- which is exactly
+    why it cannot be the identity of a drawing.
+    """
+    settings = Settings(data_dir=tmp_path / "data")
+    services = build_services(settings)
+    services.prepare_storage()
+    early = services.import_tracks(
+        ImportRequest(content=_two_runs(2, 2), original_filename="break-late.gpx")
+    )
+    late = services.import_tracks(
+        ImportRequest(content=_two_runs(1, 3), original_filename="break-early.gpx")
+    )
+
+    with TestClient(create_app(settings)) as client:
+        one = client.get(f"/api/v1/tracks/{early.track_ids[0]}/geometry").json()
+        other = client.get(f"/api/v1/tracks/{late.track_ids[0]}/geometry").json()
+        tracks = {track["id"]: track for track in client.get("/api/v1/tracks").json()["tracks"]}
+
+    assert [len(segment["points"]) for segment in one["segments"]] == [2, 2]
+    assert [len(segment["points"]) for segment in other["segments"]] == [1, 3]
+    assert one["shape_sha256"] != other["shape_sha256"]
+    # ...and the recording identity, correctly, does not distinguish them.
+    assert (
+        tracks[early.track_ids[0]]["geometry_sha256"]
+        == tracks[late.track_ids[0]]["geometry_sha256"]
+    )
+
+
+def test_a_reduced_shape_is_identified_as_the_reduction_it_is(archive: TestClient) -> None:
+    """The identity describes the answer, never the archive behind it.
+
+    A client holding four positions and a client holding two are looking at two
+    different lines. An identity that named the track would tell them they hold
+    the same thing.
+    """
+    track_id = _recording_id(archive)
+
+    canonical = archive.get(f"/api/v1/tracks/{track_id}/geometry").json()
+    reduced = archive.get(f"/api/v1/tracks/{track_id}/geometry?max_points=2").json()
+
+    assert canonical["simplified"] is False
+    assert reduced["simplified"] is True
+    assert reduced["shape_sha256"] != canonical["shape_sha256"]
+    assert reduced["shape_sha256"] == shape_fingerprint(_segments_of(reduced))
+
+
+def test_asking_for_the_same_shape_twice_gives_the_same_identity(archive: TestClient) -> None:
+    """The reuse half: nothing about a request's timing may reach the value."""
+    track_id = _recording_id(archive)
+    query = f"/api/v1/tracks/{track_id}/geometry?max_points=3"
+
+    first = archive.get(query).json()
+    second = archive.get(query).json()
+
+    assert first["shape_sha256"] == second["shape_sha256"]
+
+
+def test_correcting_what_a_user_says_leaves_the_geometry_identity_alone(
+    archive: TestClient,
+) -> None:
+    """A renamed track is the same track, drawn the same way.
+
+    The point of publishing this at all: state derived from the *shape* must not
+    be thrown away because somebody typed a title. Only the geometry decides it.
+    """
+    track_id = _recording_id(archive)
+    before = archive.get(f"/api/v1/tracks/{track_id}").json()["geometry_sha256"]
+
+    archive.patch(f"/api/v1/tracks/{track_id}/metadata", json={"title": "A better name"})
+    archive.put(f"/api/v1/tracks/{track_id}/classification", json={"kind": "planned"})
+
+    assert archive.get(f"/api/v1/tracks/{track_id}").json()["geometry_sha256"] == before
 
 
 # --- Stable errors ----------------------------------------------------------
