@@ -96,7 +96,7 @@ nothing in it is written, renamed, moved or deleted, and the mount is read-only
 as well.
 
 You can also import from the command line (`trackvault import <file>`) or from the
-browser, once you have switched uploading on.
+browser, unless you have switched uploading off.
 
 ### Getting a GPX file out of the app you recorded with
 
@@ -192,7 +192,7 @@ Everything is an environment variable in `.env`. The ones worth knowing:
 | `TRACKVAULT_HTTP_PORT` | `8081` | Host port the container's 8080 is published on |
 | `TRACKVAULT_TIMEZONE` | `UTC` | Which zone month and year boundaries are drawn in |
 | `TRACKVAULT_IMPORT_PATH` | `./import` | Host folder mounted read-only as the import directory |
-| `TRACKVAULT_UPLOAD_ENABLED` | `false` | Whether the browser may add files. Unauthenticated when on. |
+| `TRACKVAULT_UPLOAD_ENABLED` | `true` | Whether the browser may add files. Unauthenticated; set `false` to refuse it. |
 | `TRACKVAULT_MAPS_ENABLED` | `true` | Whether offline map packages may be downloaded at all |
 
 `TRACKVAULT_TIMEZONE` is worth setting before you read a monthly total: it decides

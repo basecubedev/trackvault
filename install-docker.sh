@@ -176,9 +176,10 @@ services:
       # because a container inherits whatever its image carries and the same
       # archive would otherwise report different monthly totals on two machines.
       TRACKVAULT_TIMEZONE: ${TRACKVAULT_TIMEZONE}
-      # Adding files from the browser. Off by default: it is the one thing a
-      # caller can do that writes, and there is no authentication in front of
-      # it. Reading works either way.
+      # Adding files from the browser. On by default; set it to false in .env
+      # to refuse the capability. It is the one thing a caller can do that
+      # writes, and there is no authentication in front of it. Reading works
+      # either way.
       TRACKVAULT_UPLOAD_ENABLED: ${TRACKVAULT_UPLOAD_ENABLED}
       # Set to false to refuse every outbound map download. Installed maps
       # keep working.
@@ -215,11 +216,12 @@ PGID=$pgid
 # The zone month and year boundaries are drawn in, for example Europe/Berlin.
 TRACKVAULT_TIMEZONE=UTC
 
-# Whether the browser interface may add files. Off, because there is no
-# authentication and this is the one thing a caller can do that writes. Set it
-# to true once you are happy that your network makes that acceptable; importing
-# from the command line and the import folder works either way.
-TRACKVAULT_UPLOAD_ENABLED=false
+# Whether the browser interface may add files. On, because adding a track from
+# the browser is what an installation is for. There is no authentication, so
+# anyone who can reach the port could add files as well as read them: set this
+# to false if your network does not make that acceptable. Importing from the
+# command line and the import folder works either way.
+TRACKVAULT_UPLOAD_ENABLED=true
 
 # Whether offline map packages may be downloaded at all.
 TRACKVAULT_MAPS_ENABLED=true

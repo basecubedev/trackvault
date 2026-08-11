@@ -35,12 +35,12 @@ services:
       # it was meant to survive.
       TRACKVAULT_BACKUP_DIR: /backups
       #
-      # Uploading from the browser is off unless you switch it on. It is the
+      # Uploading from the browser is on unless you switch it off. It is the
       # one endpoint that lets a caller make the server write, and nothing here
-      # authenticates -- so this is a statement about your network, not a
-      # convenience toggle. Uploads write into the managed archive under /data,
-      # never into /import. See README.md.
-      # TRACKVAULT_UPLOAD_ENABLED: "true"
+      # authenticates -- so a deployment whose network does not make that
+      # acceptable refuses it here. Uploads write into the managed archive
+      # under /data, never into /import. See README.md.
+      # TRACKVAULT_UPLOAD_ENABLED: "false"
     volumes:
       # A managed volume, not a host bind mount. Docker initialises a named
       # volume from the image, so /data arrives owned by the non-root runtime

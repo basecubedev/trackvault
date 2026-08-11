@@ -21,11 +21,11 @@ half-written downloads, and none of them is a track.
 
 **On the machine itself**, with the commands below.
 
-> **Uploading from the browser is off until you switch it on.** It is the one
+> **Uploading from the browser is on until you switch it off.** It is the one
 > endpoint that lets a caller make the server write, and nothing here
-> authenticates — so anyone who can reach the port could add files, not only
-> read them. Set `TRACKVAULT_UPLOAD_ENABLED=true` in `.env` once you are happy
-> that your network makes that acceptable; every read works either way. See
+> authenticates — so anyone who can reach the port can add files, not only read
+> them. Set `TRACKVAULT_UPLOAD_ENABLED=false` in `.env` if your network does not
+> make that acceptable; every read works either way. See
 > [Configuration and security](configuration.md).
 
 ## The commands

@@ -54,10 +54,11 @@ UPLOAD = "/api/v1/tracks/imports"
 
 @pytest.fixture
 def client(tmp_path: Path) -> Iterator[TestClient]:
-    """Yield a client over an archive whose operator switched uploads on.
+    """Yield a client over an archive that accepts files, as it arrives.
 
-    Explicitly, because the default is off. Every test below that offers a file
-    is describing a deployment that opted in.
+    Stated rather than inherited: the value is the default, and saying it here
+    keeps these tests describing an upload-enabled deployment even if an
+    environment ever answers the question differently.
     """
     settings = Settings(
         data_dir=tmp_path / "data", web_dir=tmp_path / "no-build", upload_enabled=True
@@ -68,23 +69,29 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
 
 @pytest.fixture
 def refusing(tmp_path: Path) -> Iterator[TestClient]:
-    """Yield a client over an archive configured the way it arrives."""
-    settings = Settings(data_dir=tmp_path / "data", web_dir=tmp_path / "no-build")
+    """Yield a client over an archive whose operator switched uploads off.
+
+    Explicitly, because the default is on. Every test below that expects a
+    refusal is describing a deployment that opted out.
+    """
+    settings = Settings(
+        data_dir=tmp_path / "data", web_dir=tmp_path / "no-build", upload_enabled=False
+    )
     with TestClient(create_app(settings)) as opened:
         yield opened
 
 
-def test_an_archive_nobody_configured_does_not_accept_uploads(refusing: TestClient) -> None:
-    """The default, asserted as a security property rather than left implicit.
+def test_an_archive_nobody_configured_accepts_uploads(client: TestClient) -> None:
+    """The default, asserted rather than left implicit.
 
-    Writing is the one thing an unauthenticated caller must not be able to do
-    because a container happened to start. Turning it on is a statement about a
-    network, and a statement nobody made is not one a default may assume on
-    their behalf.
+    Adding a track from the browser is what an installation is expected to do,
+    so an archive nobody configured does it. The exposure is unchanged; what
+    changed is who has to act, and the test below pins the opt-out that goes
+    with it.
     """
-    assert Settings(data_dir=Path("data")).upload_enabled is False
-    assert refusing.post(UPLOAD, content=RECORDING).status_code == 403
-    assert refusing.get("/api/v1/tracks").status_code == 200
+    assert Settings(data_dir=Path("data")).upload_enabled is True
+    assert client.post(UPLOAD, content=RECORDING).status_code == 200
+    assert client.get("/api/v1/tracks").status_code == 200
 
 
 def test_an_offered_file_becomes_a_track(client: TestClient) -> None:
