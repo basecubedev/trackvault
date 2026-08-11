@@ -13,6 +13,7 @@ image deliberately ships no test fixtures.
 import hashlib
 import shutil
 import subprocess
+import tarfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -32,6 +33,7 @@ POLL_INTERVAL_SECONDS = 1.0
 CONTAINER = "gpx-view"
 CONTAINER_IMPORT_PATH = "/tmp/synthetic-import.gpx"  # noqa: S108
 CONTAINER_MAP_SEED = "/tmp/seed-map.py"  # noqa: S108
+CONTAINER_RESTORE_TARGET = "/tmp/restored"  # noqa: S108
 MAPS_URL = f"{BASE_URL}/api/v1/maps"
 
 pytestmark = pytest.mark.docker
@@ -140,6 +142,38 @@ def _compose(*arguments: str, stdin: bytes | None = None) -> subprocess.Complete
         check=True,
         input=stdin,
     )
+
+
+def _compose_failure(*arguments: str) -> str:
+    """Run a compose command expected to fail, and return what it complained about.
+
+    Used where the refusal *is* the assertion -- a read-only mount rejecting a
+    write. `check=True` would turn the expected outcome into an error.
+    """
+    result = subprocess.run(
+        ["docker", "compose", "-p", COMPOSE_PROJECT, *arguments],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0, "the import mount accepted a write"
+    return (result.stderr + result.stdout).decode()
+
+
+def _exec_unchecked(*arguments: str) -> tuple[int, str]:
+    """Run a command inside the container and return its exit code and output.
+
+    Needed for `doctor`, whose whole point is that it returns a non-zero code
+    for a deployment that is merely degraded. `check=True` would turn its
+    ordinary answer into an error.
+    """
+    result = subprocess.run(
+        ["docker", "compose", "-p", COMPOSE_PROJECT, "exec", "-T", CONTAINER, *arguments],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode, (result.stdout + result.stderr).decode()
 
 
 def _exec(*arguments: str, stdin: bytes | None = None) -> str:
@@ -646,3 +680,177 @@ def test_an_installed_map_survives_recreating_the_container(
     assert removed.status_code == 204
     assert httpx2.get(MAPS_URL, timeout=10.0).json()["maps"] == []
     assert httpx2.get(TRACKS_URL, timeout=10.0).status_code == 200
+
+
+HOST_IMPORT_DIRECTORY = PROJECT_ROOT / "import"
+"""The folder ``compose.yaml`` bind-mounts read-only at ``/import``.
+
+Committed as an empty marker so a fresh checkout has it. A directory Docker
+creates instead would be owned by root, and the person it exists for could not
+put a file into it.
+"""
+
+
+@pytest.fixture
+def dropped_import() -> Iterator[str]:
+    """Put one synthetic fixture in the host import directory, and take it away.
+
+    Written on the *host* on purpose. Piping the bytes into the container would
+    test the importer; putting them where somebody's phone would put them tests
+    the mount, the configuration and the importer together, which is the thing
+    that was actually broken.
+    """
+    source = FIXTURES / "multiple-segments.gpx"
+    dropped = HOST_IMPORT_DIRECTORY / "synthetic-autosync.gpx"
+    dropped.write_bytes(source.read_bytes())
+    try:
+        yield hashlib.sha256(source.read_bytes()).hexdigest()
+    finally:
+        dropped.unlink(missing_ok=True)
+
+
+@pytest.mark.integration
+def test_the_import_directory_is_configured_in_the_container(
+    compose_stack: None,  # noqa: ARG001
+) -> None:
+    """The variable whose absence silently disables the whole feature.
+
+    A deployment can mount a folder perfectly and still scan nothing, because
+    scanning is off unless ``GPX_VIEW_IMPORT_DIR`` is set. That failure looks
+    exactly like "the import does not work", which is the hardest kind to
+    diagnose, so the configuration is asserted rather than assumed.
+    """
+    assert _exec("printenv", "GPX_VIEW_IMPORT_DIR").strip() == "/import"
+
+
+@pytest.mark.integration
+def test_a_file_in_the_host_import_directory_is_imported_by_a_scan(
+    compose_stack: None,  # noqa: ARG001
+    dropped_import: str,
+) -> None:
+    """The Locus AutoSync workflow, end to end, through a real mount.
+
+    ```
+    host directory -> read-only mount -> GPX_VIEW_IMPORT_DIR -> scan -> track
+    ```
+
+    This is the test whose absence let a scan be run against a path that existed
+    only on the developer's machine. It fails if the mount is missing, if the
+    variable is unset, or if the container cannot read what the host wrote.
+    """
+    output = _exec("gpx-view", "scan")
+
+    assert "imported" in output
+    assert dropped_import[:12] in output
+
+    tracks = httpx2.get(TRACKS_URL, timeout=10.0).json()
+    assert any(track["raw_import_sha256"] == dropped_import for track in tracks["tracks"]), (
+        "the imported track is not visible over HTTP"
+    )
+
+
+@pytest.mark.integration
+def test_scanning_the_same_file_again_imports_nothing(
+    compose_stack: None,  # noqa: ARG001
+    dropped_import: str,  # noqa: ARG001
+) -> None:
+    """A sync folder keeps its files, so every scan sees them all again.
+
+    Recognising known bytes as a duplicate is what makes a scheduled scan cheap
+    and what stops one ride becoming forty copies of itself.
+    """
+    _exec("gpx-view", "scan")
+
+    output = _exec("gpx-view", "scan")
+
+    assert "duplicate" in output
+    assert "imported" not in output
+
+
+@pytest.mark.integration
+def test_the_import_directory_stays_input_only(
+    compose_stack: None,  # noqa: ARG001
+    dropped_import: str,  # noqa: ARG001
+) -> None:
+    """The mount enforcing what the application already promises.
+
+    `scan` never writes, renames, moves or deletes in the import directory. The
+    read-only mount is the second, independent reason -- the one that still
+    holds if the first is ever wrong.
+    """
+    dropped = HOST_IMPORT_DIRECTORY / "synthetic-autosync.gpx"
+    before = dropped.read_bytes()
+
+    _exec("gpx-view", "scan")
+    refusal = _compose_failure("exec", "-T", CONTAINER, "touch", "/import/proof")
+
+    assert "read-only" in refusal.lower()
+    assert dropped.read_bytes() == before
+    assert not (HOST_IMPORT_DIRECTORY / "proof").exists()
+
+
+@pytest.mark.integration
+def test_the_container_diagnoses_itself(compose_stack: None) -> None:  # noqa: ARG001
+    """`doctor` is what an operator runs before asking anybody for help.
+
+    The exit code is asserted as "not an error" rather than as zero: whether a
+    backup happens to exist depends on what else has run, and `doctor` reports
+    that as degraded on purpose. What must be true is that nothing about the
+    container deployment itself is broken.
+    """
+    code, output = _exec_unchecked("gpx-view", "doctor")
+
+    assert code != 1, output
+    assert "in a container" in output
+    assert "ok       import_directory" in output
+    assert "ok       data_directory" in output
+    assert "ok       database_integrity" in output
+
+
+@pytest.mark.integration
+def test_the_container_backs_up_and_restores_its_own_archive(
+    compose_stack: None,  # noqa: ARG001
+    dropped_import: str,
+) -> None:
+    """Backup, then restore, without disturbing the archive that is running.
+
+    Restored into a scratch directory rather than over ``/data``: this proves the
+    round trip, and a test that replaced the live archive would be a test that
+    quietly depends on running last.
+    """
+    _exec("gpx-view", "scan")
+    created = _exec("gpx-view", "backup", "create")
+    assert "/backups/gpx-view-" in created
+
+    archive = next(line.split()[1] for line in created.splitlines() if line.startswith("created:"))
+    inspected = _exec("gpx-view", "restore", archive, "--dry-run")
+    assert "compatibility: supported" in inspected
+
+    restored = _exec("gpx-view", "restore", archive, "--into", CONTAINER_RESTORE_TARGET)
+    assert "restored" in restored
+    assert dropped_import in _exec("gpx-view", "processing-status", dropped_import), (
+        "the restored archive does not hold the source it was taken from"
+    )
+
+
+@pytest.mark.integration
+def test_a_backup_can_be_copied_off_the_machine(
+    compose_stack: None,  # noqa: ARG001
+    tmp_path: Path,
+) -> None:
+    """A backup you cannot get out of the container is not yet a backup.
+
+    This file keeps backups in a managed volume, because it runs the container
+    as the image's own user and a host directory would arrive owned by somebody
+    else. Getting one out is therefore `docker compose cp`. A user deployment
+    inverts that -- bind mount plus PUID/PGID -- so backups land straight in a
+    folder its owner can read; see `install-docker.sh`.
+    """
+    created = _exec("gpx-view", "backup", "create")
+    archive = next(line.split()[1] for line in created.splitlines() if line.startswith("created:"))
+    copied = tmp_path / "off-the-machine.tar.gz"
+
+    _compose("cp", f"{CONTAINER}:{archive}", str(copied))
+
+    assert copied.stat().st_size > 0
+    assert tarfile.is_tarfile(copied)

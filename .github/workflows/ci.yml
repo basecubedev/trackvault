@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The release pipeline calls this workflow rather than restating its steps.
+  # A release that ran a *copy* of the quality gate would eventually run an
+  # older copy, and the gate that matters least is the one nobody looks at.
+  workflow_call:
 
 permissions:
   contents: read

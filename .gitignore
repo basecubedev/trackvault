@@ -45,6 +45,11 @@ junit*.xml
 /import/*
 !/import/.gitkeep
 
+# Backups hold every recording and every correction the archive has: personal
+# data in one file. A user deployment keeps them in ./backups beside the
+# compose file, so the pattern is here whether or not this checkout has one.
+/backups/
+
 # Local reference tracks: real private recordings and routes a developer may keep
 # here for exploration and local regression runs. The whole directory is excluded,
 # not just the extensions we happen to know today, so a sidecar file, an export

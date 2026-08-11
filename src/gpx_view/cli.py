@@ -494,7 +494,11 @@ def _backup_create(services: TrackServices, destination: Path | None, *, verify:
     """
     settings = services.settings
     directory = destination.parent if destination else settings.backup_storage_dir
-    create_private_directory(directory)
+    try:
+        create_private_directory(directory)
+    except OSError as error:
+        sys.stderr.write(f"backup failed: cannot use the backup directory ({error.strerror})\n")
+        return EXIT_FAILED
     target = destination or directory / _backup_name(services)
     builder = FilesystemArchiveBuilder(
         destination=target,

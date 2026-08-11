@@ -68,6 +68,10 @@ authority table. In short:
 | Installed map packages | a database row **and** a managed file that hashes to it |
 | Map attribution | the installed package's own metadata |
 | Which map draws behind a track | `SelectMapCoverage` over installed coverage |
+| Exported original bytes | the managed raw artifact, verified against its hash |
+| Exported exchange document | the current normalized generation, never the source file |
+| What an archive holds | its own manifest, including what it deliberately omits |
+| Whether an archive may be restored | one compatibility rule over format and schema version |
 | Configuration | `gpx_view.config` backend settings |
 
 No UI and no import adapter may ever create a second, independent business truth.

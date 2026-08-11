@@ -118,6 +118,7 @@ BSD, Apache-2.0, PSF-2.0 or a choice including one of those.
 | `mypy` | 2.3.0 | Type checker | MIT |
 | `httpx2` | 2.9.1 | HTTP client for the Docker smoke tests | BSD-3-Clause |
 | `types-defusedxml` | 0.7.0.20260504 | Type stubs for `defusedxml` | Apache-2.0 |
+| `pyyaml` | 6.0.3 | Reading the workflow files in the release contract test | MIT |
 
 ## Browser — runtime
 

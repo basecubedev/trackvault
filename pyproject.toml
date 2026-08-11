@@ -18,6 +18,12 @@ dev = [
     "mypy>=1.13",
     "pytest>=8.3",
     "pytest-cov>=6.0",
+    # The release contract reads the workflow files structurally -- which events
+    # start a release, which job may push. Substring matching on YAML would pass
+    # for a trigger that appears in a comment. It arrives transitively through
+    # `uvicorn[standard]` anyway; declaring it means the test suite does not
+    # silently depend on somebody else's extras.
+    "pyyaml>=6.0",
     "ruff>=0.8",
     "types-defusedxml>=0.7",
 ]

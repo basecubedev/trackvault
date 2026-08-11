@@ -968,6 +968,106 @@ All import paths -- manual upload, watched import folder, future API import -- r
 through the same canonical `ImportTrack` use case. There is never a second parsing
 or persistence path per input channel. See `architecture.md`.
 
+## Export: the original and a generated copy are different things
+
+*Implemented as `gpx_view.application.export`. See
+`docs/adr/0012-export-archive-and-restore.md`.*
+
+> An exported raw source is byte-identical to what was imported. An exported
+> exchange document is not the file that arrived, and is never presented as one.
+
+```
+export raw     the bytes that arrived               never changes
+export track   GPX 1.1 from the current generation  changes when the rules do
+```
+
+A contract test asserts the two never produce identical bytes. If they ever did,
+one of them would be lying about what it is, and it would be whichever somebody
+had chosen for their backups.
+
+An exchange document carries no classification. `RECORDED` and `PLANNED` are
+verdicts reached from this project's evidence rules, at a confidence, with a
+classifier version, and no exchange format has a field that means that -- a
+private extension would publish a claim no reader could evaluate. It invents
+nothing either: no elevation where none was measured, no clock on a planned
+route, and `UNKNOWN` written as nothing rather than as the word.
+
+Measurements survive. Heart rate and cadence go back out through the same
+namespaced vocabulary they were read from, so an export loses no reading and
+introduces no schema.
+
+## The archive format
+
+*Implemented as `gpx_view.application.archive`.*
+
+> An archive is either complete or explicit about what it is missing.
+
+Every archive carries a manifest stating `format_name`, `format_version`,
+`created_at`, `gpx_view_version`, `schema_version`, a size and digest for every
+member, counts of what it holds, and **what it deliberately omits**. Installed
+map packages are omitted -- public data that can be fetched again -- and
+`ArchiveOmission` records that rather than leaving a silence. "Complete" and
+"complete except for the part nobody mentioned" are different promises about a
+backup.
+
+The database is captured through SQLite's own online backup. Copying the file
+would be the failure this contract exists to prevent: with write-ahead logging
+on, the `.sqlite3` file alone is an incomplete database, and a copy taken during
+a write can produce one that will not open.
+
+`format_version` and `schema_version` are separate and move for separate
+reasons: the container changing and a table changing are different events.
+
+## Restore validates before it publishes
+
+*Implemented as `gpx_view.application.archive.RestoreArchive`.*
+
+```
+manifest → format version → schema compatibility → checksums → database integrity → publish
+```
+
+Nothing in the destination is touched until every step before `publish` has
+passed, which is the property that makes attempting a restore safe.
+
+| Archive schema | Answer |
+| --- | --- |
+| equal to this build's | `SUPPORTED` |
+| older | `MIGRATION_REQUIRED` -- restores, then migrates at the next start |
+| newer | `UNSUPPORTED` -- the same refusal the database itself makes |
+
+- **Existing data is never silently replaced.** "Holds data" means data rather
+  than files: an empty database the server created on start-up is not something
+  to protect, and treating it as such would make `--replace` the ordinary
+  recovery path. A database this build cannot account for *does* count.
+- **A restore replaces what the archive carries, not the data directory.** In a
+  container that directory is a mount point, and a mount point cannot be
+  renamed. Installed maps survive, and the journal files move with the database
+  they belong to -- a stale write-ahead log describes a different database and
+  SQLite would apply it.
+- **Archive members are refused rather than sanitised.** A member is extracted
+  only when the manifest declares it *and* its name survives an allow-list
+  check, and it is written to a path built from validated components. Links,
+  device nodes and anything that is not a regular file are refused.
+- **A backup is verified by the code that would restore it.** A bespoke check
+  would be a second opinion, and the day the two disagreed the backup would
+  already be the thing at stake.
+
+## Diagnostics change nothing
+
+*Implemented as `gpx_view.application.diagnostics`.*
+
+> Running `doctor` must never be the thing that changes the answer.
+
+No import, no migration, no repair, no network request. The schema version is
+read through a read-only connection, because opening a missing database the
+ordinary way creates it -- and the fresh deployment somebody asked about would
+no longer be fresh.
+
+Three severities, because most of what goes wrong is degraded rather than
+broken: a pending migration, a missing backup and an unmounted import folder all
+need somebody, and none of them needs them tonight. Every detail line is
+structural -- no coordinate, no track title, no personal filename.
+
 ## Privacy
 
 GPX, FIT and similar files are personal movement data. See

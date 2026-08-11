@@ -1,0 +1,163 @@
+name: Release
+
+# Publishing happens from a release tag and from nowhere else.
+#
+# That is the whole access-control model for the images people run: an ordinary
+# commit on the main branch cannot become anybody's `latest`, because nothing
+# outside this file pushes to the registry and nothing but a `v*` tag starts it.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.11.32"
+  REGISTRY: ghcr.io
+
+jobs:
+  # The tag is a claim about the code. This is where it is checked, before a
+  # full test run is spent on a release that would be mislabelled anyway.
+  version:
+    name: Tag matches the declared version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.declared.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read the version this project declares
+        id: declared
+        run: |
+          version="$(python -c 'import tomllib,pathlib;print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "pyproject.toml declares $version"
+
+      - name: Fail if the tag and the version disagree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          declared="${{ steps.declared.outputs.version }}"
+          if [ "$tag" != "$declared" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $declared"
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches $declared"
+
+  # Every gate the main branch runs, run again on the exact commit being
+  # released: lint, types, tests, the frontend, the API drift check, the licence
+  # audits, the browser tests and the container tests.
+  quality:
+    name: Quality gate
+    needs: [version]
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish the image
+    needs: [version, quality]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      # Required for the signed build attestations produced below.
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Sign in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tags and labels are derived from the tag being released rather than
+      # written by hand. `latest` is deliberately conditional: a pre-release
+      # (v1.0.0-rc1) publishes under its own name and does not become the
+      # version an unpinned deployment pulls tomorrow morning.
+      - name: Decide tags and OCI labels
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/gpx-view
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          # `org.opencontainers.image.licenses` is deliberately absent: this
+          # project declares no licence yet, and a label naming one would be a
+          # legal claim invented by a build script. Add it here in the same
+          # commit that adds a LICENSE file, and not before.
+          labels: |
+            org.opencontainers.image.title=GPX-View
+            org.opencontainers.image.description=Self-hosted archive for recorded and planned geospatial tracks.
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}#readme
+
+      # `revision`, `source` and `created` are added here rather than in the
+      # Dockerfile on purpose: an ordinary `docker compose build` knows none of
+      # them, and a label stating an empty string is worse than no label because
+      # it looks answered. `metadata-action` fills them from this run.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            GPX_VIEW_VERSION=${{ needs.version.outputs.version }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          # A bill of materials and a provenance statement, both attached to the
+          # image in the registry. Two lines here, and they turn "which release
+          # is this and what is in it" from a question into a query.
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The installer is the other release artifact. It is one file somebody
+      # curls before they have anything else, so it ships with a checksum they
+      # can check before running it.
+      - name: Check the installer over
+        run: |
+          sha256sum install-docker.sh > install-docker.sh.sha256
+          cat install-docker.sh.sha256
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            install-docker.sh
+            install-docker.sh.sha256
+          body: |
+            ## Install
+
+            ```sh
+            curl -fsSL ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}/install-docker.sh -o install-docker.sh
+            sh install-docker.sh --tag ${{ github.ref_name }}
+            ```
+
+            ## Upgrade
+
+            ```sh
+            docker compose pull && docker compose up -d
+            ```
+
+            Back up first (`docker compose exec gpx-view gpx-view backup create`)
+            if this release changes the database schema. Downgrading is not
+            supported: a database written by a newer build is refused rather than
+            silently converted, and the backup is how you go back.
+
+            ## Image
+
+            ```
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/gpx-view:${{ github.ref_name }}
+            ```

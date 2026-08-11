@@ -51,6 +51,34 @@ def is_intact(database: Path) -> bool | None:
     return False if result is None else result
 
 
+def counts_sources(database: Path) -> int | None:
+    """Return how many raw imports a database holds, or ``None`` if unreadable.
+
+    The distinction a restore needs. A container that has just started has
+    already created and migrated a database, so "is there a file here" answers
+    yes for a deployment that holds nothing anybody could lose -- and a restore
+    that refused on those grounds would make ``--replace`` the normal way to
+    recover, which is how somebody eventually replaces an archive that mattered.
+
+    ``0`` is a real answer: an empty archive. ``None`` means the file is there
+    and cannot be accounted for, which a caller should treat as data rather than
+    as absence.
+    """
+    if not database.is_file():
+        return 0
+    if database.stat().st_size == 0:
+        # Claimed by the private-file helper and never opened by the driver.
+        return 0
+    if _read(database, _SOURCE_TABLE_EXISTS, _as_int) == 0:
+        return 0
+    return _read(database, "SELECT count(*) FROM raw_imports", _as_int)
+
+
+_SOURCE_TABLE_EXISTS = (
+    "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'raw_imports'"
+)
+
+
 def _as_int(value: object) -> int:
     """Interpret a pragma result as a whole number."""
     return int(str(value))

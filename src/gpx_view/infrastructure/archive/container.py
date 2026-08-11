@@ -50,8 +50,11 @@ from gpx_view.application.archive import (
     ArchiveError,
     ArchiveErrorCode,
     ArchiveManifest,
+    StagedArchive,
 )
 from gpx_view.infrastructure.archive.manifest_codec import decode_manifest, encode_manifest
+from gpx_view.infrastructure.database.archive_source import read_counts
+from gpx_view.infrastructure.database.inspection import counts_sources, read_schema_version
 from gpx_view.infrastructure.database.snapshot import (
     DatabaseSnapshotError,
     capture_snapshot,
@@ -91,27 +94,50 @@ class FilesystemArchiveBuilder:
         self._staging = destination.parent / f".{destination.name}.staging-{uuid4().hex}"
         self._partial = destination.with_name(destination.name + PARTIAL_SUFFIX)
 
-    def stage(self) -> ArchiveContents:
-        """Capture the database consistently and describe every raw artifact.
+    def stage(self) -> StagedArchive:
+        """Capture the database consistently and describe what was captured.
 
         The artifacts are hashed rather than trusted. Their filename already
         states a digest, and checking it here is what stops a backup from
         becoming a second copy of a corruption nobody noticed.
 
+        The schema version and the counts are read from the **snapshot**, not
+        from the live database this builder was pointed at. They describe what
+        goes into the archive, and reading them from anywhere else would let a
+        manifest describe a different deployment.
+
         Raises:
             ArchiveError: If the database could not be captured consistently, or
                 an artifact does not match the hash it is filed under.
         """
-        create_private_directory(self._staging)
+        try:
+            create_private_directory(self._staging)
+        except OSError as error:
+            # Almost always a backup directory the container user cannot write
+            # to. A traceback here would send an operator looking for a bug in
+            # the archive format instead of at the ownership of one directory.
+            raise ArchiveError(
+                ArchiveErrorCode.WRITE_FAILED,
+                "the backup directory is not writable by this user",
+            ) from error
         try:
             size, digest = capture_snapshot(self._database_path, self._staging / _STAGED_DATABASE)
         except DatabaseSnapshotError as error:
             raise ArchiveError(
                 ArchiveErrorCode.WRITE_FAILED, "the database could not be copied consistently"
             ) from error
-        return ArchiveContents(
-            database=ArchivedFile(name=DATABASE_MEMBER, size_bytes=size, sha256=digest),
-            raw_imports=tuple(self._raw_artifacts()),
+        except OSError as error:
+            raise ArchiveError(
+                ArchiveErrorCode.WRITE_FAILED, "the database copy could not be written"
+            ) from error
+        snapshot = self._staging / _STAGED_DATABASE
+        return StagedArchive(
+            contents=ArchiveContents(
+                database=ArchivedFile(name=DATABASE_MEMBER, size_bytes=size, sha256=digest),
+                raw_imports=tuple(self._raw_artifacts()),
+            ),
+            schema_version=read_schema_version(snapshot) or 0,
+            counts=read_counts(snapshot),
         )
 
     def _raw_artifacts(self) -> Iterator[ArchivedFile]:
@@ -319,6 +345,13 @@ class FilesystemArchiveExtractor:
         self._require_complete(expected, extracted)
         self._verify_checksums(manifest)
         self._verify_database()
+        # An archive may legitimately carry no originals at all -- a deployment
+        # that has a database and has imported nothing yet, which is exactly the
+        # backup somebody takes to check the command works. Nothing then created
+        # the raw directory during extraction, and publishing has to move
+        # *something* into place, so the empty storage the archive describes is
+        # made explicit here rather than left as a missing path.
+        create_private_directory(self._staged_raw_root())
 
     def _accepted_name(self, member: tarfile.TarInfo, expected: dict[str, str]) -> str:
         """Return the member's name, or refuse it.
@@ -402,10 +435,22 @@ class FilesystemArchiveExtractor:
         return self._staging / RAW_MEMBER_PREFIX.rstrip("/")
 
     def target_holds_data(self) -> bool:
-        """Report whether publishing would replace something that is already there."""
-        if self._database_path.exists():
+        """Report whether publishing would replace something somebody could lose.
+
+        Deliberately "holds data" and not "holds files". Starting the server
+        creates and migrates an empty database, so the obvious check answers yes
+        for a deployment that holds nothing at all -- and the ordinary
+        disaster-recovery path would then be ``restore --replace``. Making
+        ``--replace`` the normal thing to type is how somebody eventually types
+        it at an archive that mattered.
+
+        A source that cannot be accounted for counts as data. An unreadable
+        database is not "nothing is there"; it is something this build cannot
+        explain, and replacing it is a decision for a person.
+        """
+        if self._raw_root.is_dir() and any(self._raw_root.rglob(f"*{RAW_ARTIFACT_SUFFIX}")):
             return True
-        return self._raw_root.is_dir() and any(self._raw_root.iterdir())
+        return counts_sources(self._database_path) != 0
 
     def free_bytes(self) -> int:
         """Return how much room the destination has."""

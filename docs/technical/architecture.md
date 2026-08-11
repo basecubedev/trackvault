@@ -116,8 +116,29 @@ ports `MapPackageProvider`, `MapPackageStorage`, `MapPackageInspector`,
 `MapPackageRepository`, `MapCatalogCache`, `MapInstallationService` and
 `MapTileSource`.
 
+`export.py` owns the outbound direction, and it is deliberately two things
+rather than one. `ExportRawSource` hands back the bytes that arrived,
+byte-identical; `ExportTrackDocument` renders the *current normalized
+generation* into an exchange format through the `TrackDocumentWriter` port. The
+first is evidence and never changes; the second is what this build currently
+believes a track is, and legitimately changes when the importer learns
+something. A single "export" would have made those one word for two promises.
+
+`archive.py` owns the whole deployment as one portable object: the
+`ArchiveManifest` format, the `compatibility_of` rule that decides what may be
+restored, and the `CreateArchive` / `RestoreArchive` use cases. It reaches the
+container through `ArchiveBuilder` and `ArchiveExtractor` and names no path,
+exactly as the map use cases name no URL.
+
+`diagnostics.py` owns the *judgement* half of `gpx-view doctor`: infrastructure
+observes facts -- a schema says 9, a file is missing -- and this decides which
+of them are warnings and which are errors. Keeping the rule out of the code that
+reads the disk is what makes every severity testable without arranging a broken
+one.
+
 It also owns the ports -- `TrackImporter`, `TrackRepository`, `RawImportStore`,
-`Clock` -- the import limits, the public error codes, `InstalledProcessing` and
+`TrackDocumentWriter`, `ArchiveBuilder`, `ArchiveExtractor`, `Clock` -- the
+import limits, the public error codes, `InstalledProcessing` and
 `InstalledAnalysis`: the one statement of what processing and what analysis this
 build applies, and therefore the one place each that answers whether a stored
 generation, or a stored set of metrics, is still current.
@@ -129,12 +150,27 @@ FIT or TCX type may appear here.
 ### `gpx_view.infrastructure`
 
 Owns concrete adapters and is the only layer that knows formats and storage.
-Implemented packages: `gpx/` (the GPX 1.1/1.0 adapter, including the table of
-extension schemas it understands), `database/` (the archive's own SQLite),
-`filesystem/` (managed raw storage and the import directory boundary), `maps/`
-(managed map storage, the MBTiles reader, the bounded HTTP transfer, the
+Implemented packages: `gpx/` (the GPX 1.1/1.0 adapter -- the importer, the
+writer, and the table of extension schemas both understand), `database/` (the
+archive's own SQLite, its consistent snapshots and its read-only inspection),
+`filesystem/` (managed raw storage and the import directory boundary),
+`archive/` (the `tar.gz` container, its manifest codec and the safe extraction),
+`maps/` (managed map storage, the MBTiles reader, the bounded HTTP transfer, the
 Geofabrik adapter, the catalog cache and the install worker), plus `clock.py`,
-`private_data.py` and `assembly.py`. Planned: `fit/`, `tcx/`.
+`private_data.py`, `diagnostics.py` and `assembly.py`. Planned: `fit/`, `tcx/`.
+
+The GPX package holds both directions of the adapter boundary. The importer
+turns documents into normalized tracks; the writer turns normalized tracks into
+documents. Neither lets an XML type travel inwards, and a future FIT writer is
+another adapter behind the same port rather than a change to a use case.
+
+`database/` splits three ways for three different jobs. `store.py` is the
+repository. `snapshot.py` captures a database consistently and fails loudly,
+because a backup that is silently wrong is worse than none. `inspection.py`
+reads a database file read-only and answers quietly, because a diagnostic must
+report a problem rather than become one -- opening a missing database the
+ordinary way would *create* it, and the fresh deployment somebody asked about
+would no longer be fresh.
 
 Two modules may name the SQLite driver, and the split is deliberate.
 `database/` owns the archive's own database. `maps/mbtiles.py` reads a *foreign*
@@ -1304,7 +1340,13 @@ CLI           → parser C → DB
 | `gpx-view analyze --outdated` | implemented |
 | `gpx-view analyze --all` | implemented |
 | `POST /api/v1/tracks/imports` | implemented -- see below |
+| `gpx-view export raw <sha256>` | implemented |
+| `gpx-view export track <track_id>` | implemented |
+| `gpx-view backup create` / `backup list` | implemented |
+| `gpx-view restore <archive>` | implemented |
+| `gpx-view doctor` | implemented |
 | Future API import | not implemented |
+| An HTTP export endpoint | not implemented -- see "Output paths" |
 
 The pipeline, once, for all of them:
 
@@ -1421,6 +1463,129 @@ The configured root itself stays trusted and may be a symbolic link, exactly as
 the managed raw storage root does. `read_bounded` remains for paths an operator
 names on the command line: those were chosen deliberately.
 
+## Output paths
+
+Data leaves in three shapes, and they are three things rather than one feature
+with options:
+
+```
+raw source          the bytes that arrived         byte-identical, always
+exchange document   generated GPX 1.1              what this build believes today
+archive             database + every raw source    the whole deployment
+```
+
+Confusing the first two is the failure the split exists to prevent. A raw export
+is evidence and must survive an importer upgrade unchanged; a document export is
+produced from the current normalized generation by the rules this build
+installs, so it *should* change when they do. A contract test asserts the two
+never produce identical bytes, because if they ever did, whichever somebody had
+chosen for their backups would be the one that was lying.
+
+An exchange document carries the displayed title, the activity, the segments,
+the positions, and elevation, instants and sensor readings where the archive
+holds them. It deliberately carries **no classification**: `RECORDED` and
+`PLANNED` are verdicts reached from this project's own evidence rules, at a
+confidence, with a classifier version, and no exchange format has a field that
+means that. A private extension would publish a claim no reader could evaluate.
+Nothing absent is invented either -- no elevation where none was measured, no
+clock on a planned route.
+
+Sensor readings go back out through the same namespaced vocabulary the importer
+reads them from, so an export loses no measurement and invents no schema.
+
+### The archive format
+
+*Implemented as `gpx_view.application.archive` and
+`gpx_view.infrastructure.archive`. See `docs/adr/0012-export-archive-and-restore.md`.*
+
+```
+manifest.json                    first member, so a dry-run reads one small file
+database/gpx-view.sqlite3        captured through SQLite's own online backup
+raw/sha256/ab/abcdef….raw        every original, byte-identical
+```
+
+An ordinary `tar.gz` on purpose. The situation somebody needs a backup in is the
+one where this application may not run, and a backup format only its own
+application can open is a backup with a dependency.
+
+**Copying the data directory is not taking a backup.** Write-ahead logging means
+the `.sqlite3` file alone is an incomplete database, and a copy taken while
+anything is writing can produce one that will not open. The database is captured
+through SQLite's own online backup, every artifact is checked against the hash it
+is filed under, and the manifest records what was taken so a restore can tell
+"all of it" from "most of it".
+
+**The manifest states its omissions.** Installed map packages are excluded --
+public data, re-downloadable, and by far the largest thing a deployment holds --
+and `ArchiveOmission` says so in every manifest. An archive that quietly held
+part of a deployment while calling itself a backup is the failure this whole
+format is arranged against.
+
+Two versions, moving for two reasons: `format_version` changes when the
+*container* does, `schema_version` describes the database inside it.
+
+### Restore
+
+```
+manifest → format version → schema compatibility → checksums → database integrity → publish
+```
+
+Nothing in the destination is touched until every step before `publish` has
+passed, which is what makes attempting a restore safe: a damaged archive costs
+nothing to try.
+
+| Situation | Answer |
+| --- | --- |
+| schema equals this build's | `SUPPORTED` |
+| schema older than this build's | `MIGRATION_REQUIRED` -- restores, migrates at the next start |
+| schema newer, or another format, or a newer container | `UNSUPPORTED` |
+
+Publishing replaces **what the archive carries**, not the data directory. In a
+container that directory is a mount point and a mount point cannot be renamed,
+so a restore that replaced it wholesale would work on a laptop and fail on every
+real deployment. Installed maps therefore survive a restore, which is the same
+decision that keeps them out of the archive. The journal files move with the
+database they belong to: a write-ahead log left beside a restored database
+describes a different database, and SQLite would apply it.
+
+**"Already holds data" means data, not files.** Starting the server creates and
+migrates an empty database; counting that as data would make `restore --replace`
+the ordinary recovery path, and making `--replace` normal is how somebody
+eventually types it at an archive that mattered. A database this build cannot
+account for does count -- fail safe.
+
+**Extraction refuses rather than sanitises.** A member is extracted only when the
+manifest declares it *and* its name survives an allow-list check, and it is then
+written to a path built from validated components -- the member's own name never
+reaches the file system. Links, device nodes and anything that is not a regular
+file are refused. Two independent reasons, so a mistake in one is not a
+vulnerability.
+
+There is deliberately **no HTTP export endpoint**. Raw sources are personal
+movement data, the archive has no authentication, and a download URL for
+somebody's recordings is not something to add on the strength of convenience.
+Exporting is an operator action on the machine that holds the data, exactly as
+reprocessing is.
+
+## Diagnostics
+
+`gpx-view doctor` reports what is wrong with a deployment and **changes
+nothing** -- no import, no migration, no repair, no network. That is a contract
+rather than an intention: it runs before anything migrates, and it reads the
+schema version through a read-only connection, because the obvious
+implementation creates the database it was asked about and then reports on the
+deployment it just made.
+
+Infrastructure observes and `gpx_view.application.diagnostics` judges. Three
+statuses, and the middle one carries its weight: a pending migration, a missing
+backup and an unmounted import folder are *degraded* rather than broken, and
+collapsing them into "error" trains an operator to ignore the output. Exit codes
+are `0`, `2` and `1` for healthy, degraded and broken.
+
+Every detail line is structural. No coordinate, no track title, no personal
+filename -- a diagnostic that is safe to paste into an issue is one people
+actually paste.
+
 ## Logging
 
 Structured and data-sparse. Logged: a content hash prefix, track and point counts,
@@ -1484,6 +1649,11 @@ Exactly one component owns each concern. Everything else is a projection.
 | Map attribution | the installed package's own metadata, never a build-time string |
 | Which map draws behind a track | `SelectMapCoverage`, from installed coverage and the provider's region tree |
 | Map provider addresses | the provider adapter; never an API caller |
+| Exported original bytes | the managed raw artifact, verified against its hash |
+| Exported exchange document | the current normalized generation plus the installed writer -- never the source file |
+| What an archive holds | its own manifest, including what it deliberately omits |
+| Whether an archive may be restored | `compatibility_of`, from the format version and the schema version |
+| Deployment health | `Diagnose` over one observation; infrastructure observes, the application judges |
 | Configuration | `gpx_view.config` backend application settings |
 
 Consequences:

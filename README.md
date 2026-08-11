@@ -18,38 +18,99 @@ shown as unavailable rather than as zero, a route with a planner's clock is
 never dated by it, and a number produced by algorithms this build no longer runs
 is not presented as the track's own.
 
-## Quick start
+## Installation
+
+You need Docker. You do not need Python, Node, or a copy of this repository.
 
 ```bash
-docker compose up -d
+mkdir gpx-view && cd gpx-view
+curl -fsSL https://github.com/basecubedev/gpx-view/releases/latest/download/install-docker.sh -o install-docker.sh
+sh install-docker.sh
 ```
 
-Then open <http://127.0.0.1:8080/>. The archive starts empty and says so.
+That writes a `docker-compose.yml`, a `.env`, and three directories, then pulls
+the image and starts it. Open <http://127.0.0.1:8080/>. The archive starts empty
+and says so.
 
-Put something in it:
-
-```bash
-docker compose exec gpx-view gpx-view import /path/inside/the/container.gpx
+```
+gpx-view/
+├── docker-compose.yml    written by the installer; --force replaces it
+├── .env                  your settings; edit this, not the compose file
+├── data/                 the archive: database, your originals, installed maps
+├── import/               drop files here for `gpx-view scan` to read
+└── backups/              where `gpx-view backup create` writes
 ```
 
-One setting is worth changing before you read a monthly total:
-**`GPX_VIEW_TIMEZONE`** decides which month a late-evening activity counts
-towards. It defaults to `UTC`; set it to your own zone in
-[`compose.yaml`](compose.yaml), where it is commented out with the reason.
+`data/` is **application-owned** and `import/` is **external input**. They are
+deliberately not the same directory: a backup written into the import folder
+would be re-read as an import, and a restore would overwrite files you were
+still syncing.
+
+Useful flags — `sh install-docker.sh --help` lists them all:
+
+| Flag | For |
+| --- | --- |
+| `--tag v1.2.3` | pin a release instead of following `latest` |
+| `--port 9090` | something else already has 8080 |
+| `--import-dir /srv/sync/locus` | your phone syncs somewhere else |
+| `--dry-run` | print what would happen and change nothing |
+| `--no-start` | write the files, start it yourself |
+| `--force` | replace the compose file and `.env` |
+
+`--force` replaces the two files the installer wrote. It never touches `data/`,
+`import/` or `backups/`. Running the installer again without it keeps
+everything, including a compose file you have edited.
+
+**One setting is worth changing before you read a monthly total.**
+`GPX_VIEW_TIMEZONE` in `.env` decides which month a late-evening activity counts
+towards. It defaults to `UTC` — deliberately, because a container inherits
+whatever zone its image carries and a local-time default would make the same
+archive report different totals on two machines.
 
 Then open **Offline maps** and install the region you walk in. Until you do,
 your tracks are drawn over a neutral background — see
 [Offline maps](#offline-maps).
 
-Files can also be dropped into `import/` beside `compose.yaml` and picked up with
-`docker compose exec gpx-view gpx-view scan`. The folder ships with the
-repository so the bind mount never has to create it: a source Docker creates is
-owned by root, and you would need `sudo` to write into the folder that exists for
-you to write into.
-
 > **Run this on a network you trust.** There is no authentication. See
-> [Security](#security-and-the-trusted-network) below before you expose the
-> port to anything.
+> [Security](#security-and-the-trusted-network) before you expose the port to
+> anything.
+
+### Who the container runs as
+
+As you. The installer writes your own uid and gid into `.env` as `PUID`/`PGID`,
+so the process writing `data/` and `backups/` is the person who owns them. That
+is why nothing here asks you to run `chmod 777` or to run anything as root: the
+bind mounts work because the ownership already matches.
+
+If you move the installation to another user, update those two values.
+
+### Windows and macOS
+
+The same installer and the same compose file. On Windows, run it from Git Bash
+or WSL — Docker Desktop shares the daemon with both, and the compose file needs
+no change.
+
+There is deliberately **no PowerShell installer**. It would be a second copy of
+the same logic, and the copy that gets less use is the one that silently rots;
+the one thing it could offer over `sh` — knowing a Windows path — is exactly the
+thing bind mounts on Docker Desktop want in POSIX form anyway. `PUID`/`PGID` are
+ignored on Docker Desktop, which manages ownership itself, so a Windows
+installation is the Linux one minus a problem.
+
+### Running from a checkout instead
+
+[`compose.yaml`](compose.yaml) in this repository builds from source and is what
+development and the test suite use. It makes the opposite choice about
+ownership: managed volumes and the image's own user, so nothing depends on whose
+uid happens to be 1000. Get a backup out of it with
+
+```bash
+docker compose cp gpx-view:/backups/<name>.tar.gz .
+```
+
+Both are correct; they are answers to different questions. A user deployment
+wants its files where its owner can read them, and a development checkout wants
+to be independent of the developer.
 
 ## Importing tracks
 
@@ -60,9 +121,10 @@ twenty; each one is offered on its own and gets its own answer — imported,
 already in the archive, or not imported with the reason in words. Nothing is
 guessed: a file the archive cannot read is named, and the rest still go in.
 
-**A watched folder.** Drop files into `import/` — the folder `compose.yaml`
-mounts read-only at `/import` — and run `docker compose exec gpx-view gpx-view
-scan`. This is the path for a phone that auto-syncs to the server, and for the
+**A watched folder.** Drop files into `import/` — the folder mounted read-only
+at `/import` — and run `docker compose exec gpx-view gpx-view scan`. There is a
+[step-by-step guide](#syncing-from-your-phone) for setting this up with a
+phone. This is the path for a phone that auto-syncs to the server, and for the
 hundred files you are not going to pick in a file dialog. **The folder is never
 modified**: nothing in it is written, renamed, moved or deleted. Hidden files are
 skipped rather than reported as failures — a synced folder is full of `.DS_Store`
@@ -72,8 +134,8 @@ and half-written downloads, and none of them is a track.
 
 > **The upload endpoint has no authentication in front of it**, because nothing
 > here does. Anyone who can reach the port can add files as well as read them.
-> Set `GPX_VIEW_UPLOAD_ENABLED=false` in [`compose.yaml`](compose.yaml) to refuse
-> uploads and keep everything else — see
+> Set `GPX_VIEW_UPLOAD_ENABLED=false` in `.env` to refuse uploads and keep
+> everything else — see
 > [Security](#security-and-the-trusted-network).
 
 ```bash
@@ -86,6 +148,13 @@ gpx-view processing-status <sha256>  # what happened to one source
 gpx-view analyze --outdated          # derive the metrics that are behind
 gpx-view analyze --all               # ...for every current track
 gpx-view analyze <track_id>          # ...for one
+gpx-view export raw <sha256>         # the original file, byte-identical
+gpx-view export track <track_id>     # a generated GPX 1.1 document
+gpx-view backup create               # the whole archive, in one file
+gpx-view backup list                 # what is in the backup directory
+gpx-view restore <archive> --dry-run # what restoring it would do
+gpx-view restore <archive>           # do it
+gpx-view doctor                      # what is wrong with this deployment
 ```
 
 Inside the container, prefix them with
@@ -106,8 +175,281 @@ the normalized data from the archive's own byte-identical copy. It keeps the
 source untouched, keeps every earlier processing run, and never overwrites a
 classification or a title you corrected yourself. Nothing reprocesses itself.
 
-The typical deployment is phone → auto-sync → a folder on the server →
-`GPX_VIEW_IMPORT_DIR` → `gpx-view scan`.
+## Syncing from your phone
+
+The usual setup. Your phone records tracks, something syncs them to a folder on
+the server, and the archive reads that folder. You never have to know a path
+inside the container.
+
+```
+Locus Map (or any recorder)
+        ↓  auto-sync / Syncthing / Nextcloud / rsync
+host folder, e.g. ~/sync/locus
+        ↓  read-only mount
+/import inside the container
+        ↓  GPX_VIEW_IMPORT_DIR
+gpx-view scan  →  ImportTracks  →  archive
+```
+
+**1. Install GPX-View**, as above. It creates an `import/` folder for you.
+
+**2. Decide where the phone syncs to.** Either sync straight into the `import/`
+folder the installer made, or point GPX-View at a folder you already have:
+
+```bash
+# in .env
+GPX_VIEW_IMPORT_PATH=/home/you/sync/locus
+```
+
+```bash
+docker compose up -d          # apply it
+```
+
+Only the host side changes. Inside the container the folder is always `/import`,
+which is why nothing else has to be reconfigured.
+
+**3. Set your phone to sync there.** In Locus Map that is *Settings → Backup &
+Sync*, or an export target on a shared folder; with Syncthing or Nextcloud it is
+whatever you already use. GPX-View does not care which one — it reads a folder.
+
+**4. Check the archive can see it:**
+
+```bash
+docker compose exec gpx-view gpx-view doctor
+```
+
+`import_directory` should say `configured and readable`. If it says
+`GPX_VIEW_IMPORT_DIR is not set`, the container was started without the setting;
+if it says it cannot be read, the mount is pointing somewhere that does not
+exist on the host.
+
+**5. Import what is there:**
+
+```bash
+docker compose exec gpx-view gpx-view scan
+```
+
+```
+imported  a95629ddc1ae tracks=1  morning-ride.gpx
+duplicate 4f2b91c00de1            yesterday.gpx
+```
+
+Every file gets its own answer. Run it as often as you like — a file already in
+the archive is recognised by its content and skipped, so a folder your phone
+never clears does not become forty copies of one ride.
+
+**6. Open the browser.** The tracks are there.
+
+### Running the scan regularly
+
+There is deliberately no file system watcher. A scan is explicit, cannot hold a
+thread open for weeks, and is easy to reason about. If you want it automatic,
+that is one line of `cron` on the host:
+
+```cron
+*/30 * * * * cd /home/you/gpx-view && docker compose exec -T gpx-view gpx-view scan >/dev/null
+```
+
+`scan` exits non-zero if any file failed, so a cron mail means something real.
+
+### The folder is never modified
+
+Nothing in the import directory is written, renamed, moved or deleted. The mount
+is read-only as well, which is the second, independent reason: it stays true even
+if the first is ever wrong. Your sync folder is input, and the archive keeps its
+own byte-identical copy of everything it accepts.
+
+## Getting data back out
+
+Three different things wear the word "export", so they are three commands.
+
+### Your original file, unchanged
+
+```bash
+docker compose exec -T gpx-view gpx-view export raw <sha256> > my-ride.gpx
+```
+
+Byte-identical to what you imported. The archive verifies the bytes against the
+hash they are filed under before handing them over, so you get the original or a
+named error — never something in between. The content hash is what `scan`,
+`import` and the track page all show.
+
+### A track as a fresh GPX file
+
+```bash
+docker compose exec -T gpx-view gpx-view export track 42 > track-42.gpx
+```
+
+This is **not** your original file. It is GPX 1.1 generated from what the archive
+currently makes of the track: the title you gave it, the activity, the segments,
+the positions, and elevation, timestamps and sensor readings where they exist.
+Use it to get a track into another application; use `export raw` when you want
+the file you imported.
+
+It deliberately carries no "recorded" or "planned" marker. That is a conclusion
+this archive reached from evidence, at a confidence, with a rule version — GPX
+has no field that means it, and inventing one would publish a claim the
+receiving application could not evaluate.
+
+### Everything at once
+
+That is a backup. See below.
+
+## Backup
+
+```bash
+docker compose exec gpx-view gpx-view backup create
+```
+
+```
+created:   /backups/gpx-view-20260810-164301.tar.gz
+size:      5482 bytes
+taken at:  2026-08-10T16:43:01+00:00
+release:   0.1.0
+schema:    10
+sources:   1
+tracks:    1
+overrides: 0
+notes:     0
+omits:     map_packages (offline maps are public datasets that can be downloaded again)
+```
+
+The file lands in `backups/` beside your compose file, where you can copy it
+somewhere else — which is the only thing that makes it a backup. It holds:
+
+```
+the database          every track, correction, title and derived metric
+every original file   byte-identical
+a manifest            what is in it, a checksum for each part, and what is not
+```
+
+**What it leaves out, and says so:** installed offline maps. They are public
+datasets you can download again and they are by far the largest thing in the
+archive. The manifest states the omission rather than staying quiet about it,
+because "complete" and "complete except for the part nobody mentioned" are
+different promises.
+
+**Why not just `tar czf data/`?** Because that produces a database that may not
+open. Write-ahead logging means the `.sqlite3` file on its own is incomplete, and
+a copy taken while anything is writing can mix pages from before and after a
+transaction. `backup create` uses SQLite's own online backup instead, checks
+every stored original against its hash, and then **reads the finished archive
+back through the restore validation** — so a backup that reports success is one
+that has already been proved restorable.
+
+```bash
+docker compose exec gpx-view gpx-view backup list
+```
+
+There is no automatic or scheduled backup. Adding one would be a feature with
+its own failure modes, and an archive that silently stopped backing itself up
+would be worse than one that never claimed to. A cron line does it:
+
+```cron
+0 3 * * 0 cd /home/you/gpx-view && docker compose exec -T gpx-view gpx-view backup create
+```
+
+> **A backup is your whole movement history in one file.** Everywhere you have
+> been, when, and for how long. Treat it exactly as carefully as you would treat
+> the archive itself — and more carefully than the machine it is copied to.
+
+## Restore
+
+Look before you leap:
+
+```bash
+docker compose exec gpx-view gpx-view restore /backups/gpx-view-20260810-164301.tar.gz --dry-run
+```
+
+```
+archive:       gpx-view-archive v1
+taken at:      2026-08-10T16:43:01+00:00
+written by:    GPX-View 0.1.0
+schema:        10
+compatibility: supported
+sources:       1
+tracks:        1
+target:        /data
+target holds data: no
+needs:         161281 bytes
+```
+
+A dry run changes nothing at all, and exits non-zero if the archive could not be
+restored — so it works in a script as well as on a screen.
+
+Then do it:
+
+```bash
+docker compose exec gpx-view gpx-view restore /backups/gpx-view-20260810-164301.tar.gz
+docker compose restart
+```
+
+**Nothing is touched until everything has been checked.** The manifest, the
+format version, the schema compatibility, every checksum, and the restored
+database's own integrity check all pass before a single file moves. A damaged
+archive costs you nothing to attempt.
+
+**An archive that already holds tracks is never replaced silently.** Restoring
+over one needs `--replace`, which you have to type. Restoring into an empty
+archive — a new machine, or one you have just lost — needs nothing extra.
+
+```bash
+gpx-view restore <archive> --replace            # replace what is there
+gpx-view restore <archive> --into /some/other   # somewhere else entirely
+```
+
+**Installed maps survive a restore.** They are not in the archive, and a restore
+replaces what the archive carries rather than the whole data directory.
+
+### Restoring onto a new machine
+
+```bash
+mkdir gpx-view && cd gpx-view
+sh install-docker.sh --no-start
+cp /media/backup/gpx-view-20260810-164301.tar.gz backups/
+docker compose up -d
+docker compose exec gpx-view gpx-view restore /backups/gpx-view-20260810-164301.tar.gz
+docker compose restart
+```
+
+### Which backups this version can read
+
+| The backup's schema | What happens |
+| --- | --- |
+| the same as this build | restores as it is |
+| older than this build | restores, then migrates when the archive next starts |
+| newer than this build | **refused** — upgrade GPX-View first |
+
+The last row is the same rule the database itself applies: a build that does not
+know what the newer columns mean must not open them and guess.
+
+## Checking the archive
+
+```bash
+docker compose exec gpx-view gpx-view doctor
+```
+
+```
+ok       release              GPX-View 0.1.0, in a container
+ok       data_directory       present and writable
+ok       database             present and readable
+ok       database_integrity   passed
+ok       schema               version 10
+ok       raw_storage          412 original(s), all matching their hash
+ok       import_directory     configured and readable
+warning  backups              no backups found; `gpx-view backup create` writes one
+ok       web_assets           present
+ok       maps                 2 installed
+ok       processing_profile   gpx@2
+ok       analysis_profile     distance@1, movement@2, elevation@1, metrics@2
+```
+
+It **changes nothing** — no import, no migration, no repair, no network. Run it
+whenever you are unsure; that is what it is for.
+
+Exit codes: `0` everything fine, `2` something wants attention, `1` something is
+broken. `raw_storage` reads and re-hashes every original you have, so it is the
+check that notices a disk going bad before a track does.
 
 ## The web interface
 
@@ -333,88 +675,66 @@ including the database, its journal files and the managed raw copies. Existing
 files are reported rather than chmodded — they may carry an access decision you
 made.
 
-In Docker this is the **named volume** `gpx-view-data`. Docker initialises a
-named volume from the image, so it arrives owned by the runtime user and is
-writable without `chmod 777` and without running as root. A host bind mount is
-not, because it keeps the host directory's ownership; to use one deliberately,
-match the ownership rather than loosening the permissions:
+In an installed deployment this is `data/` beside your compose file, bind
+mounted, and the container runs as you (`PUID`/`PGID` in `.env`) so the
+ownership already matches. Nothing needs `chmod 777` and nothing runs as root.
 
-```yaml
-volumes:
-  - ./data:/data
+The repository's own [`compose.yaml`](compose.yaml) uses a **named volume**
+instead, and the image's own user: Docker initialises a named volume from the
+image, so it arrives owned correctly whoever the developer is. Both avoid the
+same trap from opposite directions — see
+[Running from a checkout](#running-from-a-checkout-instead).
+
+## Backup, restore and updates
+
+Covered above: [Backup](#backup), [Restore](#restore) and
+[Checking the archive](#checking-the-archive). What belongs here is the part
+about the directory rather than the commands.
+
+**Two halves are irreplaceable, and one is not:**
+
 ```
+the database          every correction, title and derived metric   irreplaceable
+the managed raw store your original files                          irreplaceable
+maps/                 installed offline maps                       re-downloadable
+```
+
+`gpx-view backup create` takes the two that matter and states that it left the
+third. The raw store alone could be re-imported, but every title you corrected,
+every classification you fixed and every derived metric is in the database; the
+database alone describes files it no longer has.
+
+One caveat, so the choice is informed: a provider serves the *current* build of
+a region. Reinstalling a map later gives you today's data rather than the
+dataset you had. For a basemap that is almost always what you wanted.
+
+## Updating
 
 ```bash
-mkdir -p data && sudo chown -R 10001:10001 data
+docker compose exec gpx-view gpx-view backup create   # 1. before anything
+docker compose pull                                    # 2. get the new image
+docker compose up -d                                   # 3. start it
 ```
 
-## Backup
+That is the whole procedure when no migration is needed, and it is safe when one
+is: the schema migration runs at start-up, inside one transaction per step.
 
-**Two halves are essential, and one is not:**
+To move to a specific release rather than the newest, set the tag in `.env`:
 
 ```
-the database          what the archive knows            irreplaceable
-the managed raw store your original files               irreplaceable
-maps/                 installed offline maps            re-downloadable
+GPX_VIEW_IMAGE=ghcr.io/basecubedev/gpx-view:v1.2.3
 ```
 
-The raw store alone can be reimported, but every title you corrected, every
-classification you fixed and every derived metric is in the database. The
-database alone describes files it no longer has. Back up both.
-
-`maps/` is the one part you may skip. It holds nothing you created — a map is a
-public dataset you can fetch again — and it is by far the largest thing in the
-directory. Backing up `GPX_VIEW_DATA_DIR` as a whole is simplest and includes
-it; excluding `maps/` is a deliberate, safe choice if the size matters.
-
-One caveat, so the choice is an informed one: a provider serves the *current*
-build of a region. If you skip the backup and reinstall later, you get today's
-data rather than the dataset you had. For a basemap that is almost always what
-you wanted; if you need a specific dataset date preserved, back `maps/` up too.
-
-**Do not copy the live SQLite file.** Write-ahead logging is on, so the `.sqlite3`
-file on its own is an incomplete database and copying it while the server runs
-can produce one that will not open. Two safe ways:
-
-```bash
-# 1. Stop the archive, copy the directory, start it again.
-docker compose stop
-docker run --rm -v gpx-view-data:/data -v "$PWD:/backup" alpine \
-  tar czf /backup/gpx-view-$(date +%F).tar.gz -C /data .
-docker compose start
-
-# 2. Or use SQLite's own online backup for the database, plus a copy of raw/.
-docker compose exec gpx-view python -c \
-  "import sqlite3; s=sqlite3.connect('/data/gpx-view.sqlite3'); d=sqlite3.connect('/data/backup.sqlite3'); s.backup(d); d.close(); s.close()"
-```
-
-The first is simpler and is what most people should do. Restoring is the reverse:
-stop the archive, replace the directory contents, start it again.
-
-There is no automatic backup and no scheduled export. Adding one would be a
-feature with its own failure modes, and an archive that silently stopped backing
-itself up would be worse than one that never claimed to.
-
-## Upgrading
-
-```bash
-# 1. Back up, as above. The database is about to be migrated.
-# 2. Pull or rebuild the new version.
-docker compose build
-# 3. Start it. The schema migration runs at start-up.
-docker compose up -d
-```
-
-The database schema version lives in SQLite's own `PRAGMA user_version`. An
-existing database runs the migrations it is missing, automatically, inside one
-transaction each. A database written by a **newer** build is refused rather than
-downgraded silently — so a downgrade is not supported, and the backup you took
-in step 1 is how you go back.
+**Downgrading is not supported.** A database written by a newer build is refused
+rather than converted silently — this build cannot know what the newer columns
+mean, and guessing would be worse than stopping. Going back means restoring the
+backup you took in step 1, which is why it is step 1. `gpx-view doctor` reports
+the situation in words if you ever end up in it.
 
 After an upgrade that changes an analysis algorithm or the importer, the archive
 does **not** reprocess itself: that would turn every deployment into a full
-re-parse of the archive. It reports what is behind instead, on the dashboard and
-in the track list, and you run:
+re-parse. It reports what is behind, on the dashboard and in the track list, and
+you run:
 
 ```bash
 docker compose exec gpx-view gpx-view reprocess --outdated
@@ -426,7 +746,64 @@ current. That is the point: a stale number presented as a headline is worse than
 a blank one.
 
 Which release and which algorithms a deployment is running is answered by
-`GET /api/v1/system/info`, and by the **About** page.
+`GET /api/v1/system/info`, by the **About** page, and by `gpx-view doctor`.
+
+## Troubleshooting
+
+**`gpx-view scan` says "no import directory configured".**
+`GPX_VIEW_IMPORT_DIR` is not set in the container. In an installed deployment it
+is set for you; if you edited the compose file, check the `environment:` block
+still has `GPX_VIEW_IMPORT_DIR: /import`. `gpx-view doctor` says which of the two
+is wrong.
+
+**`gpx-view scan` finds nothing, and the files are definitely there.**
+You are probably looking at two different folders. The path you type on the host
+and the path the container reads are not the same thing — inside the container
+it is always `/import`, and what that maps to on the host is
+`GPX_VIEW_IMPORT_PATH` in `.env`. Check what the container actually sees:
+
+```bash
+docker compose exec gpx-view ls -la /import
+```
+
+If that is empty, the mount is pointing somewhere else. Never pass a host path
+to a command running inside the container.
+
+**"permission denied" writing to `data/` or `backups/`.**
+The container is running as a different user than the one that owns the folders.
+Check `PUID`/`PGID` in `.env` against `id -u` and `id -g`, then
+`docker compose up -d`. Do not `chmod 777` — it does not fix the cause and it
+makes your movement history world-readable.
+
+**A backup fails with "the backup directory is not writable by this user".**
+Same cause, for `backups/`.
+
+**`doctor` reports originals that do not match their content hash.**
+The managed copy of a file is not the bytes it claims to be. That is disk
+corruption or tampering, and GPX-View deliberately does not overwrite it —
+the artifact is the only evidence of what happened. Restore your newest backup,
+or delete the affected artifact and import the original file again.
+
+**`doctor` reports missing originals.**
+The database knows a file the disk no longer has. Importing the same file again
+restores it and reports `repaired`; the bytes hash to the digest it is filed
+under, which is the same proof the first import needed.
+
+**Restore says `restore_target_occupied`.**
+The archive you are restoring into already holds tracks. That is the safety
+catch. Use `--replace` if you meant it, or `--into <directory>` to restore
+somewhere else and look first.
+
+**Restore says `archive_schema_unsupported`.**
+The backup was written by a newer GPX-View than the one running. Update the
+image and try again.
+
+**The map is a neutral background.**
+No offline map covers the track. See [Offline maps](#offline-maps).
+
+**Something else.** `gpx-view doctor` first, then
+`docker compose logs gpx-view`. The logs never contain coordinates or track
+titles, so they are safe to share.
 
 ## Security and the trusted network
 
@@ -468,6 +845,8 @@ prefix:
 | `GPX_VIEW_PORT` | `8080` | TCP port |
 | `GPX_VIEW_DATA_DIR` | `data` | Holds *all* persistent data: the database and every original import |
 | `GPX_VIEW_IMPORT_DIR` | unset | Directory `gpx-view scan` reads. Unset disables the feature. Never modified. |
+| `GPX_VIEW_BACKUP_DIR` | `backups/` beside the data directory | Where `gpx-view backup create` writes. Outside the data directory on purpose: a backup kept inside what it protects is lost with it. |
+| `GPX_VIEW_UPLOAD_ENABLED` | `true` | Whether the browser interface may add files. `false` refuses uploads and keeps every read. |
 | `GPX_VIEW_IMPORT_MAX_BYTES` | `16777216` | Largest accepted input file |
 | `GPX_VIEW_IMPORT_MAX_TRACKS` | `100` | Most tracks in one document |
 | `GPX_VIEW_IMPORT_MAX_SEGMENTS_PER_TRACK` | `1000` | Most segments in one track |
@@ -588,7 +967,8 @@ a separate matter and are documented.
 - [Architecture](docs/technical/architecture.md) — layers, boundaries, authorities
 - [Business contracts](docs/technical/contracts.md) — the invariants every feature holds to
 - [Third-party notices](docs/legal/third-party-notices.md) — dependencies, licences, and what the map does not ship
-- [Documentation index](docs/README.md) — including all nine architecture decision records
+- [ADR 0012](docs/adr/0012-export-archive-and-restore.md) — export, the archive format and restore
+- [Documentation index](docs/README.md) — including every architecture decision record
 
 ## Privacy
 

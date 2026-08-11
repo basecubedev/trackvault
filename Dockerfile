@@ -66,15 +66,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     GPX_VIEW_HOST=0.0.0.0 \
     GPX_VIEW_PORT=8080 \
     GPX_VIEW_DATA_DIR=/data \
+    GPX_VIEW_BACKUP_DIR=/backups \
     GPX_VIEW_WEB_DIR=/app/web
 
 # A fixed uid/gid keeps ownership predictable across rebuilds, which matters as
 # soon as an operator wants to bind-mount a host directory instead of using the
 # managed volume.
+#
+# `/backups` exists in the image for the same reason `/data` does, and it is not
+# cosmetic: Docker initialises a named volume from whatever the image has at
+# that path, so a mount point the image does not carry arrives owned by root and
+# the non-root runtime user cannot write a backup into it.
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app \
-    && mkdir -p /app /data \
-    && chown -R app:app /app /data
+    && mkdir -p /app /data /backups \
+    && chown -R app:app /app /data /backups \
+    && chmod 700 /data /backups
 
 WORKDIR /app
 

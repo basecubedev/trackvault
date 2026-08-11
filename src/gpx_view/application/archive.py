@@ -204,6 +204,28 @@ class ArchiveCounts:
 
 
 @dataclass(frozen=True, slots=True)
+class StagedArchive:
+    """What a builder captured, and what that material says about itself.
+
+    Every field is read from the **staged** database rather than from the live
+    deployment. That distinction is the reason this type exists: a manifest
+    describes the database inside its own archive, and taking the schema version
+    or the counts from a connection to something else is a second authority --
+    one that disagrees the moment anybody archives a data directory that is not
+    the running one.
+
+    Attributes:
+        contents: The members, with their sizes and digests.
+        schema_version: The schema of the database that was captured.
+        counts: What that database holds.
+    """
+
+    contents: "ArchiveContents"
+    schema_version: int
+    counts: "ArchiveCounts"
+
+
+@dataclass(frozen=True, slots=True)
 class ArchiveOmission:
     """Something a deployment holds that this archive deliberately leaves out.
 
@@ -327,18 +349,6 @@ class RestoreOutcome:
     replaced_existing_data: bool
 
 
-class ArchiveSource(Protocol):
-    """A live deployment, in the terms an archive needs from it."""
-
-    def schema_version(self) -> int:
-        """Return the database schema version this deployment currently holds."""
-        ...
-
-    def counts(self) -> ArchiveCounts:
-        """Return what the archive holds, for the manifest and for a dry-run."""
-        ...
-
-
 class ArchiveBuilder(Protocol):
     """Assembles one archive. Infrastructure decides where and how.
 
@@ -348,8 +358,12 @@ class ArchiveBuilder(Protocol):
     one that has to be atomic.
     """
 
-    def stage(self) -> ArchiveContents:
-        """Capture a consistent copy of everything an archive holds.
+    def stage(self) -> StagedArchive:
+        """Capture a consistent copy of everything an archive holds, and describe it.
+
+        What is returned describes the staged material, read from it. A builder
+        that reported the *live* deployment's schema and counts instead would
+        produce a manifest about a different database.
 
         Raises:
             ArchiveError: If the database could not be captured or an artifact
@@ -419,12 +433,11 @@ class CreateArchive:
 
     The use case owns the manifest -- what an archive claims about itself is a
     contract, not a detail of whichever writer produced it -- and the builder
-    owns the container.
+    owns the container and reports what it captured.
     """
 
-    def __init__(self, source: ArchiveSource, clock: Clock, version: str) -> None:
-        """Wire the use case to the deployment it describes."""
-        self._source = source
+    def __init__(self, clock: Clock, version: str) -> None:
+        """Wire the use case to the clock and the release that will stamp it."""
         self._clock = clock
         self._version = version
 
@@ -435,15 +448,16 @@ class CreateArchive:
             ArchiveError: If the material could not be captured or written.
         """
         try:
-            contents = builder.stage()
+            staged = builder.stage()
             manifest = ArchiveManifest(
                 format_name=ARCHIVE_FORMAT_NAME,
                 format_version=ARCHIVE_FORMAT_VERSION,
                 created_at=self._clock.now(),
                 gpx_view_version=self._version,
-                schema_version=self._source.schema_version(),
-                contents=contents,
-                counts=self._source.counts(),
+                # From the staged database, not from a live one. See StagedArchive.
+                schema_version=staged.schema_version,
+                contents=staged.contents,
+                counts=staged.counts,
             )
             builder.finish(manifest)
         except BaseException:

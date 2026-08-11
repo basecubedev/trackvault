@@ -34,7 +34,6 @@ from gpx_view.application.reprocess import ReprocessRawImport
 from gpx_view.config import Settings
 from gpx_view.infrastructure.clock import SystemClock
 from gpx_view.infrastructure.database import SqliteTrackStore
-from gpx_view.infrastructure.database.archive_source import SqliteArchiveSource
 from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore
 from gpx_view.infrastructure.database.migrations import SCHEMA_VERSION
 from gpx_view.infrastructure.filesystem import FilesystemRawImportStore
@@ -213,9 +212,7 @@ def build_services(settings: Settings) -> TrackServices:
         export_document=ExportTrackDocument(
             repository=store, writer=GpxDocumentWriter(generator=f"GPX-View {VERSION}")
         ),
-        create_archive=CreateArchive(
-            source=SqliteArchiveSource(store), clock=clock, version=VERSION
-        ),
+        create_archive=CreateArchive(clock=clock, version=VERSION),
         # The schema version this *build* installs, not the one the database
         # happens to hold. A restore is judged against what this code can read,
         # which is what makes an archive from a newer build a refusal rather

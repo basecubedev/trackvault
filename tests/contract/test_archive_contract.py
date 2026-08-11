@@ -693,3 +693,94 @@ def test_backup_destroy_restore_returns_the_archive_intact(
     assert summary.user_metadata.note == "a note"
     assert restored.store.get_geometry(track_ids[0]) == before
     assert restored.raw_store.read(sha256) == (FIXTURES / "recorded-measurements.gpx").read_bytes()
+
+
+def test_an_empty_archive_is_not_data_worth_protecting(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """Holding data means data, not files.
+
+    Starting the server creates and migrates a database, so a destination that
+    holds nothing at all still has a file in it. If that counted as data, the
+    ordinary disaster-recovery path would be `restore --replace` -- and making
+    `--replace` the normal thing to type is how somebody eventually types it at
+    an archive that mattered.
+    """
+    _import(services, "recorded-measurements.gpx")
+    archive = _write_archive(services, tmp_path)
+    fresh = tmp_path / "fresh"
+    started = build_services(Settings(data_dir=fresh))
+    started.prepare_storage()
+    assert (fresh / "gpx-view.sqlite3").is_file()
+
+    outcome = services.restore_archive(_extractor(archive, fresh))
+
+    assert not outcome.replaced_existing_data
+
+
+def test_an_archive_holding_one_source_is_protected(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """One imported track is data, and replacing it takes an explicit decision."""
+    _import(services, "recorded-measurements.gpx")
+    archive = _write_archive(services, tmp_path)
+
+    extractor = _extractor(archive, services.settings.data_dir)
+
+    assert extractor.target_holds_data()
+
+
+def test_a_database_that_cannot_be_accounted_for_counts_as_data(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """Fail safe: unreadable is not "nothing is there".
+
+    A file this build cannot explain is something a person should look at before
+    it is replaced, not an absence to restore over.
+    """
+    _import(services, "recorded-measurements.gpx")
+    archive = _write_archive(services, tmp_path)
+    damaged = tmp_path / "damaged"
+    damaged.mkdir()
+    (damaged / "gpx-view.sqlite3").write_bytes(b"this is not a database at all")
+
+    extractor = _extractor(archive, damaged)
+
+    assert extractor.target_holds_data()
+    with pytest.raises(ArchiveError) as raised:
+        services.restore_archive(extractor)
+    assert raised.value.code is ArchiveErrorCode.TARGET_OCCUPIED
+
+
+def test_a_raw_artifact_without_a_database_counts_as_data(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """The other half of an archive. Losing it is losing the irreplaceable half."""
+    _import(services, "recorded-measurements.gpx")
+    archive = _write_archive(services, tmp_path)
+    orphaned = tmp_path / "orphaned"
+    (orphaned / "raw" / "sha256" / "ab").mkdir(parents=True)
+    (orphaned / "raw" / "sha256" / "ab" / f"{'ab' * 32}.raw").write_bytes(b"someone's afternoon")
+
+    assert _extractor(archive, orphaned).target_holds_data()
+
+
+def test_an_archive_holding_no_originals_still_restores(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """A deployment that has imported nothing is a valid thing to back up.
+
+    It is also the first backup most people take -- the one that checks the
+    command works before they need it. Nothing creates a raw directory during
+    extraction in that case, and publishing still has to put the empty storage
+    the archive describes into place.
+    """
+    archive = _write_archive(services, tmp_path)
+    fresh = tmp_path / "fresh"
+
+    outcome = services.restore_archive(_extractor(archive, fresh))
+
+    assert outcome.manifest.counts.raw_imports == 0
+    assert (fresh / "gpx-view.sqlite3").is_file()
+    assert (fresh / "raw").is_dir()
+    assert not list((fresh / "raw").iterdir())
