@@ -231,6 +231,31 @@ def test_two_tracks_of_different_geometry_have_different_identities(
     assert len(identities) == len(tracks) == 2
 
 
+def test_the_identity_follows_the_geometry_through_a_reprocess(tmp_path: Path) -> None:
+    """It is republished from what the new generation holds, not carried over.
+
+    The distinction only shows when a reprocess changes something, and by then
+    a stale label would already have been handed to a client as this track's
+    current shape. What is checked here is the mechanism: after a regeneration
+    the published identity is still the identity of the geometry the archive now
+    answers with, whatever that turned out to be.
+    """
+    settings = Settings(data_dir=tmp_path / "data")
+    services = build_services(settings)
+    services.prepare_storage()
+    outcome = services.import_tracks(
+        ImportRequest(content=(FIXTURES / "recorded-measurements.gpx").read_bytes())
+    )
+
+    services.reprocess(outcome.sha256)
+
+    track_id = outcome.track_ids[0]
+    with TestClient(create_app(settings)) as fresh:
+        geometry = fresh.get(f"/api/v1/tracks/{track_id}/geometry").json()
+        track = fresh.get(f"/api/v1/tracks/{track_id}").json()
+    assert track["geometry_sha256"] == recording_fingerprint(_segments_of(geometry))
+
+
 def test_correcting_what_a_user_says_leaves_the_geometry_identity_alone(
     archive: TestClient,
 ) -> None:
