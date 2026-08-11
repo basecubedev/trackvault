@@ -1,13 +1,13 @@
 # Agent rules
 
 This file is the **canonical and only complete rule source** for automated agents
-and human contributors working on GPX-View.
+and human contributors working on TrackVault.
 
 `AGENTS.md`, `CLAUDE.md` and `.github/copilot-instructions.md` are short entry
 points. They point here and must never grow into a second copy of these rules.
 `tests/contract/test_agent_rules_contract.py` enforces that.
 
-GPX-View is a self-hosted, source-agnostic activity and route archive for recorded
+TrackVault is a self-hosted, source-agnostic activity and route archive for recorded
 and planned geospatial tracks. GPX is the first supported exchange format, not the
 product.
 
@@ -72,7 +72,7 @@ authority table. In short:
 | Exported exchange document | the current normalized generation, never the source file |
 | What an archive holds | its own manifest, including what it deliberately omits |
 | Whether an archive may be restored | one compatibility rule over format and schema version |
-| Configuration | `gpx_view.config` backend settings |
+| Configuration | `trackvault.config` backend settings |
 
 No UI and no import adapter may ever create a second, independent business truth.
 Projections are allowed to reshape data; they are not allowed to decide it.
@@ -242,22 +242,22 @@ Full detail in `docs/technical/contracts.md`. Non-negotiable:
 
 Layers, inner to outer: `domain` -> `application` -> `infrastructure` / `api`.
 
-- `gpx_view.domain` uses the Python standard library only, and not its
+- `trackvault.domain` uses the Python standard library only, and not its
   infrastructure corners either: no `xml`, `sqlite3`, `pathlib`, `os`, `json`,
   `csv`, `http` or `urllib`. No FastAPI, database, Docker, GPX/FIT parser or
   frontend imports. No vendor-specific classes, and no branching on vendor name
   literals.
-- `gpx_view.application` may use the domain. External systems are reached only
+- `trackvault.application` may use the domain. External systems are reached only
   through explicit ports (`typing.Protocol`). It knows no concrete parser and must
   not import FastAPI, the API layer or concrete adapters.
-- `gpx_view.infrastructure` holds concrete adapters and is the only layer that
+- `trackvault.infrastructure` holds concrete adapters and is the only layer that
   knows formats and storage. It implements the contracts of the inner layers and
   must not import the API layer.
-- `gpx_view.api` is the HTTP projection: validate, call a use case, project the
+- `trackvault.api` is the HTTP projection: validate, call a use case, project the
   result. No classification or analysis heuristic in a route.
 - A future browser UI is projection only. Browser state is never business
   authority.
-- `gpx_view.main` is the composition root. Bootstrap only, never business logic.
+- `trackvault.main` is the composition root. Bootstrap only, never business logic.
 
 `tests/contract/test_architecture_contract.py` enforces these boundaries with an
 AST check. If a boundary genuinely has to change, change the documentation and the
@@ -309,7 +309,7 @@ contract test in the same commit, and say so.
 GPS files are private movement data about real people.
 
 - **Private movement data is created with restrictive permissions.** Directories
-  GPX-View creates are `0700`, files `0600` -- the database, its journal files,
+  TrackVault creates are `0700`, files `0600` -- the database, its journal files,
   the managed raw artifacts and the temporaries they are written through. The
   mode is stated to the call that creates the object, never applied afterwards,
   and never left to the umask. Existing files are reported, not chmodded: they

@@ -14,9 +14,9 @@ import math
 
 import pytest
 
-from gpx_view.domain import TrackPoint, TrackSegment
-from gpx_view.domain.analysis import analyse_elevation, track_distance
-from gpx_view.domain.analysis.elevation import ELEVATION_DEADBAND_METRES
+from trackvault.domain import TrackPoint, TrackSegment
+from trackvault.domain.analysis import analyse_elevation, track_distance
+from trackvault.domain.analysis.elevation import ELEVATION_DEADBAND_METRES
 
 pytestmark = [pytest.mark.unit, pytest.mark.analysis]
 

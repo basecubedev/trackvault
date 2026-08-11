@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.cli import EXIT_FAILED, EXIT_OK, main
-from gpx_view.config import Settings
+from trackvault.cli import EXIT_FAILED, EXIT_OK, main
+from trackvault.config import Settings
 
 pytestmark = pytest.mark.integration
 

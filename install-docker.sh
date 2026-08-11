@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install GPX-View into an empty directory, using the published container image.
+# Install TrackVault into an empty directory, using the published container image.
 #
 # What this script is for: turning "I would like to keep my tracks" into a
 # running archive, without a Git clone, without Python and without Node on the
@@ -15,9 +15,9 @@
 #
 set -eu
 
-DEFAULT_IMAGE_REPOSITORY="ghcr.io/basecubedev/gpx-view"
+DEFAULT_IMAGE_REPOSITORY="ghcr.io/basecubedev/trackvault"
 DEFAULT_TAG="latest"
-DEFAULT_PORT="8080"
+DEFAULT_PORT="8081"
 CONTAINER_PORT="8080"
 
 COMPOSE_FILE="docker-compose.yml"
@@ -27,7 +27,7 @@ ENV_FILE=".env"
 # person, and a mode applied afterwards leaves a window in which it was not.
 PRIVATE_MODE="700"
 
-image_repository="${GPX_VIEW_IMAGE_REPOSITORY:-$DEFAULT_IMAGE_REPOSITORY}"
+image_repository="${TRACKVAULT_IMAGE_REPOSITORY:-$DEFAULT_IMAGE_REPOSITORY}"
 tag="$DEFAULT_TAG"
 port="$DEFAULT_PORT"
 import_path="./import"
@@ -38,7 +38,7 @@ force=0
 
 usage() {
     cat <<'USAGE'
-Install GPX-View with Docker.
+Install TrackVault with Docker.
 
 Usage: sh install-docker.sh [options]
 
@@ -46,8 +46,9 @@ Options:
   --dir <path>          Install into this directory (default: the current one)
   --tag <tag>           Image tag: "latest" for the newest release, or vX.Y.Z
                         for a specific one (default: latest)
-  --image <repository>  Image repository (default: ghcr.io/basecubedev/gpx-view)
-  --port <port>         Host port to serve on (default: 8080)
+  --image <repository>  Image repository (default: ghcr.io/basecubedev/trackvault)
+  --port <port>         Host port to serve on (default: 8081). The container
+                        always listens on 8080; this is the host side of it.
   --import-dir <path>   Host directory to mount read-only as the import folder
                         (default: ./import inside the installation)
   --no-start            Write the files but do not pull or start anything
@@ -62,10 +63,10 @@ Version selection:
   main branch cannot become anybody's "latest".
 
 After installing:
-  docker compose up -d                                  start it
-  docker compose exec gpx-view gpx-view scan            import from ./import
-  docker compose exec gpx-view gpx-view doctor          check the deployment
-  docker compose exec gpx-view gpx-view backup create   write a backup
+  docker compose up -d                                      start it
+  docker compose exec trackvault trackvault scan            import from ./import
+  docker compose exec trackvault trackvault doctor          check the deployment
+  docker compose exec trackvault trackvault backup create   write a backup
 USAGE
 }
 
@@ -140,17 +141,17 @@ fi
 
 write_compose() {
     cat <<'COMPOSE'
-# GPX-View, self-hosted.
+# TrackVault, self-hosted.
 #
 # Written by install-docker.sh. Everything configurable lives in .env beside
 # this file, so an upgrade can replace this file without losing your settings.
 
-name: gpx-view
+name: trackvault
 
 services:
-  gpx-view:
-    image: ${GPX_VIEW_IMAGE}
-    container_name: gpx-view
+  trackvault:
+    image: ${TRACKVAULT_IMAGE}
+    container_name: trackvault
     restart: unless-stopped
 
     # Runs as you, not as root and not as a fixed uid the host knows nothing
@@ -159,33 +160,33 @@ services:
     user: "${PUID}:${PGID}"
 
     ports:
-      - "${GPX_VIEW_HTTP_PORT}:8080"
+      - "${TRACKVAULT_HTTP_PORT}:8080"
 
     environment:
       # Everything persistent. Backing this up backs up the whole archive.
-      GPX_VIEW_DATA_DIR: /data
-      # Where `gpx-view scan` looks. Mounted read-only below, which is the mount
+      TRACKVAULT_DATA_DIR: /data
+      # Where `trackvault scan` looks. Mounted read-only below, which is the mount
       # enforcing what the application already promises: nothing in the import
       # folder is written, renamed, moved or deleted.
-      GPX_VIEW_IMPORT_DIR: /import
-      # Where `gpx-view backup create` writes. Deliberately not inside /data: a
+      TRACKVAULT_IMPORT_DIR: /import
+      # Where `trackvault backup create` writes. Deliberately not inside /data: a
       # backup kept in the directory it protects is lost with it.
-      GPX_VIEW_BACKUP_DIR: /backups
+      TRACKVAULT_BACKUP_DIR: /backups
       # Which zone month and year boundaries are drawn in. UTC by default,
       # because a container inherits whatever its image carries and the same
       # archive would otherwise report different monthly totals on two machines.
-      GPX_VIEW_TIMEZONE: ${GPX_VIEW_TIMEZONE}
+      TRACKVAULT_TIMEZONE: ${TRACKVAULT_TIMEZONE}
       # Adding files from the browser. Off by default: it is the one thing a
       # caller can do that writes, and there is no authentication in front of
       # it. Reading works either way.
-      GPX_VIEW_UPLOAD_ENABLED: ${GPX_VIEW_UPLOAD_ENABLED}
+      TRACKVAULT_UPLOAD_ENABLED: ${TRACKVAULT_UPLOAD_ENABLED}
       # Set to false to refuse every outbound map download. Installed maps
       # keep working.
-      GPX_VIEW_MAPS_ENABLED: ${GPX_VIEW_MAPS_ENABLED}
+      TRACKVAULT_MAPS_ENABLED: ${TRACKVAULT_MAPS_ENABLED}
 
     volumes:
       - ./data:/data
-      - ${GPX_VIEW_IMPORT_PATH}:/import:ro
+      - ${TRACKVAULT_IMPORT_PATH}:/import:ro
       - ./backups:/backups
 
     # The health check comes from the image, so it cannot drift from the
@@ -195,33 +196,33 @@ COMPOSE
 
 write_env() {
     cat <<ENV
-# GPX-View settings. Edit, then \`docker compose up -d\` to apply.
+# TrackVault settings. Edit, then \`docker compose up -d\` to apply.
 
 # Which release to run. Pin a version (v1.2.3) to decide upgrades yourself.
-GPX_VIEW_IMAGE=$image
+TRACKVAULT_IMAGE=$image
 
 # The address you open in a browser: http://localhost:<this>
-GPX_VIEW_HTTP_PORT=$port
+TRACKVAULT_HTTP_PORT=$port
 
 # The host directory mounted read-only as the import folder. Point this at your
 # phone's sync target to import what it uploads.
-GPX_VIEW_IMPORT_PATH=$import_path
+TRACKVAULT_IMPORT_PATH=$import_path
 
 # The container runs as this user so that ./data and ./backups stay yours.
 PUID=$puid
 PGID=$pgid
 
 # The zone month and year boundaries are drawn in, for example Europe/Berlin.
-GPX_VIEW_TIMEZONE=UTC
+TRACKVAULT_TIMEZONE=UTC
 
 # Whether the browser interface may add files. Off, because there is no
 # authentication and this is the one thing a caller can do that writes. Set it
 # to true once you are happy that your network makes that acceptable; importing
 # from the command line and the import folder works either way.
-GPX_VIEW_UPLOAD_ENABLED=false
+TRACKVAULT_UPLOAD_ENABLED=false
 
 # Whether offline map packages may be downloaded at all.
-GPX_VIEW_MAPS_ENABLED=true
+TRACKVAULT_MAPS_ENABLED=true
 ENV
 }
 
@@ -275,9 +276,9 @@ docker compose pull
 docker compose up -d
 
 note ""
-note "GPX-View is starting on http://localhost:$port"
+note "TrackVault is starting on http://localhost:$port"
 note ""
 note "  Put GPX files in:  $import_path"
-note "  Then import them:  docker compose exec gpx-view gpx-view scan"
-note "  Check the archive: docker compose exec gpx-view gpx-view doctor"
-note "  Back it up:        docker compose exec gpx-view gpx-view backup create"
+note "  Then import them:  docker compose exec trackvault trackvault scan"
+note "  Check the archive: docker compose exec trackvault trackvault doctor"
+note "  Back it up:        docker compose exec trackvault trackvault backup create"

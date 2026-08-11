@@ -23,11 +23,11 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.analysis import InstalledAnalysis
-from gpx_view.application.analyze import AnalyzeTrack
-from gpx_view.application.ports import AnalysisAvailability, TrackOrder, TrackQuery
-from gpx_view.application.statistics import AggregationScope, GetYearStatistics
-from gpx_view.domain import (
+from trackvault.application.analysis import InstalledAnalysis
+from trackvault.application.analyze import AnalyzeTrack
+from trackvault.application.ports import AnalysisAvailability, TrackOrder, TrackQuery
+from trackvault.application.statistics import AggregationScope, GetYearStatistics
+from trackvault.domain import (
     NORMALIZATION_SCHEMA_VERSION,
     Activity,
     ClassificationResult,
@@ -43,8 +43,8 @@ from gpx_view.domain import (
     TrackPoint,
     TrackSegment,
 )
-from gpx_view.domain.analysis import ANALYSIS_PROFILE
-from gpx_view.infrastructure.database import SqliteTrackStore
+from trackvault.domain.analysis import ANALYSIS_PROFILE
+from trackvault.infrastructure.database import SqliteTrackStore
 
 pytestmark = [pytest.mark.integration, pytest.mark.statistics]
 
@@ -152,7 +152,7 @@ def _fill(store: SqliteTrackStore, tracks: int) -> None:
 @pytest.fixture
 def archive(tmp_path: Path) -> _RecordingStore:
     """Return a store holding enough analysed tracks to see a shape."""
-    store = _RecordingStore(tmp_path / "gpx-view.sqlite3")
+    store = _RecordingStore(tmp_path / "trackvault.sqlite3")
     store.migrate()
     _fill(store, TRACKS)
     return store

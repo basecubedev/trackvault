@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.cli import EXIT_FAILED, EXIT_OK, main
-from gpx_view.config import Settings
+from trackvault.cli import EXIT_FAILED, EXIT_OK, main
+from trackvault.config import Settings
 
 pytestmark = pytest.mark.integration
 
@@ -97,7 +97,7 @@ def test_a_generated_document_is_not_the_original_bytes(
     assert main(["export", "track", "1", "--output", str(generated)], settings=settings) == EXIT_OK
 
     assert raw.read_bytes() != generated.read_bytes()
-    assert b"GPX-View" in generated.read_bytes()
+    assert b"TrackVault" in generated.read_bytes()
 
 
 def test_exporting_an_unknown_track_fails(tmp_path: Path, settings: Settings) -> None:

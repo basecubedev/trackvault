@@ -1,6 +1,6 @@
 """The import directory as a threat boundary, not just a folder.
 
-``GPX_VIEW_IMPORT_DIR`` is where a phone auto-sync tool, a download manager or
+``TRACKVAULT_IMPORT_DIR`` is where a phone auto-sync tool, a download manager or
 anything else on the machine drops files. What lands there is untrusted, and so
 is what happens to it between the moment the scan lists a name and the moment the
 archive opens it.
@@ -28,8 +28,8 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application import ImportLimits
-from gpx_view.infrastructure.filesystem import open_import_directory
+from trackvault.application import ImportLimits
+from trackvault.infrastructure.filesystem import open_import_directory
 
 pytestmark = [pytest.mark.integration, pytest.mark.storage]
 

@@ -10,19 +10,19 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application import ImportErrorCode, ImportLimits
-from gpx_view.application.import_tracks import (
+from trackvault.application import ImportErrorCode, ImportLimits
+from trackvault.application.import_tracks import (
     ImportOutcome,
     ImportRequest,
     ImportStatus,
     ImportTracks,
 )
-from gpx_view.application.normalization import NormalizeRawImport
-from gpx_view.application.ports import TrackQuery
-from gpx_view.domain import Activity, EvidenceCode, InputChannel, ProcessingStatus, TrackKind
-from gpx_view.infrastructure.database import SqliteTrackStore
-from gpx_view.infrastructure.filesystem import FilesystemRawImportStore
-from gpx_view.infrastructure.gpx import GpxImporter
+from trackvault.application.normalization import NormalizeRawImport
+from trackvault.application.ports import TrackQuery
+from trackvault.domain import Activity, EvidenceCode, InputChannel, ProcessingStatus, TrackKind
+from trackvault.infrastructure.database import SqliteTrackStore
+from trackvault.infrastructure.filesystem import FilesystemRawImportStore
+from trackvault.infrastructure.gpx import GpxImporter
 
 pytestmark = [pytest.mark.integration, pytest.mark.gpx, pytest.mark.persistence]
 
@@ -58,7 +58,7 @@ def _pipeline(
 @pytest.fixture
 def pipeline(tmp_path: Path) -> ImportTracks:
     """Return the import use case wired to a throwaway data directory."""
-    store = SqliteTrackStore(tmp_path / "gpx-view.sqlite3")
+    store = SqliteTrackStore(tmp_path / "trackvault.sqlite3")
     store.migrate()
     return _pipeline(tmp_path, store)
 
@@ -66,7 +66,7 @@ def pipeline(tmp_path: Path) -> ImportTracks:
 @pytest.fixture
 def store(pipeline: ImportTracks, tmp_path: Path) -> SqliteTrackStore:  # noqa: ARG001
     """Return the store the pipeline writes to."""
-    return SqliteTrackStore(tmp_path / "gpx-view.sqlite3")
+    return SqliteTrackStore(tmp_path / "trackvault.sqlite3")
 
 
 @pytest.fixture
@@ -340,7 +340,7 @@ def test_an_oversized_file_stores_nothing_at_all(
     tmp_path: Path, store: SqliteTrackStore, raw_store: FilesystemRawImportStore
 ) -> None:
     """A file refused on size must not cost storage either."""
-    tiny = SqliteTrackStore(tmp_path / "gpx-view.sqlite3")
+    tiny = SqliteTrackStore(tmp_path / "trackvault.sqlite3")
     tiny.migrate()
     pipeline = _pipeline(tmp_path, tiny, ImportLimits(max_bytes=64))
 

@@ -337,7 +337,7 @@ function EmptyResult({
         <h2>No tracks imported yet</h2>
         <p className="muted">
           Tracks are imported on the machine that holds the data, with{' '}
-          <code>gpx-view import</code> or <code>gpx-view scan</code>.
+          <code>trackvault import</code> or <code>trackvault scan</code>.
         </p>
       </div>
     )

@@ -1,9 +1,10 @@
 {
-  "name": "gpx-view-web",
+  "name": "trackvault-web",
   "private": true,
   "type": "module",
   "version": "0.1.0",
-  "description": "Browser projection of the GPX-View archive.",
+  "description": "Browser projection of the TrackVault archive.",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,7 +13,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "schema": "uv run --project .. gpx-view openapi --output openapi.json",
+    "schema": "uv run --project .. trackvault openapi --output openapi.json",
     "generate:api": "npm run schema && openapi-typescript openapi.json --output src/api/schema.ts",
     "licenses": "node scripts/audit-licenses.mjs"
   },

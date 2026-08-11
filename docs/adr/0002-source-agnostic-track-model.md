@@ -13,7 +13,7 @@ intended first persistence backend.
 ADR 0001 described the foundation with GPX from Locus Map as the concrete starting
 point. The product goal has since been sharpened:
 
-> GPX-View is a self-hosted, source-agnostic activity and route archive for
+> TrackVault is a self-hosted, source-agnostic activity and route archive for
 > recorded and planned geospatial tracks.
 
 Tracks will arrive from several applications (Locus Map, Komoot, Garmin, Wahoo,

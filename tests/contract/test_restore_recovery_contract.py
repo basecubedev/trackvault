@@ -27,20 +27,20 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.archive import ArchiveError
-from gpx_view.application.diagnostics import CheckStatus, Diagnose
-from gpx_view.application.import_tracks import ImportRequest, ImportStatus
-from gpx_view.config import Settings
-from gpx_view.domain import InputChannel
-from gpx_view.infrastructure.archive import FilesystemArchiveBuilder, FilesystemArchiveExtractor
-from gpx_view.infrastructure.archive.publication import (
+from trackvault.application.archive import ArchiveError
+from trackvault.application.diagnostics import CheckStatus, Diagnose
+from trackvault.application.import_tracks import ImportRequest, ImportStatus
+from trackvault.config import Settings
+from trackvault.domain import InputChannel
+from trackvault.infrastructure.archive import FilesystemArchiveBuilder, FilesystemArchiveExtractor
+from trackvault.infrastructure.archive.publication import (
     RESTORE_MARKER_NAME,
     pending_restore,
     recover_interrupted_restore,
 )
-from gpx_view.infrastructure.assembly import TrackServices, build_services
-from gpx_view.infrastructure.database.migrations import SCHEMA_VERSION
-from gpx_view.infrastructure.diagnostics import observe
+from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.database.migrations import SCHEMA_VERSION
+from trackvault.infrastructure.diagnostics import observe
 
 pytestmark = [pytest.mark.contract, pytest.mark.persistence]
 

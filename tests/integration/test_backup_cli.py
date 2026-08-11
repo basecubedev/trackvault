@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.cli import EXIT_DEGRADED, EXIT_FAILED, EXIT_OK, main
-from gpx_view.config import Settings
-from gpx_view.infrastructure.archive import ARCHIVE_SUFFIX
+from trackvault.cli import EXIT_DEGRADED, EXIT_FAILED, EXIT_OK, main
+from trackvault.config import Settings
+from trackvault.infrastructure.archive import ARCHIVE_SUFFIX
 
 pytestmark = pytest.mark.integration
 
@@ -39,7 +39,7 @@ def archive(tmp_path: Path, settings: Settings) -> Path:
 def test_a_backup_lands_in_the_configured_directory(archive: Path) -> None:
     """A backup written into the data directory would be lost with it."""
     assert archive.parent.name == "backups"
-    assert archive.name.startswith("gpx-view-")
+    assert archive.name.startswith("trackvault-")
     assert tarfile.is_tarfile(archive)
 
 
@@ -165,7 +165,7 @@ def test_a_restore_into_a_fresh_directory_succeeds(
     exit_code = main(["restore", str(archive), "--into", str(target)], settings=settings)
 
     assert exit_code == EXIT_OK
-    assert (target / "gpx-view.sqlite3").is_file()
+    assert (target / "trackvault.sqlite3").is_file()
     assert any((target / "raw").rglob("*.raw"))
 
 
@@ -191,7 +191,7 @@ def test_restoring_a_file_that_is_not_an_archive_fails_cleanly(
 
     assert exit_code == EXIT_FAILED
     assert "archive_unreadable" in capsys.readouterr().err
-    assert not (target / "gpx-view.sqlite3").exists()
+    assert not (target / "trackvault.sqlite3").exists()
 
 
 def test_a_backup_of_a_fresh_archive_is_still_a_backup(
@@ -266,7 +266,7 @@ def test_doctor_reports_a_missing_import_directory_as_degraded(
     exit_code = main(["doctor"], settings=settings)
 
     assert exit_code == EXIT_DEGRADED
-    assert "GPX_VIEW_IMPORT_DIR" in capsys.readouterr().out
+    assert "TRACKVAULT_IMPORT_DIR" in capsys.readouterr().out
 
 
 @pytest.mark.usefixtures("archive")
@@ -289,4 +289,4 @@ def test_doctor_on_a_fresh_directory_creates_no_database(tmp_path: Path) -> None
     exit_code = main(["doctor"], settings=fresh)
 
     assert exit_code == EXIT_DEGRADED
-    assert not (tmp_path / "untouched" / "gpx-view.sqlite3").exists()
+    assert not (tmp_path / "untouched" / "trackvault.sqlite3").exists()

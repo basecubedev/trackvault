@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gpx_view.domain import (
+from trackvault.domain import (
     NORMALIZATION_SCHEMA_VERSION,
     InputChannel,
     ProcessingRun,

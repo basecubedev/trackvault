@@ -29,14 +29,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import BinaryIO
 
-from gpx_view.application.maps import (
+from trackvault.application.maps import (
     CatalogRegion,
     MapErrorCode,
     MapOperationError,
     RemotePackage,
     TransferOutcome,
 )
-from gpx_view.domain.maps import MapBounds, MapRegionId
+from trackvault.domain.maps import MapBounds, MapRegionId
 
 CHUNK = 64 * 1024
 

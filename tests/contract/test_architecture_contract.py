@@ -15,32 +15,32 @@ from pathlib import Path
 import pytest
 
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
-PACKAGE_ROOT = SRC_ROOT / "gpx_view"
+PACKAGE_ROOT = SRC_ROOT / "trackvault"
 
-# Which ``gpx_view.*`` modules each layer is allowed to import.
-# `gpx_view.release` is a leaf module holding the build's version string. Every
+# Which ``trackvault.*`` modules each layer is allowed to import.
+# `trackvault.release` is a leaf module holding the build's version string. Every
 # layer but the domain may read it: a User-Agent and a system-info response both
 # legitimately state which release is speaking. The domain may not -- a business
 # rule that behaves differently in one release is not a business rule.
 ALLOWED_INTERNAL_IMPORTS: dict[str, frozenset[str]] = {
-    "domain": frozenset({"gpx_view.domain"}),
-    "application": frozenset({"gpx_view.domain", "gpx_view.application", "gpx_view.release"}),
+    "domain": frozenset({"trackvault.domain"}),
+    "application": frozenset({"trackvault.domain", "trackvault.application", "trackvault.release"}),
     "infrastructure": frozenset(
         {
-            "gpx_view.domain",
-            "gpx_view.application",
-            "gpx_view.infrastructure",
-            "gpx_view.config",
-            "gpx_view.release",
+            "trackvault.domain",
+            "trackvault.application",
+            "trackvault.infrastructure",
+            "trackvault.config",
+            "trackvault.release",
         }
     ),
     "api": frozenset(
         {
-            "gpx_view.domain",
-            "gpx_view.application",
-            "gpx_view.api",
-            "gpx_view.config",
-            "gpx_view.release",
+            "trackvault.domain",
+            "trackvault.application",
+            "trackvault.api",
+            "trackvault.config",
+            "trackvault.release",
         }
     ),
 }
@@ -138,8 +138,8 @@ SOURCE_AGNOSTIC_LAYERS = ("domain", "application", "api")
 PERSISTENCE_MODULES = frozenset({"sqlite3", "sqlalchemy", "alembic", "psycopg", "asyncpg"})
 
 PERSISTENCE_PACKAGES = (
-    "gpx_view.infrastructure.database",
-    "gpx_view.infrastructure.maps.mbtiles",
+    "trackvault.infrastructure.database",
+    "trackvault.infrastructure.maps.mbtiles",
 )
 """Which modules may name the SQLite driver, and why there are two.
 
@@ -156,12 +156,12 @@ package is what stops "the store" from meaning two things.
 # has to fix the file -- but no class or function outside the adapter may.
 FORMAT_NAMES = ("gpx", "fit", "tcx", "kml", "geojson", "xml")
 
-FORMAT_ADAPTER_PACKAGES = ("gpx_view.infrastructure.gpx",)
+FORMAT_ADAPTER_PACKAGES = ("trackvault.infrastructure.gpx",)
 
 # Where the meaning of a vendor extension schema is decided. Naming concrete
 # namespaces is what an adapter is for; knowing them anywhere else would make a
 # vendor's vocabulary part of the business model.
-EXTENSION_SEMANTICS_MODULE = "gpx_view.infrastructure.gpx.extensions"
+EXTENSION_SEMANTICS_MODULE = "trackvault.infrastructure.gpx.extensions"
 
 # An adapter observes; it must not be able to decide a business verdict. Not
 # naming the types at all is a stronger guarantee than promising not to use them:
@@ -270,7 +270,7 @@ def test_layer_only_imports_allowed_internal_modules(layer: str) -> None:
         f"{_module_name(module)} imports {imported}"
         for module in _layer_modules(layer)
         for imported in _imported_modules(module)
-        if imported.startswith("gpx_view") and not _is_allowed(imported, allowed)
+        if imported.startswith("trackvault") and not _is_allowed(imported, allowed)
     ]
     assert not violations, (
         f"layer '{layer}' may only import {sorted(allowed)}; violations: {violations}"
@@ -285,14 +285,14 @@ def test_stdlib_only_layer_has_no_third_party_imports(layer: str) -> None:
         f"{_module_name(module)} imports {imported}"
         for module in _layer_modules(layer)
         for imported in _imported_modules(module)
-        if not imported.startswith("gpx_view")
+        if not imported.startswith("trackvault")
         and imported.split(".")[0] not in sys.stdlib_module_names
     ]
     assert not violations, f"layer '{layer}' must use the standard library only: {violations}"
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize("forbidden", ["gpx_view.api", "gpx_view.infrastructure", "fastapi"])
+@pytest.mark.parametrize("forbidden", ["trackvault.api", "trackvault.infrastructure", "fastapi"])
 def test_domain_does_not_import(forbidden: str) -> None:
     """The domain never reaches outwards to HTTP, adapters or FastAPI."""
     imports = {
@@ -325,7 +325,7 @@ def test_exchange_format_parsers_stay_inside_infrastructure(layer: str) -> None:
     ]
     assert not violations, (
         f"layer '{layer}' must not know a concrete exchange format; "
-        f"parsers belong in gpx_view.infrastructure: {violations}"
+        f"parsers belong in trackvault.infrastructure: {violations}"
     )
 
 
@@ -374,22 +374,22 @@ def test_application_does_not_import_api() -> None:
         for module in _layer_modules("application")
         for imported in _imported_modules(module)
     }
-    assert not any(name.startswith("gpx_view.api") for name in imports)
+    assert not any(name.startswith("trackvault.api") for name in imports)
 
 
 @pytest.mark.contract
 def test_api_may_use_the_inner_layers() -> None:
     """The HTTP projection is permitted to call domain and application code."""
     allowed = ALLOWED_INTERNAL_IMPORTS["api"]
-    assert {"gpx_view.domain", "gpx_view.application"} <= allowed
+    assert {"trackvault.domain", "trackvault.application"} <= allowed
 
 
 @pytest.mark.contract
 def test_infrastructure_may_implement_inner_contracts() -> None:
     """Adapters are permitted to implement domain and application contracts."""
     allowed = ALLOWED_INTERNAL_IMPORTS["infrastructure"]
-    assert {"gpx_view.domain", "gpx_view.application"} <= allowed
-    assert not _is_allowed("gpx_view.api", allowed)
+    assert {"trackvault.domain", "trackvault.application"} <= allowed
+    assert not _is_allowed("trackvault.api", allowed)
 
 
 @pytest.mark.contract
@@ -511,7 +511,7 @@ def test_the_api_knows_no_concrete_repository() -> None:
     imports = {
         imported for module in _layer_modules("api") for imported in _imported_modules(module)
     }
-    assert not [name for name in imports if name.startswith("gpx_view.infrastructure")]
+    assert not [name for name in imports if name.startswith("trackvault.infrastructure")]
 
 
 @pytest.mark.contract
@@ -522,13 +522,13 @@ def test_every_adapter_package_is_reachable_only_through_infrastructure() -> Non
         for layer in LAYERS
         for module in _layer_modules(layer)
         if any(
-            imported.startswith("gpx_view.infrastructure.gpx")
-            or imported.startswith("gpx_view.infrastructure.database")
-            or imported.startswith("gpx_view.infrastructure.filesystem")
+            imported.startswith("trackvault.infrastructure.gpx")
+            or imported.startswith("trackvault.infrastructure.database")
+            or imported.startswith("trackvault.infrastructure.filesystem")
             for imported in _imported_modules(module)
         )
     }
-    assert all(name.startswith("gpx_view.infrastructure") for name in wiring), wiring
+    assert all(name.startswith("trackvault.infrastructure") for name in wiring), wiring
 
 
 ANALYSIS_PACKAGE = PACKAGE_ROOT / "domain" / "analysis"
@@ -562,10 +562,10 @@ def test_analysis_imports_no_exchange_format_and_no_outer_layer() -> None:
             assert root not in FORMAT_MODULES, f"{_module_name(module)} imports {imported}"
             assert not imported.startswith(
                 (
-                    "gpx_view.infrastructure",
-                    "gpx_view.application",
-                    "gpx_view.api",
-                    "gpx_view.config",
+                    "trackvault.infrastructure",
+                    "trackvault.application",
+                    "trackvault.api",
+                    "trackvault.config",
                 )
             ), f"{_module_name(module)} imports {imported}"
 
@@ -599,7 +599,7 @@ def test_no_route_derives_a_metric_of_its_own() -> None:
     """
     for module in _layer_modules("api"):
         for imported in _imported_modules(module):
-            assert imported != "gpx_view.domain.analysis.analyze", _module_name(module)
+            assert imported != "trackvault.domain.analysis.analyze", _module_name(module)
             assert not imported.endswith((".distance", ".movement", ".elevation")), (
                 f"{_module_name(module)} imports {imported}"
             )

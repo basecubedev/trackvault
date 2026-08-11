@@ -32,13 +32,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view.application.analysis import AnalysisAvailability, GetTrackAnalysis
-from gpx_view.application.import_tracks import ImportRequest
-from gpx_view.application.ports import TrackQuery
-from gpx_view.application.statistics import AggregationScope, GetYearStatistics
-from gpx_view.config import Settings
-from gpx_view.infrastructure.assembly import TrackServices, build_services
-from gpx_view.main import create_app
+from trackvault.application.analysis import AnalysisAvailability, GetTrackAnalysis
+from trackvault.application.import_tracks import ImportRequest
+from trackvault.application.ports import TrackQuery
+from trackvault.application.statistics import AggregationScope, GetYearStatistics
+from trackvault.config import Settings
+from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.main import create_app
 
 pytestmark = [pytest.mark.contract, pytest.mark.persistence, pytest.mark.analysis]
 

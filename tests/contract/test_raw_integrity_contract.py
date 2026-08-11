@@ -21,12 +21,12 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application import ImportErrorCode, TrackImportError
-from gpx_view.application.import_tracks import ImportOutcome, ImportRequest, ImportStatus
-from gpx_view.application.ports import RawArtifactState
-from gpx_view.config import Settings
-from gpx_view.infrastructure.assembly import TrackServices, build_services
-from gpx_view.infrastructure.filesystem import raw_store as raw_store_module
+from trackvault.application import ImportErrorCode, TrackImportError
+from trackvault.application.import_tracks import ImportOutcome, ImportRequest, ImportStatus
+from trackvault.application.ports import RawArtifactState
+from trackvault.config import Settings
+from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.filesystem import raw_store as raw_store_module
 
 pytestmark = [pytest.mark.contract, pytest.mark.storage, pytest.mark.persistence]
 

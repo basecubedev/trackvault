@@ -23,7 +23,7 @@ export function Credits() {
       <section className="panel">
         <h1>Credits</h1>
         <p className="muted">
-          GPX-View is built on open data and open source. This page says thank you; the full
+          TrackVault is built on open data and open source. This page says thank you; the full
           distribution record is <code>THIRD_PARTY_NOTICES.md</code>, which ships beside the
           application.
         </p>

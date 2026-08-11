@@ -72,7 +72,7 @@ altitude; no clock on a planned route.
 ### The archive is a plain `tar.gz`
 
 Not a bespoke container, and not compressed with anything exotic. The situation
-in which somebody needs a backup is exactly the situation in which GPX-View may
+in which somebody needs a backup is exactly the situation in which TrackVault may
 not run, and a backup format only its own application can open is a backup with
 a dependency. Any operating system can list and unpack this one: the worst case
 still leaves somebody holding their own GPX files and a SQLite database that any
@@ -86,13 +86,13 @@ whose whole architecture exists to have one.
 
 ```
 manifest.json                       first member, so a dry-run reads one small file
-database/gpx-view.sqlite3           captured through SQLite's own online backup
+database/trackvault.sqlite3         captured through SQLite's own online backup
 raw/sha256/ab/abcdef….raw           every original, byte-identical
 ```
 
 ### The manifest is the authority, and it states its omissions
 
-`format_name`, `format_version`, `created_at`, `gpx_view_version`,
+`format_name`, `format_version`, `created_at`, `trackvault_version`,
 `schema_version`, a checksum and size for every member, counts of what the
 archive holds, and — the field that matters most — what it deliberately leaves
 out.

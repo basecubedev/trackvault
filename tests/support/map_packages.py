@@ -48,7 +48,7 @@ SHORTBREAD_LAYERS = (
 """The layers the inspector requires. Every fixture package carries all of them."""
 
 DEFAULT_LICENCE = "Open Database License 1.0"
-DEFAULT_AUTHOR = "OpenStreetMap contributors, GPX-View test fixtures"
+DEFAULT_AUTHOR = "OpenStreetMap contributors, TrackVault test fixtures"
 
 
 @dataclass(slots=True)
@@ -120,7 +120,7 @@ def build_package(
             "name": "Shortbread",
             "type": "baselayer",
             "version": "1.0",
-            "description": "Synthetic Shortbread package for the GPX-View test suite",
+            "description": "Synthetic Shortbread package for the TrackVault test suite",
             "format": "pbf",
             "minzoom": str(min_zoom),
             "maxzoom": str(max_zoom),

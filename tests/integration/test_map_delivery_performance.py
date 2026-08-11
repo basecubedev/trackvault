@@ -24,18 +24,18 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.maps import GetMapCatalog, InstallMapPackage, queued_job
-from gpx_view.domain.maps import MapRegionId
-from gpx_view.infrastructure.database import SqliteTrackStore
-from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore
-from gpx_view.infrastructure.maps import (
+from support.fake_provider import FakeMapProvider, region
+from support.map_packages import build_package
+from trackvault.application.maps import GetMapCatalog, InstallMapPackage, queued_job
+from trackvault.domain.maps import MapRegionId
+from trackvault.infrastructure.database import SqliteTrackStore
+from trackvault.infrastructure.database.map_store import SqliteMapPackageStore
+from trackvault.infrastructure.maps import (
     FilesystemMapCatalogCache,
     FilesystemMapPackageStorage,
     MbtilesPackageInspector,
     MbtilesTileReader,
 )
-from support.fake_provider import FakeMapProvider, region
-from support.map_packages import build_package
 
 pytestmark = [pytest.mark.integration, pytest.mark.maps]
 
@@ -55,7 +55,7 @@ def installed(tmp_path: Path) -> Iterator[tuple[MbtilesTileReader, MapRegionId, 
     """Install a package large enough for "does it scan?" to be a real question."""
     storage = FilesystemMapPackageStorage(tmp_path / "maps")
     storage.prepare()
-    store = SqliteTrackStore(tmp_path / "gpx-view.sqlite3")
+    store = SqliteTrackStore(tmp_path / "trackvault.sqlite3")
     store.migrate()
     repository = SqliteMapPackageStore(store)
     source = tmp_path / "wide.mbtiles"
@@ -174,8 +174,8 @@ def test_a_burst_of_tile_reads_does_not_touch_the_archive_database(
     test would hang rather than finish.
     """
     reader, target, digest, _ = installed
-    archive = SqliteTrackStore(tmp_path / "gpx-view.sqlite3")
-    holder = sqlite3.connect(tmp_path / "gpx-view.sqlite3", isolation_level=None)
+    archive = SqliteTrackStore(tmp_path / "trackvault.sqlite3")
+    holder = sqlite3.connect(tmp_path / "trackvault.sqlite3", isolation_level=None)
     try:
         holder.execute("BEGIN IMMEDIATE")
         for index in range(12):

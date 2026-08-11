@@ -16,8 +16,8 @@ from typing import Any
 
 import pytest
 
-from gpx_view.application.maps import MapErrorCode, MapOperationError
-from gpx_view.infrastructure.maps.geofabrik import parse_index
+from trackvault.application.maps import MapErrorCode, MapOperationError
+from trackvault.infrastructure.maps.geofabrik import parse_index
 
 pytestmark = [pytest.mark.unit, pytest.mark.maps]
 

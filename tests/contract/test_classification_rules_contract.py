@@ -13,14 +13,14 @@ import inspect
 
 import pytest
 
-from gpx_view.domain import (
+from trackvault.domain import (
     ClassificationResult,
     EvidenceCode,
     TrackClassification,
     TrackKind,
     classify,
 )
-from gpx_view.domain.classifier import CLASSIFIER_METHOD, CLASSIFIER_VERSION
+from trackvault.domain.classifier import CLASSIFIER_METHOD, CLASSIFIER_VERSION
 
 E = EvidenceCode
 

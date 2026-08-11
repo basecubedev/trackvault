@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "Activity": {
-        "description": "The activity a track belongs to.\n\nActivity is orthogonal to :class:`~gpx_view.domain.track_kind.TrackKind`: a\nplanned cycling route and a recorded cycling ride share this value and differ\nonly in kind.\n\nThe taxonomy is deliberately small and flat -- no sport hierarchy. Values come\nfrom explicit source metadata or from the user; the classifier does not guess\nthem, so ``UNKNOWN`` is a normal and permanently valid outcome. ``WALKING``\nand ``HIKING`` are separate values because the distinction matters for\nstatistics, but nothing may infer one from the other without evidence.",
+        "description": "The activity a track belongs to.\n\nActivity is orthogonal to :class:`~trackvault.domain.track_kind.TrackKind`: a\nplanned cycling route and a recorded cycling ride share this value and differ\nonly in kind.\n\nThe taxonomy is deliberately small and flat -- no sport hierarchy. Values come\nfrom explicit source metadata or from the user; the classifier does not guess\nthem, so ``UNKNOWN`` is a normal and permanently valid outcome. ``WALKING``\nand ``HIKING`` are separate values because the distinction matters for\nstatistics, but nothing may infer one from the other without evidence.",
         "enum": [
           "walking",
           "hiking",
@@ -44,7 +44,7 @@
         "type": "string"
       },
       "AnalysisAvailability": {
-        "description": "What a track's stored metrics currently amount to.\n\nFour states rather than a boolean, because \"analysed\" answers a question\nnobody is really asking. Two of the four are not failures at all: a track\nthat has never been analysed and a track whose algorithms moved on both have\na perfectly good normalized generation behind them.\n\nEvery read surface -- a listing row, the track's own analysis resource, a\nyearly total -- projects this same value, decided by\n:meth:`~gpx_view.application.analysis.InstalledAnalysis.availability`.\n\nAttributes:\n    CURRENT: The metrics were produced by the installed algorithms from the\n        geometry a reader sees. The only state whose numbers may be\n        presented as what the track *is*.\n    OUTDATED: Metrics exist, but the algorithms or the geometry have moved\n        on since. They are the last thing that was actually derived, which\n        is not the same as being right, and ``analyze --outdated`` replaces\n        them.\n    MISSING: There are no metrics. A normal state for a track that has not\n        been analysed yet, and for one whose analysis failed.\n    INVALID: The archive holds a stored analysis for this track and cannot\n        interpret it -- a profile version that makes no sense, an impossible\n        metric, a flag this build cannot name. Unlike the other three this\n        is not a normal state; it is data damage, reported rather than\n        hidden behind ``MISSING`` because \"nothing has been derived yet\" and\n        \"something is wrong with what was\" call for different reactions from\n        whoever reads it. Deriving the metrics again repairs it: the\n        geometry they come from was never touched.",
+        "description": "What a track's stored metrics currently amount to.\n\nFour states rather than a boolean, because \"analysed\" answers a question\nnobody is really asking. Two of the four are not failures at all: a track\nthat has never been analysed and a track whose algorithms moved on both have\na perfectly good normalized generation behind them.\n\nEvery read surface -- a listing row, the track's own analysis resource, a\nyearly total -- projects this same value, decided by\n:meth:`~trackvault.application.analysis.InstalledAnalysis.availability`.\n\nAttributes:\n    CURRENT: The metrics were produced by the installed algorithms from the\n        geometry a reader sees. The only state whose numbers may be\n        presented as what the track *is*.\n    OUTDATED: Metrics exist, but the algorithms or the geometry have moved\n        on since. They are the last thing that was actually derived, which\n        is not the same as being right, and ``analyze --outdated`` replaces\n        them.\n    MISSING: There are no metrics. A normal state for a track that has not\n        been analysed yet, and for one whose analysis failed.\n    INVALID: The archive holds a stored analysis for this track and cannot\n        interpret it -- a profile version that makes no sense, an impossible\n        metric, a flag this build cannot name. Unlike the other three this\n        is not a normal state; it is data damage, reported rather than\n        hidden behind ``MISSING`` because \"nothing has been derived yet\" and\n        \"something is wrong with what was\" call for different reactions from\n        whoever reads it. Deriving the metrics again repairs it: the\n        geometry they come from was never touched.",
         "enum": [
           "current",
           "outdated",
@@ -1658,7 +1658,7 @@
         "description": "What this deployment is running.",
         "properties": {
           "analysis": {
-            "$ref": "#/components/schemas/gpx_view__api__system__AnalysisProfileResponse"
+            "$ref": "#/components/schemas/trackvault__api__system__AnalysisProfileResponse"
           },
           "processing": {
             "description": "One entry per installed import adapter",
@@ -1684,7 +1684,7 @@
             "type": "boolean"
           },
           "version": {
-            "description": "The GPX-View release, from its distribution metadata",
+            "description": "The TrackVault release, from its distribution metadata",
             "title": "Version",
             "type": "string"
           }
@@ -2012,7 +2012,7 @@
           "profile": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/gpx_view__api__tracks__AnalysisProfileResponse"
+                "$ref": "#/components/schemas/trackvault__api__tracks__AnalysisProfileResponse"
               },
               {
                 "type": "null"
@@ -2147,7 +2147,7 @@
             "description": "What the track's stored aggregate metrics amount to"
           },
           "derived_with": {
-            "$ref": "#/components/schemas/gpx_view__api__tracks__AnalysisProfileResponse",
+            "$ref": "#/components/schemas/trackvault__api__tracks__AnalysisProfileResponse",
             "description": "The algorithms these series were derived by, always the installed ones"
           },
           "is_actual_activity_timing": {
@@ -2492,7 +2492,7 @@
         "title": "YearResponse",
         "type": "object"
       },
-      "gpx_view__api__maps__ErrorBody": {
+      "trackvault__api__maps__ErrorBody": {
         "description": "The one error envelope this API answers with.",
         "properties": {
           "code": {
@@ -2513,11 +2513,11 @@
         "title": "ErrorBody",
         "type": "object"
       },
-      "gpx_view__api__maps__ErrorResponse": {
+      "trackvault__api__maps__ErrorResponse": {
         "description": "The error envelope, wrapped as every other endpoint wraps it.",
         "properties": {
           "error": {
-            "$ref": "#/components/schemas/gpx_view__api__maps__ErrorBody"
+            "$ref": "#/components/schemas/trackvault__api__maps__ErrorBody"
           }
         },
         "required": [
@@ -2526,7 +2526,7 @@
         "title": "ErrorResponse",
         "type": "object"
       },
-      "gpx_view__api__system__AnalysisProfileResponse": {
+      "trackvault__api__system__AnalysisProfileResponse": {
         "description": "The algorithms this build derives metrics with.",
         "properties": {
           "distance_algorithm": {
@@ -2570,7 +2570,7 @@
         "title": "AnalysisProfileResponse",
         "type": "object"
       },
-      "gpx_view__api__tracks__AnalysisProfileResponse": {
+      "trackvault__api__tracks__AnalysisProfileResponse": {
         "description": "The algorithms that produced a set of metrics.\n\nReported so that \"why did my elevation gain change?\" is answerable from the\ndata rather than from a changelog.",
         "properties": {
           "distance_algorithm": {
@@ -2614,7 +2614,7 @@
         "title": "AnalysisProfileResponse",
         "type": "object"
       },
-      "gpx_view__api__tracks__ErrorBody": {
+      "trackvault__api__tracks__ErrorBody": {
         "description": "The stable shape of an error, without internals.",
         "properties": {
           "code": {
@@ -2632,11 +2632,11 @@
         "title": "ErrorBody",
         "type": "object"
       },
-      "gpx_view__api__tracks__ErrorResponse": {
+      "trackvault__api__tracks__ErrorResponse": {
         "description": "An error response. Never carries a stack trace, a path or a coordinate.",
         "properties": {
           "error": {
-            "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorBody"
+            "$ref": "#/components/schemas/trackvault__api__tracks__ErrorBody"
           }
         },
         "required": [
@@ -2648,8 +2648,8 @@
     }
   },
   "info": {
-    "summary": "Manage, analyse and visualise planned and recorded GPS tracks.",
-    "title": "GPX-View",
+    "summary": "Self-hosted archive for recorded and planned activity tracks.",
+    "title": "TrackVault",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
@@ -2725,7 +2725,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -2757,7 +2757,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -2868,7 +2868,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -2878,7 +2878,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -2898,7 +2898,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -2963,7 +2963,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -3016,7 +3016,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -3062,7 +3062,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -3072,7 +3072,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -3158,7 +3158,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__maps__ErrorResponse"
                 }
               }
             },
@@ -3699,7 +3699,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -3709,7 +3709,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -3719,7 +3719,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -3770,7 +3770,7 @@
                       "$ref": "#/components/schemas/TrackResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                      "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                     }
                   ],
                   "title": "Response Read Track Api V1 Tracks  Track Id  Get"
@@ -3783,7 +3783,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -3834,7 +3834,7 @@
                       "$ref": "#/components/schemas/TrackAnalysisResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                      "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                     }
                   ],
                   "title": "Response Read Analysis Api V1 Tracks  Track Id  Analysis Get"
@@ -3847,7 +3847,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -3898,7 +3898,7 @@
                       "$ref": "#/components/schemas/TrackResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                      "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                     }
                   ],
                   "title": "Response Reset Classification Api V1 Tracks  Track Id  Classification Delete"
@@ -3911,7 +3911,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -3970,7 +3970,7 @@
                       "$ref": "#/components/schemas/TrackResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                      "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                     }
                   ],
                   "title": "Response Override Classification Api V1 Tracks  Track Id  Classification Put"
@@ -3983,7 +3983,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -4054,7 +4054,7 @@
                       "$ref": "#/components/schemas/GeometryResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                      "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                     }
                   ],
                   "title": "Response Read Geometry Api V1 Tracks  Track Id  Geometry Get"
@@ -4067,7 +4067,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -4128,7 +4128,7 @@
                       "$ref": "#/components/schemas/TrackResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                      "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                     }
                   ],
                   "title": "Response Update Metadata Api V1 Tracks  Track Id  Metadata Patch"
@@ -4141,7 +4141,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },
@@ -4206,7 +4206,7 @@
                       "$ref": "#/components/schemas/TrackProfileResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                      "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                     }
                   ],
                   "title": "Response Read Profile Api V1 Tracks  Track Id  Profile Get"
@@ -4219,7 +4219,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                  "$ref": "#/components/schemas/trackvault__api__tracks__ErrorResponse"
                 }
               }
             },

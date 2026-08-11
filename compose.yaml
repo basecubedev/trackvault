@@ -1,39 +1,46 @@
 services:
-  gpx-view:
+  trackvault:
     build:
       context: .
-    image: gpx-view:dev
+    image: trackvault:dev
+    # 8081 on the host, 8080 in the container. The host side is the one that
+    # collides with whatever else the machine runs, so it is the one that is
+    # configurable; the container side is fixed and is what the image's health
+    # check and `EXPOSE` state. `TRACKVAULT_HTTP_PORT` is the published port and
+    # is deliberately not `TRACKVAULT_PORT`, which is the address the application
+    # binds *inside* the container -- one name for two ports would make the
+    # variable mean whichever one the reader had in mind.
     ports:
-      - "8080:8080"
+      - "${TRACKVAULT_HTTP_PORT:-8081}:8080"
     environment:
-      GPX_VIEW_DATA_DIR: /data
+      TRACKVAULT_DATA_DIR: /data
       # The zone month and year boundaries are drawn in. UTC by default, because
       # a container inherits whatever its image carries and the same archive
       # would otherwise report different monthly totals on two machines.
-      # GPX_VIEW_TIMEZONE: Europe/Berlin
+      # TRACKVAULT_TIMEZONE: Europe/Berlin
       #
       # Offline maps are installed through the web interface and stored in the
       # volume below, so there is no tile provider to configure. Set
-      # GPX_VIEW_MAPS_ENABLED=false to refuse every map download outright --
+      # TRACKVAULT_MAPS_ENABLED=false to refuse every map download outright --
       # installed maps keep working.
-      # GPX_VIEW_MAPS_ENABLED: "false"
+      # TRACKVAULT_MAPS_ENABLED: "false"
       #
-      # Where `gpx-view scan` looks for new files. The directory below is
+      # Where `trackvault scan` looks for new files. The directory below is
       # mounted read-only, which is the mount enforcing what the application
       # already promises: nothing in it is written, renamed, moved or deleted.
-      GPX_VIEW_IMPORT_DIR: /import
+      TRACKVAULT_IMPORT_DIR: /import
       #
-      # Where `gpx-view backup create` writes. Outside /data on purpose: a
+      # Where `trackvault backup create` writes. Outside /data on purpose: a
       # backup kept inside the directory it protects is deleted with the volume
       # it was meant to survive.
-      GPX_VIEW_BACKUP_DIR: /backups
+      TRACKVAULT_BACKUP_DIR: /backups
       #
       # Uploading from the browser is off unless you switch it on. It is the
       # one endpoint that lets a caller make the server write, and nothing here
       # authenticates -- so this is a statement about your network, not a
       # convenience toggle. Uploads write into the managed archive under /data,
       # never into /import. See README.md.
-      # GPX_VIEW_UPLOAD_ENABLED: "true"
+      # TRACKVAULT_UPLOAD_ENABLED: "true"
     volumes:
       # A managed volume, not a host bind mount. Docker initialises a named
       # volume from the image, so /data arrives owned by the non-root runtime
@@ -43,8 +50,8 @@ services:
       #
       # Installed offline maps live here too, so they survive a recreate and
       # never enter the image. They can be hundreds of megabytes each.
-      - gpx-view-data:/data
-      # Drop files here and run `docker compose exec gpx-view gpx-view scan`.
+      - trackvault-data:/data
+      # Drop files here and run `docker compose exec trackvault trackvault scan`.
       # A host directory rather than a volume, because the whole point is that
       # you can put files into it from outside the container. It ships with the
       # repository as an empty folder so that this mount never has to create it:
@@ -54,14 +61,14 @@ services:
       # A managed volume, for the same reason /data is one: this file runs the
       # container as the image's own user, and a host directory would arrive
       # owned by yours. Get a backup out with
-      # `docker compose cp gpx-view:/backups/<name> .`
+      # `docker compose cp trackvault:/backups/<name> .`
       #
       # A user deployment does this the other way round -- bind mount plus
       # PUID/PGID, so backups land straight in a folder you own. See
       # install-docker.sh, and README.md for why the two differ.
-      - gpx-view-backups:/backups
+      - trackvault-backups:/backups
     restart: unless-stopped
 
 volumes:
-  gpx-view-data:
-  gpx-view-backups:
+  trackvault-data:
+  trackvault-backups:

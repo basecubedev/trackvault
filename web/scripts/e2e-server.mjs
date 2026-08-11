@@ -15,17 +15,17 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const dataDir = mkdtempSync(join(tmpdir(), 'gpx-view-e2e-'))
+const dataDir = mkdtempSync(join(tmpdir(), 'trackvault-e2e-'))
 if (process.env['E2E_SEED'] !== '0') {
   execFileSync('node', ['scripts/seed-archive.mjs'], {
-    env: { ...process.env, GPX_VIEW_DATA_DIR: dataDir },
+    env: { ...process.env, TRACKVAULT_DATA_DIR: dataDir },
     stdio: 'inherit',
   })
   // A basemap the browser can actually render, installed through the real
   // pipeline. Without one, "the map works offline" would be a test of a grey
   // rectangle.
   execFileSync('uv', ['run', '--project', '..', 'python', 'scripts/seed-map.py'], {
-    env: { ...process.env, GPX_VIEW_DATA_DIR: dataDir },
+    env: { ...process.env, TRACKVAULT_DATA_DIR: dataDir },
     stdio: 'inherit',
   })
 }
@@ -37,7 +37,7 @@ const server = spawn(
     '--project',
     '..',
     'uvicorn',
-    'gpx_view.main:app',
+    'trackvault.main:app',
     '--host',
     '127.0.0.1',
     '--port',
@@ -46,13 +46,13 @@ const server = spawn(
   {
     env: {
       ...process.env,
-      GPX_VIEW_DATA_DIR: dataDir,
-      GPX_VIEW_WEB_DIR: new URL('../dist', import.meta.url).pathname,
-      GPX_VIEW_TIMEZONE: 'UTC',
+      TRACKVAULT_DATA_DIR: dataDir,
+      TRACKVAULT_WEB_DIR: new URL('../dist', import.meta.url).pathname,
+      TRACKVAULT_TIMEZONE: 'UTC',
       // Opted in explicitly: uploading is off unless a deployment says
       // otherwise, and the browser tests cover the capability somebody
       // switched on rather than a default they did not choose.
-      GPX_VIEW_UPLOAD_ENABLED: 'true',
+      TRACKVAULT_UPLOAD_ENABLED: 'true',
     },
     stdio: 'inherit',
   },

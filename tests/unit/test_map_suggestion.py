@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from gpx_view.domain.maps import MapBounds, MapRegionId, RegionExtent, suggest_regions
+from trackvault.domain.maps import MapBounds, MapRegionId, RegionExtent, suggest_regions
 
 pytestmark = [pytest.mark.unit, pytest.mark.maps]
 

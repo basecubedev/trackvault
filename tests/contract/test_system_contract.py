@@ -8,7 +8,7 @@ algorithms produced it, and unanswerable when it cannot. The endpoint reports
 the release, the schema and both currency authorities -- and nothing about the
 machine it runs on.
 
-**Every response carries the same small set of headers.** GPX-View assumes a
+**Every response carries the same small set of headers.** TrackVault assumes a
 trusted network, so these are not a substitute for authentication; they close
 the accidents a same-origin page can still have. Since the basemap became a
 locally installed package, the content security policy can name every source
@@ -22,11 +22,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view import __version__
-from gpx_view.api.security import SECURITY_HEADERS
-from gpx_view.config import Settings
-from gpx_view.infrastructure.database import SCHEMA_VERSION
-from gpx_view.main import create_app
+from trackvault import __version__
+from trackvault.api.security import SECURITY_HEADERS
+from trackvault.config import Settings
+from trackvault.infrastructure.database import SCHEMA_VERSION
+from trackvault.main import create_app
 
 pytestmark = pytest.mark.contract
 
@@ -99,7 +99,7 @@ def hosting(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestCli
     (build / "assets").mkdir(parents=True)
     (build / "index.html").write_text("<html><head></head><body></body></html>", encoding="utf-8")
     (build / "assets" / "app-abc123.js").write_text("export default 1\n", encoding="utf-8")
-    monkeypatch.setenv("GPX_VIEW_WEB_DIR", str(build))
+    monkeypatch.setenv("TRACKVAULT_WEB_DIR", str(build))
     settings = Settings(data_dir=tmp_path / "data", web_dir=build)
     with TestClient(create_app(settings)) as client:
         yield client

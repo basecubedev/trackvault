@@ -2,7 +2,7 @@
 
 import pytest
 
-from gpx_view.domain import EvidenceCode, SourceMetadata, in_canonical_order
+from trackvault.domain import EvidenceCode, SourceMetadata, in_canonical_order
 
 
 @pytest.mark.unit

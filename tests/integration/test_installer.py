@@ -1,7 +1,7 @@
 """Contracts for the Docker installer.
 
-The installer is the first thing a new user runs and the only part of GPX-View
-that executes before anything of GPX-View exists. It is therefore held to the
+The installer is the first thing a new user runs and the only part of TrackVault
+that executes before anything of TrackVault exists. It is therefore held to the
 one promise that matters most: **it does not destroy data**. Every test below
 that looks paranoid is about that.
 
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.config import Settings
+from trackvault.config import Settings
 
 pytestmark = pytest.mark.integration
 
@@ -49,7 +49,7 @@ def test_the_installer_is_executable_and_documents_itself() -> None:
 
 def test_a_dry_run_changes_nothing_at_all(tmp_path: Path) -> None:
     """The mode that lets somebody look before they install."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     result = _run("--dir", str(target), "--dry-run")
 
@@ -60,7 +60,7 @@ def test_a_dry_run_changes_nothing_at_all(tmp_path: Path) -> None:
 
 def test_installing_into_an_empty_directory_creates_the_whole_layout(tmp_path: Path) -> None:
     """The headline claim: an empty directory becomes an installation."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     result = _run("--dir", str(target), "--no-start")
 
@@ -77,7 +77,7 @@ def test_data_and_import_are_separate_directories(tmp_path: Path) -> None:
     If they were, a backup written into the import folder would be re-read as an
     import, and a restore would overwrite the files somebody was still syncing.
     """
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
     _run("--dir", str(target), "--no-start")
 
     compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
@@ -94,12 +94,12 @@ def test_the_import_mount_is_read_only(tmp_path: Path) -> None:
     deletes in it. The `:ro` is the second, independent reason that stays true
     if the first is ever wrong.
     """
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
     _run("--dir", str(target), "--no-start")
 
     compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "${GPX_VIEW_IMPORT_PATH}:/import:ro" in compose
+    assert "${TRACKVAULT_IMPORT_PATH}:/import:ro" in compose
 
 
 def test_the_container_is_told_where_to_import_from(tmp_path: Path) -> None:
@@ -108,19 +108,19 @@ def test_the_container_is_told_where_to_import_from(tmp_path: Path) -> None:
     A deployment that mounts a folder and forgets this variable has a scan that
     reports "no import directory configured" while the files sit there.
     """
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
     _run("--dir", str(target), "--no-start")
 
     compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "GPX_VIEW_IMPORT_DIR: /import" in compose
-    assert "GPX_VIEW_DATA_DIR: /data" in compose
-    assert "GPX_VIEW_BACKUP_DIR: /backups" in compose
+    assert "TRACKVAULT_IMPORT_DIR: /import" in compose
+    assert "TRACKVAULT_DATA_DIR: /data" in compose
+    assert "TRACKVAULT_BACKUP_DIR: /backups" in compose
 
 
 def test_the_container_does_not_run_as_root(tmp_path: Path) -> None:
     """Non-root is not negotiable, and it is not solved with `chmod 777` either."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
     _run("--dir", str(target), "--no-start")
 
     compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
@@ -133,48 +133,77 @@ def test_the_container_does_not_run_as_root(tmp_path: Path) -> None:
 
 def test_a_chosen_tag_is_what_gets_installed(tmp_path: Path) -> None:
     """Pinning a release is how somebody decides their own upgrades."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     _run("--dir", str(target), "--no-start", "--tag", "v9.9.9")
 
-    assert "GPX_VIEW_IMAGE=ghcr.io/basecubedev/gpx-view:v9.9.9" in (target / ".env").read_text(
+    assert "TRACKVAULT_IMAGE=ghcr.io/basecubedev/trackvault:v9.9.9" in (target / ".env").read_text(
         encoding="utf-8"
     )
 
 
 def test_the_default_tag_is_a_release_rather_than_a_branch(tmp_path: Path) -> None:
     """No deployment silently runs whatever was last pushed to the main branch."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     _run("--dir", str(target), "--no-start")
 
     environment = (target / ".env").read_text(encoding="utf-8")
-    assert environment.count("GPX_VIEW_IMAGE=") == 1
+    assert environment.count("TRACKVAULT_IMAGE=") == 1
     assert ":latest" in environment
     assert "main" not in environment and "edge" not in environment
 
 
+def test_the_default_host_port_is_8081(tmp_path: Path) -> None:
+    """The address somebody opens when they typed no flags.
+
+    Asserted on both halves of the mapping: 8081 is the host side and 8080 is
+    the container's, and the whole point of the default is that the two are not
+    the same number.
+    """
+    target = tmp_path / "trackvault"
+
+    _run("--dir", str(target), "--no-start")
+    announced = _run("--dir", str(tmp_path / "elsewhere"), "--dry-run")
+
+    assert "TRACKVAULT_HTTP_PORT=8081" in (target / ".env").read_text(encoding="utf-8")
+    assert '"${TRACKVAULT_HTTP_PORT}:8080"' in (target / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "http://localhost:8081" in announced.stdout
+
+
 def test_a_chosen_port_reaches_the_configuration(tmp_path: Path) -> None:
-    """Somebody who already runs something on 8080 has to be able to say so."""
-    target = tmp_path / "gpx-view"
+    """Somebody who already runs something on 8081 has to be able to say so.
 
-    _run("--dir", str(target), "--no-start", "--port", "9123")
+    Only the host side moves. The container keeps listening on 8080, which is
+    what the image's health check asks and what the mapping's right-hand side
+    therefore has to stay.
+    """
+    target = tmp_path / "trackvault"
 
-    assert "GPX_VIEW_HTTP_PORT=9123" in (target / ".env").read_text(encoding="utf-8")
+    _run("--dir", str(target), "--no-start", "--port", "9090")
+
+    environment = (target / ".env").read_text(encoding="utf-8")
+    compose = (target / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "TRACKVAULT_HTTP_PORT=9090" in environment
+    assert "TRACKVAULT_HTTP_PORT=8081" not in environment
+    assert '"${TRACKVAULT_HTTP_PORT}:8080"' in compose
 
 
 def test_a_chosen_import_directory_reaches_the_configuration(tmp_path: Path) -> None:
     """The phone sync folder is usually somewhere else entirely."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     _run("--dir", str(target), "--no-start", "--import-dir", "/srv/sync/locus")
 
-    assert "GPX_VIEW_IMPORT_PATH=/srv/sync/locus" in (target / ".env").read_text(encoding="utf-8")
+    assert "TRACKVAULT_IMPORT_PATH=/srv/sync/locus" in (target / ".env").read_text(encoding="utf-8")
 
 
 def test_a_non_numeric_port_is_refused(tmp_path: Path) -> None:
     """A port that is not a port fails now rather than at `docker compose up`."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     result = _run("--dir", str(target), "--no-start", "--port", "eighty")
 
@@ -184,7 +213,7 @@ def test_a_non_numeric_port_is_refused(tmp_path: Path) -> None:
 
 def test_a_flag_does_not_swallow_the_next_flag_as_its_value(tmp_path: Path) -> None:
     """`--port --force` must not install an archive on port "--force"."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     result = _run("--dir", str(target), "--no-start", "--port", "--force")
 
@@ -194,7 +223,7 @@ def test_a_flag_does_not_swallow_the_next_flag_as_its_value(tmp_path: Path) -> N
 
 def test_an_unknown_option_is_refused_rather_than_ignored(tmp_path: Path) -> None:
     """A typo that silently installs something else is worse than a failure."""
-    result = _run("--dir", str(tmp_path / "gpx-view"), "--no-strat")
+    result = _run("--dir", str(tmp_path / "trackvault"), "--no-strat")
 
     assert result.returncode != 0
     assert "unknown option" in result.stderr
@@ -205,7 +234,7 @@ def test_an_unknown_option_is_refused_rather_than_ignored(tmp_path: Path) -> Non
 
 def test_reinstalling_preserves_an_existing_configuration(tmp_path: Path) -> None:
     """Running the installer twice is something people do. It must be safe."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
     _run("--dir", str(target), "--no-start", "--port", "9123")
     (target / "docker-compose.yml").write_text("# hand-edited\n", encoding="utf-8")
 
@@ -213,21 +242,21 @@ def test_reinstalling_preserves_an_existing_configuration(tmp_path: Path) -> Non
 
     assert result.returncode == 0
     assert (target / "docker-compose.yml").read_text(encoding="utf-8") == "# hand-edited\n"
-    assert "GPX_VIEW_HTTP_PORT=9123" in (target / ".env").read_text(encoding="utf-8")
+    assert "TRACKVAULT_HTTP_PORT=9123" in (target / ".env").read_text(encoding="utf-8")
     assert "keeping the existing" in result.stdout
 
 
 def test_reinstalling_preserves_data_import_and_backups(tmp_path: Path) -> None:
     """The files nobody can recreate, across the most careless possible rerun."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
     _run("--dir", str(target), "--no-start")
-    (target / "data" / "gpx-view.sqlite3").write_bytes(b"an archive")
+    (target / "data" / "trackvault.sqlite3").write_bytes(b"an archive")
     (target / "import" / "ride.gpx").write_bytes(b"a recording")
     (target / "backups" / "backup.tar.gz").write_bytes(b"a backup")
 
     _run("--dir", str(target), "--no-start", "--force")
 
-    assert (target / "data" / "gpx-view.sqlite3").read_bytes() == b"an archive"
+    assert (target / "data" / "trackvault.sqlite3").read_bytes() == b"an archive"
     assert (target / "import" / "ride.gpx").read_bytes() == b"a recording"
     assert (target / "backups" / "backup.tar.gz").read_bytes() == b"a backup"
 
@@ -236,14 +265,14 @@ def test_force_replaces_the_configuration_and_only_the_configuration(
     tmp_path: Path,
 ) -> None:
     """`--force` is about this script's own output, and says so."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
     _run("--dir", str(target), "--no-start", "--port", "9123")
 
     _run("--dir", str(target), "--no-start", "--port", "9124", "--force")
 
     environment = (target / ".env").read_text(encoding="utf-8")
-    assert "GPX_VIEW_HTTP_PORT=9124" in environment
-    assert "GPX_VIEW_HTTP_PORT=9123" not in environment
+    assert "TRACKVAULT_HTTP_PORT=9124" in environment
+    assert "TRACKVAULT_HTTP_PORT=9123" not in environment
 
 
 def test_an_installation_does_not_switch_writing_on_for_you(tmp_path: Path) -> None:
@@ -254,19 +283,19 @@ def test_an_installation_does_not_switch_writing_on_for_you(tmp_path: Path) -> N
     typed one command. The generated `.env` therefore has to agree with the
     application's own default rather than quietly overriding it.
     """
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     _run("--dir", str(target), "--no-start")
 
     environment = (target / ".env").read_text(encoding="utf-8")
-    assert "GPX_VIEW_UPLOAD_ENABLED=false" in environment
-    assert "GPX_VIEW_UPLOAD_ENABLED=true" not in environment
+    assert "TRACKVAULT_UPLOAD_ENABLED=false" in environment
+    assert "TRACKVAULT_UPLOAD_ENABLED=true" not in environment
     assert Settings(data_dir=tmp_path / "unused").upload_enabled is False
 
 
 def test_the_created_directories_are_private(tmp_path: Path) -> None:
     """They hold a movement profile of a real person from the first file in them."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
 
     _run("--dir", str(target), "--no-start")
 
@@ -277,7 +306,7 @@ def test_the_created_directories_are_private(tmp_path: Path) -> None:
 
 def test_starting_without_docker_fails_before_it_writes_nonsense(tmp_path: Path) -> None:
     """A machine with no Docker gets a sentence, not a stack of compose errors."""
-    target = tmp_path / "gpx-view"
+    target = tmp_path / "trackvault"
     without_docker = dict(os.environ, PATH=str(tmp_path / "empty-path"))
     (tmp_path / "empty-path").mkdir()
     for tool in ("sh", "mkdir", "cat", "id", "chmod"):

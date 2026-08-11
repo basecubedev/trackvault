@@ -36,12 +36,12 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from gpx_view.application.projection import decimate_profile, simplify_geometry
-from gpx_view.application.track_profile import DEFAULT_PROFILE_SAMPLES
-from gpx_view.domain.analysis.elevation import filtered_elevation_profile
-from gpx_view.domain.analysis.movement import sustained_speeds
-from gpx_view.domain.analysis.series import derive_profile
-from gpx_view.domain.geometry import TrackPoint, TrackSegment
+from trackvault.application.projection import decimate_profile, simplify_geometry
+from trackvault.application.track_profile import DEFAULT_PROFILE_SAMPLES
+from trackvault.domain.analysis.elevation import filtered_elevation_profile
+from trackvault.domain.analysis.movement import sustained_speeds
+from trackvault.domain.analysis.series import derive_profile
+from trackvault.domain.geometry import TrackPoint, TrackSegment
 
 DEFAULT_SIZES = (1_000, 10_000, 50_000, 100_000, 250_000)
 SAMPLING_SECONDS = 2

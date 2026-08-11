@@ -18,7 +18,7 @@ Two properties matter as much as the numbers. The mode is set **at creation**, s
 there is no window in which a file is briefly world-readable, and it is set
 independently of the process umask, so a permissive umask cannot widen it.
 
-GPX-View only decides the permissions of the artifacts it creates itself. It does
+TrackVault only decides the permissions of the artifacts it creates itself. It does
 not chmod files it finds, because a path inside the data directory may carry an
 operator's own access decisions -- an ACL, a shared group -- and destroying those
 silently would be a worse failure than the one being prevented.
@@ -32,10 +32,10 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.import_tracks import ImportRequest
-from gpx_view.config import Settings
-from gpx_view.infrastructure.assembly import TrackServices, build_services
-from gpx_view.infrastructure.filesystem import raw_store as raw_store_module
+from trackvault.application.import_tracks import ImportRequest
+from trackvault.config import Settings
+from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.filesystem import raw_store as raw_store_module
 
 pytestmark = [pytest.mark.contract, pytest.mark.storage, pytest.mark.persistence]
 
@@ -169,7 +169,7 @@ def test_a_temporary_artifact_is_private_before_it_is_renamed(
 
 
 def test_an_existing_file_is_not_chmodded(archive: TrackServices, tmp_path: Path) -> None:
-    """GPX-View tightens what it creates; it does not rewrite what it finds.
+    """TrackVault tightens what it creates; it does not rewrite what it finds.
 
     A path inside the data directory may carry an operator's own decision -- a
     shared group, an ACL, a backup agent's access. Silently overwriting that

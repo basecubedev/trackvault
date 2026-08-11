@@ -1,6 +1,6 @@
 # Business contracts
 
-These invariants hold for every feature of GPX-View, present and future. Most were
+These invariants hold for every feature of TrackVault, present and future. Most were
 written down before the first importer existed, because they constrain how an
 importer may be built.
 
@@ -17,7 +17,7 @@ not know where a track came from. See `architecture.md`.
 
 ## Raw imports are immutable source evidence
 
-*Implemented as `gpx_view.domain.RawImport`.*
+*Implemented as `trackvault.domain.RawImport`.*
 
 The original import is the authority for "what was imported":
 
@@ -32,7 +32,7 @@ metadata and never authorises a storage location.
 
 ## Processing provenance is separate from the source
 
-*Implemented as `gpx_view.domain.ProcessingRun`.*
+*Implemented as `trackvault.domain.ProcessingRun`.*
 
 Importer name, importer version and normalization schema version describe the
 processing, not the imported file. They therefore live on the processing run:
@@ -58,9 +58,9 @@ failed import recoverable rather than invisible.
 
 ### Processing currency
 
-*Implemented as `gpx_view.domain.ProcessingProfile`,
-`gpx_view.domain.is_processing_current` and
-`gpx_view.application.InstalledProcessing`.*
+*Implemented as `trackvault.domain.ProcessingProfile`,
+`trackvault.domain.is_processing_current` and
+`trackvault.application.InstalledProcessing`.*
 
 The five versions are one value because they answer one question together: was
 the stored generation produced by the processing this build installs? A run
@@ -93,7 +93,7 @@ separately. No premature heuristic.
 
 ## Track kind
 
-*Implemented as `gpx_view.domain.TrackKind`.*
+*Implemented as `trackvault.domain.TrackKind`.*
 
 ```
 recorded
@@ -123,7 +123,7 @@ recordings can be stripped of time data.
 
 ## Classification result
 
-*Implemented as `gpx_view.domain.ClassificationResult`.*
+*Implemented as `trackvault.domain.ClassificationResult`.*
 
 A classification is only meaningful with its evidence and its producer:
 
@@ -167,7 +167,7 @@ Enforced invariants:
 
 ## Classification rules
 
-*Implemented as `gpx_view.domain.classify`, method `evidence-weights`, version 2.*
+*Implemented as `trackvault.domain.classify`, method `evidence-weights`, version 2.*
 
 The classifier receives **evidence codes and nothing else**. It cannot see a
 creator string, a filename or a namespace, which makes "a source name never
@@ -230,7 +230,7 @@ support to express.
 
 ## Evidence codes
 
-*Implemented as `gpx_view.domain.EvidenceCode`.*
+*Implemented as `trackvault.domain.EvidenceCode`.*
 
 An importer states *what it saw*; it never states what that means. Codes are
 lower case, underscore separated, and part of the stored data: renaming one
@@ -256,7 +256,7 @@ They are observations, never user-facing text.
 
 ## Detected vs. effective classification
 
-*Implemented as `gpx_view.domain.TrackClassification`.*
+*Implemented as `trackvault.domain.TrackClassification`.*
 
 ```
 detected classification    what the classifier found
@@ -306,7 +306,7 @@ correction.
 
 ## User-owned track metadata
 
-*Implemented as `gpx_view.domain.UserTrackMetadata`, `effective_title` and
+*Implemented as `trackvault.domain.UserTrackMetadata`, `effective_title` and
 `TrackQueries.set_metadata`.*
 
 > A correction belongs to the user, and it never edits the evidence.
@@ -343,7 +343,7 @@ Enforced invariants:
 
 ## Which periods an archive has
 
-*Implemented as `gpx_view.application.GetAvailableYears`.*
+*Implemented as `trackvault.application.GetAvailableYears`.*
 
 > The calendar an archive offers comes from the archive, not from a clock.
 
@@ -361,7 +361,7 @@ matches this selection" are opposite instructions to whoever is reading.
 
 ## Activity
 
-*Implemented as `gpx_view.domain.Activity`.*
+*Implemented as `trackvault.domain.Activity`.*
 
 ```
 walking
@@ -385,7 +385,7 @@ the other without evidence. See ADR 0002.
 
 ## Metric provenance
 
-*Implemented as `gpx_view.domain.MetricProvenance`.*
+*Implemented as `trackvault.domain.MetricProvenance`.*
 
 ```
 measured
@@ -509,15 +509,15 @@ if source == "komoot":
 The classification step weighs evidence and may still answer `UNKNOWN`. Source
 metadata is preserved so a decision can be explained and revisited.
 
-*Implemented as `gpx_view.domain.SourceMetadata`:* exchange format, format
+*Implemented as `trackvault.domain.SourceMetadata`:* exchange format, format
 version, creator, external links and a sorted summary of the extension namespaces a
 document used. It stays format-independent -- a FIT importer fills the same
 fields and gets none of its own.
 
 ## Track analysis
 
-*Implemented as `gpx_view.domain.analysis`, `gpx_view.application.AnalyzeTrack`
-and `gpx_view.application.InstalledAnalysis`.*
+*Implemented as `trackvault.domain.analysis`, `trackvault.application.AnalyzeTrack`
+and `trackvault.application.InstalledAnalysis`.*
 
 > Derived metrics are rebuildable and never source authority.
 
@@ -734,7 +734,7 @@ never become current. Old runs are kept.
 
 ## Actual and planned aggregation
 
-*Implemented as `gpx_view.application.GetYearStatistics` and
+*Implemented as `trackvault.application.GetYearStatistics` and
 `GetMonthlyStatistics`.*
 
 > Actual and planned aggregates must never be conflated, and `UNKNOWN` belongs to
@@ -806,7 +806,7 @@ qualifies them.
 
 ### The aggregation timezone
 
-A month is a local month, so `GPX_VIEW_TIMEZONE` decides its boundaries and every
+A month is a local month, so `TRACKVAULT_TIMEZONE` decides its boundaries and every
 statistics response names the zone it used. The default is `UTC` rather than the
 host zone, and an unknown zone fails at start-up rather than falling back.
 
@@ -857,8 +857,8 @@ which is the temporal-evidence gate applied to an aggregate.
 
 ## Offline map packages
 
-*Implemented as `gpx_view.domain.maps`, `gpx_view.application.maps` and
-`gpx_view.infrastructure.maps`.*
+*Implemented as `trackvault.domain.maps`, `trackvault.application.maps` and
+`trackvault.infrastructure.maps`.*
 
 > A map package is a replaceable external dataset, not source evidence.
 
@@ -938,7 +938,7 @@ meaning.
 
 ## Duplicates and raw integrity
 
-*Implemented as `gpx_view.application.RawArtifactState` and the
+*Implemented as `trackvault.application.RawArtifactState` and the
 `ImportTracks` duplicate path.*
 
 An exact duplicate is a no-op only while the archive can still produce the bytes
@@ -970,7 +970,7 @@ or persistence path per input channel. See `architecture.md`.
 
 ## Export: the original and a generated copy are different things
 
-*Implemented as `gpx_view.application.export`. See
+*Implemented as `trackvault.application.export`. See
 `docs/adr/0012-export-archive-and-restore.md`.*
 
 > An exported raw source is byte-identical to what was imported. An exported
@@ -998,12 +998,12 @@ introduces no schema.
 
 ## The archive format
 
-*Implemented as `gpx_view.application.archive`.*
+*Implemented as `trackvault.application.archive`.*
 
 > An archive is either complete or explicit about what it is missing.
 
 Every archive carries a manifest stating `format_name`, `format_version`,
-`created_at`, `gpx_view_version`, `schema_version`, a size and digest for every
+`created_at`, `trackvault_version`, `schema_version`, a size and digest for every
 member, counts of what it holds, and **what it deliberately omits**. Installed
 map packages are omitted -- public data that can be fetched again -- and
 `ArchiveOmission` records that rather than leaving a silence. "Complete" and
@@ -1020,7 +1020,7 @@ reasons: the container changing and a table changing are different events.
 
 ### A backup that returned successfully is on the disk
 
-*Implemented as `gpx_view.infrastructure.archive.container.FilesystemArchiveBuilder`.*
+*Implemented as `trackvault.infrastructure.archive.container.FilesystemArchiveBuilder`.*
 
 > A backup command that returns has written a backup, not scheduled one.
 
@@ -1108,7 +1108,7 @@ installed, and that decision has one owner elsewhere.
 
 ## Restore validates before it publishes
 
-*Implemented as `gpx_view.application.archive.RestoreArchive`.*
+*Implemented as `trackvault.application.archive.RestoreArchive`.*
 
 ```
 manifest → format version → schema compatibility → checksums → database integrity → publish
@@ -1168,7 +1168,7 @@ it again, which is what the documented recovery steps say.
 
 ### A restore either completed, or it did not happen
 
-*Implemented as `gpx_view.infrastructure.archive.publication`.*
+*Implemented as `trackvault.infrastructure.archive.publication`.*
 
 Publishing is several renames, and several renames are not one atomic act.
 Between them the deployment holds a database from the archive beside a raw
@@ -1234,7 +1234,7 @@ still say what it was and who to credit.
 
 ## Diagnostics change nothing
 
-*Implemented as `gpx_view.application.diagnostics`.*
+*Implemented as `trackvault.application.diagnostics`.*
 
 > Running `doctor` must never be the thing that changes the answer.
 
@@ -1257,7 +1257,7 @@ coordinates or raw payloads never end up in normal logs or exception messages.
 
 ## Import limits and error codes
 
-*Implemented as `gpx_view.application.ImportLimits` and `ImportErrorCode`.*
+*Implemented as `trackvault.application.ImportLimits` and `ImportErrorCode`.*
 
 Imported files are untrusted input. Configurable limits bound what one document
 may cost before anything is stored: input bytes, tracks per document, segments per
@@ -1313,6 +1313,6 @@ would otherwise fall into the wrong month of a future statistic. The raw import
 keeps it.
 
 Which timezone instants are bucketed in -- and therefore which month a
-late-evening activity counts towards -- is `GPX_VIEW_TIMEZONE`. Instants stay
+late-evening activity counts towards -- is `TRACKVAULT_TIMEZONE`. Instants stay
 stored in UTC; the setting decides boundaries and nothing else, and every
 statistics response names the zone it used.

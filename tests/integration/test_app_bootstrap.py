@@ -8,8 +8,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from gpx_view import __version__
-from gpx_view.main import app, create_app
+from trackvault import __version__
+from trackvault.main import app, create_app
 
 
 @pytest.mark.integration
@@ -24,9 +24,9 @@ def test_create_app_returns_an_independent_application() -> None:
 
 @pytest.mark.integration
 def test_module_level_app_is_the_asgi_entry_point() -> None:
-    """``gpx_view.main:app`` is what uvicorn and the container serve."""
+    """``trackvault.main:app`` is what uvicorn and the container serve."""
     assert isinstance(app, FastAPI)
-    assert app.title == "GPX-View"
+    assert app.title == "TrackVault"
     assert app.version == __version__
 
 

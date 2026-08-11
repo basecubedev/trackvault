@@ -18,8 +18,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpx_view.domain import MetricProvenance, TrackPoint, TrackSegment
-from gpx_view.domain.analysis import (
+from trackvault.domain import MetricProvenance, TrackPoint, TrackSegment
+from trackvault.domain.analysis import (
     ANALYSIS_PROFILE,
     AnalysisProfile,
     AnalysisQuality,

@@ -1,6 +1,6 @@
 """No test reaches a host outside this machine.
 
-The rule this file makes enforceable: *a contract test states what GPX-View
+The rule this file makes enforceable: *a contract test states what TrackVault
 does, never what somebody else's server was doing that afternoon.* A suite that
 can reach the internet has tests whose answer changes with the weather, and the
 failure is not that they break -- it is that they pass differently. A refusal

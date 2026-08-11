@@ -30,12 +30,13 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.archive import UNREFERENCED_RAW_OBJECTS
-from gpx_view.application.diagnostics import CheckStatus, Diagnose
-from gpx_view.application.import_tracks import ImportRequest, ImportStatus
-from gpx_view.config import Settings
-from gpx_view.domain import InputChannel
-from gpx_view.domain.maps import (
+from support.map_packages import build_package
+from trackvault.application.archive import UNREFERENCED_RAW_OBJECTS
+from trackvault.application.diagnostics import CheckStatus, Diagnose
+from trackvault.application.import_tracks import ImportRequest, ImportStatus
+from trackvault.config import Settings
+from trackvault.domain import InputChannel
+from trackvault.domain.maps import (
     MapAttribution,
     MapBounds,
     MapInstallState,
@@ -44,12 +45,11 @@ from gpx_view.domain.maps import (
     MapRegionId,
     MapTileSchema,
 )
-from gpx_view.infrastructure.archive import FilesystemArchiveBuilder, FilesystemArchiveExtractor
-from gpx_view.infrastructure.assembly import TrackServices, build_services
-from gpx_view.infrastructure.database.migrations import SCHEMA_VERSION
-from gpx_view.infrastructure.diagnostics import observe
-from gpx_view.infrastructure.private_data import create_private_directory
-from support.map_packages import build_package
+from trackvault.infrastructure.archive import FilesystemArchiveBuilder, FilesystemArchiveExtractor
+from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.database.migrations import SCHEMA_VERSION
+from trackvault.infrastructure.diagnostics import observe
+from trackvault.infrastructure.private_data import create_private_directory
 
 pytestmark = [pytest.mark.contract, pytest.mark.maps, pytest.mark.persistence]
 
@@ -99,7 +99,7 @@ def _install_map(services: TrackServices, source_root: Path) -> tuple[MapPackage
         max_zoom=6,
         attribution=MapAttribution(
             data_owner="OpenStreetMap contributors",
-            provider="GPX-View test fixtures",
+            provider="TrackVault test fixtures",
             license_identifier="ODbL-1.0",
             license_name=LICENCE,
             required_text=REQUIRED_TEXT,

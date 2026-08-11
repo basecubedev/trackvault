@@ -6,7 +6,7 @@ Accepted (2026-08-08)
 
 ## Context
 
-GPX-View will become a local web application for managing, analysing and
+TrackVault will become a local web application for managing, analysing and
 visualising planned and recorded GPS tracks. The long-term feature set (GPX
 import from Locus Map and other sources, recorded/planned separation, activity
 handling, monthly and yearly statistics, maps, elevation and speed profiles) is
@@ -23,7 +23,7 @@ explicit boundaries that later decisions can be plugged into.
 ## Decision
 
 1. **Python 3.13** as the implementation language, with `src/` layout and the
-   package name `gpx_view`. The declared support range is bounded
+   package name `trackvault`. The declared support range is bounded
    (`>=3.13,<3.14`): the project supports exactly the interpreter it is tested,
    type-checked and shipped with, and widening the range is a deliberate decision
    with its own CI matrix, not a side effect.

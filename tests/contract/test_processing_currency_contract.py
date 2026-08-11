@@ -24,16 +24,16 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gpx_view.application.processing import InstalledProcessing, installed_profile
-from gpx_view.domain import (
+from trackvault.application.processing import InstalledProcessing, installed_profile
+from trackvault.domain import (
     NORMALIZATION_SCHEMA_VERSION,
     ProcessingProfile,
     ProcessingRun,
     ProcessingStatus,
     is_processing_current,
 )
-from gpx_view.domain.classifier import CLASSIFIER_METHOD, CLASSIFIER_VERSION
-from gpx_view.infrastructure.gpx import GpxImporter
+from trackvault.domain.classifier import CLASSIFIER_METHOD, CLASSIFIER_VERSION
+from trackvault.infrastructure.gpx import GpxImporter
 
 pytestmark = [pytest.mark.contract, pytest.mark.reprocessing]
 

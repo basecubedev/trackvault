@@ -57,7 +57,7 @@ function document_({ name, activity, count, metres, month, timed, measured, segm
     body.push(`    <trkseg>\n${rows.join('\n')}\n    </trkseg>`)
   }
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="gpx-view-e2e" xmlns="http://www.topografix.com/GPX/1/1">
+<gpx version="1.1" creator="trackvault-e2e" xmlns="http://www.topografix.com/GPX/1/1">
   <trk><name>${name}</name><type>${activity}</type>
 ${body.join('\n')}
   </trk>
@@ -117,7 +117,7 @@ const FIXTURES = [
   },
 ]
 
-const dataDir = process.env['GPX_VIEW_DATA_DIR'] ?? mkdtempSync(join(tmpdir(), 'gpx-view-e2e-'))
+const dataDir = process.env['TRACKVAULT_DATA_DIR'] ?? mkdtempSync(join(tmpdir(), 'trackvault-e2e-'))
 const fixtureDir = join(dataDir, 'fixtures')
 mkdirSync(fixtureDir, { recursive: true })
 
@@ -127,9 +127,9 @@ const paths = FIXTURES.map(({ file, content }) => {
   return path
 })
 
-execFileSync('uv', ['run', '--project', '..', 'gpx-view', 'import', ...paths], {
+execFileSync('uv', ['run', '--project', '..', 'trackvault', 'import', ...paths], {
   cwd: process.cwd(),
-  env: { ...process.env, GPX_VIEW_DATA_DIR: dataDir },
+  env: { ...process.env, TRACKVAULT_DATA_DIR: dataDir },
   stdio: 'inherit',
 })
 

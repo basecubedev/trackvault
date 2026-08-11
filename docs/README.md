@@ -1,5 +1,22 @@
 # Documentation
 
+The [README](../README.md) is the entry point for somebody who wants to run
+TrackVault. It stays short on purpose; everything it summarises is here in full.
+
+## Using it
+
+| Document | Purpose |
+| --- | --- |
+| [user/installation.md](user/installation.md) | The installed layout, every installer flag, the two ports, who the container runs as, Windows and macOS, running from a checkout, updating |
+| [user/importing.md](user/importing.md) | The three input paths and the one pipeline behind them, the full command list, the Locus AutoSync walkthrough, scheduling a scan, and the three exports |
+| [user/maps.md](user/maps.md) | Why an offline package rather than a tile service, installing and updating a region, region suggestions and their limits, storage, attribution |
+| [user/backup-and-restore.md](user/backup-and-restore.md) | What is irreplaceable, what a backup holds and omits, the validated restore, schema compatibility, and `doctor` |
+| [user/configuration.md](user/configuration.md) | Every environment variable, the data directory layout and its permissions, the trusted-network assumption, privacy |
+| [user/reading-the-data.md](user/reading-the-data.md) | The three pages in detail, what each metric means and the four that are not the obvious formula, and the HTTP API |
+| [user/troubleshooting.md](user/troubleshooting.md) | The failures that look like something else |
+
+## Building it
+
 | Document | Purpose |
 | --- | --- |
 | [technical/architecture.md](technical/architecture.md) | Product definition, the `input format != domain model` invariant, layers and boundaries, canonical normalized track, raw imports and processing provenance, the GPX adapter, persistence and managed raw storage, single import authority and input paths, logging, single-source-of-truth table, deferred decisions |
@@ -26,3 +43,7 @@ Three documents are protected by executable contract tests in `tests/contract/`:
 - the architecture boundaries — checked with an AST import and identifier analysis,
 - `architecture.md` and `contracts.md` — checked for the invariants the code relies
   on, by topic anchor rather than by full-text snapshot.
+
+`tests/contract/test_product_identity_contract.py` covers a fourth thing that is
+spread across files rather than held in one: the product name, the licence and
+the two ports.

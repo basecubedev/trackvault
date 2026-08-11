@@ -1,6 +1,6 @@
 """What the one outbound request this application makes may and may not do.
 
-A download is the only place GPX-View opens a connection to the internet, and
+A download is the only place TrackVault opens a connection to the internet, and
 the failure modes are not theoretical: a caller choosing the host, a redirect
 leaving the provider, an unbounded body filling a disk. Each of those is a
 contract here, exercised against a real socket on loopback rather than a mock,
@@ -20,10 +20,10 @@ from collections.abc import Callable
 
 import pytest
 
-from gpx_view.application.maps import MapErrorCode, MapOperationError
-from gpx_view.infrastructure.maps import ALLOWED_HOSTS, GeofabrikMapProvider, HttpTransfer
-from gpx_view.infrastructure.maps.transfer import SECURE_SCHEMES, user_agent
 from support.fake_provider import ServedFile, serve_packages, served
+from trackvault.application.maps import MapErrorCode, MapOperationError
+from trackvault.infrastructure.maps import ALLOWED_HOSTS, GeofabrikMapProvider, HttpTransfer
+from trackvault.infrastructure.maps.transfer import SECURE_SCHEMES, user_agent
 
 pytestmark = [pytest.mark.contract, pytest.mark.maps]
 
@@ -125,7 +125,7 @@ def test_the_user_agent_names_this_application() -> None:
     """
     agent = user_agent("1.2.3")
 
-    assert agent.startswith("gpx-view/1.2.3")
+    assert agent.startswith("trackvault/1.2.3")
     for browser in ("Mozilla", "Chrome", "Safari", "AppleWebKit"):
         assert browser not in agent
 

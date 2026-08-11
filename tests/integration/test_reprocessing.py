@@ -11,13 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application import ImportErrorCode
-from gpx_view.application.import_tracks import ImportRequest
-from gpx_view.application.ports import TrackQuery
-from gpx_view.application.reprocess import ReprocessStatus
-from gpx_view.cli import EXIT_FAILED, EXIT_OK, main
-from gpx_view.config import Settings
-from gpx_view.domain import (
+from trackvault.application import ImportErrorCode
+from trackvault.application.import_tracks import ImportRequest
+from trackvault.application.ports import TrackQuery
+from trackvault.application.reprocess import ReprocessStatus
+from trackvault.cli import EXIT_FAILED, EXIT_OK, main
+from trackvault.config import Settings
+from trackvault.domain import (
     ClassificationResult,
     NormalizedTrack,
     ProcessingRun,
@@ -28,7 +28,7 @@ from gpx_view.domain import (
     TrackPoint,
     TrackSegment,
 )
-from gpx_view.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.assembly import TrackServices, build_services
 
 pytestmark = [pytest.mark.integration, pytest.mark.reprocessing, pytest.mark.persistence]
 

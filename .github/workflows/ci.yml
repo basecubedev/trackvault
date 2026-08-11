@@ -164,7 +164,7 @@ jobs:
       # The build includes the frontend stage, so a page that does not compile
       # fails the image rather than shipping in it.
       - name: Build the runtime image
-        run: docker build --tag gpx-view:ci .
+        run: docker build --tag trackvault:ci .
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5

@@ -53,7 +53,7 @@ export function TrackImport({
     return (
       <p className="muted" data-testid="import-disabled">
         This deployment does not accept uploads. Tracks are imported on the machine that holds the
-        data, with <code>gpx-view import</code> or <code>gpx-view scan</code>.
+        data, with <code>trackvault import</code> or <code>trackvault scan</code>.
       </p>
     )
   }

@@ -7,7 +7,7 @@ may not change their answers.
 
 import pytest
 
-from gpx_view.domain import (
+from trackvault.domain import (
     Activity,
     ClassificationResult,
     MetricProvenance,

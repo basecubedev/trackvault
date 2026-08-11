@@ -332,7 +332,7 @@ function Period({
           <details className="operator-hint">
             <summary>What fixes this</summary>
             <p>
-              On the machine that holds the data, run <code>gpx-view analyze --outdated</code>.
+              On the machine that holds the data, run <code>trackvault analyze --outdated</code>.
             </p>
           </details>
         </Notice>
@@ -468,12 +468,12 @@ function EmptyArchive() {
       </p>
       <pre>
         <code>
-          gpx-view import /path/to/track.gpx{'\n'}
-          gpx-view scan
+          trackvault import /path/to/track.gpx{'\n'}
+          trackvault scan
         </code>
       </pre>
       <p className="muted">
-        <code>scan</code> reads the directory <code>GPX_VIEW_IMPORT_DIR</code> points at, and never
+        <code>scan</code> reads the directory <code>TRACKVAULT_IMPORT_DIR</code> points at, and never
         writes to it.
       </p>
     </div>

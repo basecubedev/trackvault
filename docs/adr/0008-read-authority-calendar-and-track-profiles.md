@@ -131,7 +131,7 @@ unqualified root fields.
 
 ### 3. One calendar range, and an open upper bound
 
-`gpx_view.application.calendar` is the one statement of what years a query may
+`trackvault.application.calendar` is the one statement of what years a query may
 name and how a period becomes an instant window. The last supported year yields
 an **open** upper bound rather than the first instant of a next year that does
 not exist. Stopping at 9998 to keep `year + 1` working would have hidden an
@@ -208,7 +208,7 @@ anything else so a deep link to `/tracks/123` survives a refresh.
 
 The browser's types are **generated from the backend's OpenAPI document**. A
 hand-written `TrackResponse` that drifts from the server is a bug that
-type-checks. `gpx-view openapi` writes that document deterministically and CI
+type-checks. `trackvault openapi` writes that document deterministically and CI
 regenerates and diffs it.
 
 The page holds no state the backend cannot recompute, so there is no state

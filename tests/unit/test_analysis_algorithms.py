@@ -14,8 +14,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpx_view.domain import TrackPoint, TrackSegment
-from gpx_view.domain.analysis import (
+from trackvault.domain import TrackPoint, TrackSegment
+from trackvault.domain.analysis import (
     ANALYSIS_PROFILE,
     AnalysisQuality,
     MetricName,
@@ -27,7 +27,7 @@ from gpx_view.domain.analysis import (
     geodesic_distance,
     quality_in_canonical_order,
 )
-from gpx_view.domain.analysis.profile import is_analysis_profile_current
+from trackvault.domain.analysis.profile import is_analysis_profile_current
 
 START = datetime(2026, 6, 1, 6, 0, tzinfo=UTC)
 METRES_PER_LATITUDE_DEGREE = 111_195.0

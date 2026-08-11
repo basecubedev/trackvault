@@ -191,7 +191,7 @@ describe('the dashboard', () => {
     await waitFor(() => {
       expect(screen.getByTestId('empty-archive')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('empty-archive').textContent).toContain('gpx-view import')
+    expect(screen.getByTestId('empty-archive').textContent).toContain('trackvault import')
     // There is no upload endpoint, so the page must not invite one.
     expect(screen.getByTestId('empty-archive').textContent).not.toContain('Upload')
   })

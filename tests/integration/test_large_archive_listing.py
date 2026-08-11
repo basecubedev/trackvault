@@ -27,8 +27,8 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.ports import TrackOrder, TrackQuery
-from gpx_view.domain import (
+from trackvault.application.ports import TrackOrder, TrackQuery
+from trackvault.domain import (
     NORMALIZATION_SCHEMA_VERSION,
     Activity,
     ClassificationResult,
@@ -44,7 +44,7 @@ from gpx_view.domain import (
     TrackPoint,
     TrackSegment,
 )
-from gpx_view.infrastructure.database import SqliteTrackStore
+from trackvault.infrastructure.database import SqliteTrackStore
 
 pytestmark = [pytest.mark.integration, pytest.mark.persistence]
 
@@ -171,13 +171,13 @@ def _archive(path: Path, tracks: int) -> _CountingStore:
 @pytest.fixture(scope="module")
 def small(tmp_path_factory: pytest.TempPathFactory) -> _CountingStore:
     """A hundred tracks."""
-    return _archive(tmp_path_factory.mktemp("small") / "gpx-view.sqlite3", SMALL)
+    return _archive(tmp_path_factory.mktemp("small") / "trackvault.sqlite3", SMALL)
 
 
 @pytest.fixture(scope="module")
 def large(tmp_path_factory: pytest.TempPathFactory) -> _CountingStore:
     """A thousand tracks."""
-    return _archive(tmp_path_factory.mktemp("large") / "gpx-view.sqlite3", LARGE)
+    return _archive(tmp_path_factory.mktemp("large") / "trackvault.sqlite3", LARGE)
 
 
 def _page_cost(store: _CountingStore, query: TrackQuery) -> int:

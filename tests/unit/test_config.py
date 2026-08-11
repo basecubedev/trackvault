@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from pydantic import ValidationError
 
-from gpx_view.config import Settings, get_settings
+from trackvault.config import Settings, get_settings
 
 
 @pytest.mark.unit
@@ -20,13 +20,13 @@ def test_settings_have_local_defaults() -> None:
 
 
 @pytest.mark.unit
-def test_settings_read_the_gpx_view_environment_prefix(
+def test_settings_read_the_trackvault_environment_prefix(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Configuration comes from ``GPX_VIEW_*`` environment variables."""
-    monkeypatch.setenv("GPX_VIEW_HOST", "0.0.0.0")  # noqa: S104
-    monkeypatch.setenv("GPX_VIEW_PORT", "9000")
-    monkeypatch.setenv("GPX_VIEW_DATA_DIR", str(tmp_path))
+    """Configuration comes from ``TRACKVAULT_*`` environment variables."""
+    monkeypatch.setenv("TRACKVAULT_HOST", "0.0.0.0")  # noqa: S104
+    monkeypatch.setenv("TRACKVAULT_PORT", "9000")
+    monkeypatch.setenv("TRACKVAULT_DATA_DIR", str(tmp_path))
 
     settings = Settings()
 
@@ -62,7 +62,7 @@ def test_the_aggregation_timezone_defaults_to_utc() -> None:
 @pytest.mark.unit
 def test_an_iana_timezone_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     """The zone month boundaries are drawn in is explicit configuration."""
-    monkeypatch.setenv("GPX_VIEW_TIMEZONE", "Europe/Berlin")
+    monkeypatch.setenv("TRACKVAULT_TIMEZONE", "Europe/Berlin")
 
     settings = Settings()
 
@@ -77,7 +77,7 @@ def test_an_unknown_timezone_fails_at_startup(monkeypatch: pytest.MonkeyPatch, v
     A configuration error is loud, immediate and fixable; a silent fallback is
     a wrong number nobody has a reason to question.
     """
-    monkeypatch.setenv("GPX_VIEW_TIMEZONE", value)
+    monkeypatch.setenv("TRACKVAULT_TIMEZONE", value)
 
-    with pytest.raises(ValidationError, match="GPX_VIEW_TIMEZONE"):
+    with pytest.raises(ValidationError, match="TRACKVAULT_TIMEZONE"):
         Settings()

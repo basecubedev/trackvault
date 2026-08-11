@@ -37,7 +37,7 @@
     }
   },
   "self": [
-    "gpx-view",
-    "gpx-view-web"
+    "trackvault",
+    "trackvault-web"
   ]
 }

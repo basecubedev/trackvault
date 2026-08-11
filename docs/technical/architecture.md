@@ -1,6 +1,6 @@
 # Architecture
 
-GPX-View is **a self-hosted, source-agnostic activity and route archive for
+TrackVault is **a self-hosted, source-agnostic activity and route archive for
 recorded and planned geospatial tracks.**
 
 It is not a Locus Map viewer and not a GPX viewer. GPX is the first supported
@@ -54,16 +54,16 @@ and requires no change to classification, analysis, statistics or presentation.
 ## Layers
 
 ```
-gpx_view.domain          innermost, technology-free
+trackvault.domain          innermost, technology-free
       ^
-gpx_view.application     use cases, ports
-      ^                        ^
-gpx_view.api             gpx_view.infrastructure
-      ^                        ^
-gpx_view.main            composition root
+trackvault.application     use cases, ports
+      ^                          ^
+trackvault.api             trackvault.infrastructure
+      ^                          ^
+trackvault.main            composition root
 ```
 
-### `gpx_view.domain`
+### `trackvault.domain`
 
 Owns the business vocabulary and rules: track concepts, track kind, activity,
 metric provenance, classification results, business invariants and -- later --
@@ -74,8 +74,8 @@ FastAPI, SQLAlchemy, SQLite, file system paths, Docker, HTTP.
 
 It uses the Python standard library only, and not even the standard library's
 infrastructure corners (`xml`, `sqlite3`, `pathlib`, `os`, `json`, `csv`, `http`,
-`urllib`). It must not import `gpx_view.api`, `gpx_view.application`,
-`gpx_view.infrastructure` or `gpx_view.config`.
+`urllib`). It must not import `trackvault.api`, `trackvault.application`,
+`trackvault.infrastructure` or `trackvault.config`.
 
 It also holds the `maps/` package -- `MapRegionId`, `MapBounds`,
 `MapAttribution`, `MapTileSchema`, `MapPackage`, `MapInstallState`,
@@ -92,7 +92,7 @@ Current content: `TrackKind`, `Activity`, `MetricProvenance`, `EvidenceCode`,
 `MetricName`, `MetricUnit`, `MetricValue`, `AnalysisQuality`, `TrackAnalysis` and
 `analyze_track` with the distance, movement and elevation algorithms.
 
-### `gpx_view.application`
+### `trackvault.application`
 
 Owns use cases and business orchestration. Implemented: `ImportTracks` (the single
 canonical import authority), `ReprocessRawImport` (regenerating normalized data
@@ -130,7 +130,7 @@ restored, and the `CreateArchive` / `RestoreArchive` use cases. It reaches the
 container through `ArchiveBuilder` and `ArchiveExtractor` and names no path,
 exactly as the map use cases name no URL.
 
-`diagnostics.py` owns the *judgement* half of `gpx-view doctor`: infrastructure
+`diagnostics.py` owns the *judgement* half of `trackvault doctor`: infrastructure
 observes facts -- a schema says 9, a file is missing -- and this decides which
 of them are warnings and which are errors. Keeping the rule out of the code that
 reads the disk is what makes every severity testable without arranging a broken
@@ -144,10 +144,10 @@ build applies, and therefore the one place each that answers whether a stored
 generation, or a stored set of metrics, is still current.
 
 It orchestrates domain rules and ports, and knows no concrete parser. It must not
-import FastAPI, `gpx_view.api` or concrete infrastructure adapters, and no GPX,
+import FastAPI, `trackvault.api` or concrete infrastructure adapters, and no GPX,
 FIT or TCX type may appear here.
 
-### `gpx_view.infrastructure`
+### `trackvault.infrastructure`
 
 Owns concrete adapters and is the only layer that knows formats and storage.
 Implemented packages: `gpx/` (the GPX 1.1/1.0 adapter -- the importer, the
@@ -179,7 +179,7 @@ read-only, through its own connections, never touching the archive's file. That
 is a format adapter, and keeping it out of the database package is what stops
 "the store" from meaning two things.
 
-`gpx_view.release` is a leaf module holding the build's version string. Every
+`trackvault.release` is a leaf module holding the build's version string. Every
 layer but the domain may read it; the first thing that needed it further in was
 the User-Agent an outbound map download presents.
 
@@ -192,9 +192,9 @@ structures must not travel through the application: the adapter produces the
 canonical normalized track plus source metadata, and stops there.
 
 It implements contracts declared by the inner layers and must not import
-`gpx_view.api`.
+`trackvault.api`.
 
-### `gpx_view.api`
+### `trackvault.api`
 
 The HTTP projection, nothing more: validate the request, call an application use
 case, project the result. No classification or analysis heuristic in a route.
@@ -280,14 +280,14 @@ second authority.
 It lives in `web/` -- TypeScript, React, Vite, MapLibre GL JS and Apache ECharts
 -- and is built into static assets. In production the same process serves them,
 so the page and the data it reads share an origin and there is no CORS
-configuration to get wrong. `gpx_view.api.web` owns that: one route resolves
+configuration to get wrong. `trackvault.api.web` owns that: one route resolves
 inside the build directory, never answers an `/api` path with HTML, and hands
 the entry page to anything else, so a deep link to `/tracks/123` survives a
 refresh. Hashed assets are cacheable for a year and the entry page is not,
 because its name never changes.
 
 The page's types are **generated from this API's own OpenAPI document**
-(`gpx-view openapi`, deterministic, checked for drift in CI). A hand-written
+(`trackvault openapi`, deterministic, checked for drift in CI). A hand-written
 `TrackResponse` that has drifted from the server is a bug that type-checks, and
 it is the same failure the whole architecture is arranged against.
 
@@ -312,17 +312,17 @@ no layer uses `icon-image`. Every URL in a composed style is same-origin.
 Attribution comes out of the installed package's own metadata and is rendered
 beside every map that is drawn. See `docs/legal/third-party-notices.md`.
 
-### `gpx_view.main`
+### `trackvault.main`
 
 Composition root. Creates the FastAPI application and wires routers. No business
 logic.
 
-### `gpx_view.config`
+### `trackvault.config`
 
-The only configuration mechanism, reading `GPX_VIEW_*` environment variables via
+The only configuration mechanism, reading `TRACKVAULT_*` environment variables via
 `pydantic-settings`. No business logic, no second config system.
 
-`GPX_VIEW_TIMEZONE` is the IANA zone month and year boundaries are drawn in. It
+`TRACKVAULT_TIMEZONE` is the IANA zone month and year boundaries are drawn in. It
 defaults to `UTC` rather than to the host zone -- a container inherits whatever
 its image carries, and a local-time default would make the same archive report
 different monthly totals on two machines. An unknown zone fails at start-up
@@ -370,7 +370,7 @@ Rule:
 
 Source-specific information belongs in source metadata or in the raw import layer.
 
-*Implemented as `gpx_view.domain.NormalizedTrack`, `TrackSegment`, `TrackPoint`
+*Implemented as `trackvault.domain.NormalizedTrack`, `TrackSegment`, `TrackPoint`
 and `SourceMetadata`.* The field set is what the first importer actually needed,
 not a guess:
 
@@ -416,7 +416,7 @@ immutable stored bytes
 input-channel metadata
 ```
 
-*Implemented as `gpx_view.domain.RawImport` and `gpx_view.domain.InputChannel`.*
+*Implemented as `trackvault.domain.RawImport` and `trackvault.domain.InputChannel`.*
 
 Invariants:
 
@@ -449,8 +449,8 @@ status  (succeeded / failed)
 error code on failure
 ```
 
-*Implemented as `gpx_view.domain.ProcessingRun`, `gpx_view.domain.ProcessingStatus`
-and `gpx_view.domain.NORMALIZATION_SCHEMA_VERSION`.*
+*Implemented as `trackvault.domain.ProcessingRun`, `trackvault.domain.ProcessingStatus`
+and `trackvault.domain.NORMALIZATION_SCHEMA_VERSION`.*
 
 ### Processing currency
 
@@ -469,8 +469,8 @@ schema on the run, the classifier on each track's classification -- so a run tha
 produced no candidate recorded no classifier version at all, and no stored
 generation could say which *combination* produced it.
 
-`gpx_view.domain.is_processing_current` is the only comparison, and
-`gpx_view.application.InstalledProcessing` is the only place that says what this
+`trackvault.domain.is_processing_current` is the only comparison, and
+`trackvault.application.InstalledProcessing` is the only place that says what this
 build installs -- one profile per installed adapter, because a GPX generation is
 outdated when the GPX adapter moved on and a future FIT adapter's version says
 nothing about it.
@@ -607,7 +607,7 @@ A local name on its own is a word, not a schema: `course` in a track-point
 extension is a measured heading, `course` in a golf application's namespace is a
 golf course. Matching local names in any namespace let a foreign document
 manufacture the measurement evidence that decides `RECORDED`, so
-`gpx_view.infrastructure.gpx.extensions` maps `(namespace, element)` onto meaning
+`trackvault.infrastructure.gpx.extensions` maps `(namespace, element)` onto meaning
 instead.
 
 That table is the one place in the codebase that names a source application, and
@@ -658,7 +658,7 @@ FitImporter ─┼──►  ImportedTrack candidates + evidence
 TcxImporter ─┘
 ```
 
-*Implemented as `gpx_view.application.TrackImporter`, a `typing.Protocol`.* An
+*Implemented as `trackvault.application.TrackImporter`, a `typing.Protocol`.* An
 adapter states its format id, its version and a media type, recognises its own
 format from the content, and turns content plus limits into track candidates.
 That is the whole contract: no `AbstractImporterFactory`, no
@@ -775,7 +775,7 @@ into one endpoint would make "this track exists" mean two different things.
 Accepted bytes are kept byte-identically under the data directory:
 
 ```
-<data dir>/gpx-view.sqlite3
+<data dir>/trackvault.sqlite3
 <data dir>/raw/sha256/ab/abcdef....raw
 ```
 
@@ -801,12 +801,12 @@ user can still replace the whole data directory; what it cannot do is make the
 archive write outside its own root, or hand out bytes that do not match the hash
 they are filed under.
 
-All persistent state lives under `GPX_VIEW_DATA_DIR`. Nothing is written to the
+All persistent state lives under `TRACKVAULT_DATA_DIR`. Nothing is written to the
 working directory, `/tmp`, a home directory or the container layer.
 
 ### Privacy at rest
 
-A GPS archive is a movement profile of a real person, so GPX-View creates its own
+A GPS archive is a movement profile of a real person, so TrackVault creates its own
 artifacts readable by their owner and by nobody else:
 
 | Artifact | Mode |
@@ -818,7 +818,7 @@ artifacts readable by their owner and by nobody else:
 | SQLite database | `0600` |
 | `-wal` and `-shm` | `0600` |
 
-*Implemented as `gpx_view.infrastructure.private_data`.*
+*Implemented as `trackvault.infrastructure.private_data`.*
 
 The mode is stated to the call that creates the object, never applied afterwards:
 a file that was briefly world-readable was world-readable. That is why the
@@ -899,8 +899,8 @@ their versions, plus a metric schema version, and every stored result records
 it. An elevation filter or a movement rule will change, and without that record
 nobody could tell which of two numbers came from which rule.
 
-*Implemented as `gpx_view.domain.analysis.AnalysisProfile` and
-`gpx_view.application.InstalledAnalysis`.*
+*Implemented as `trackvault.domain.analysis.AnalysisProfile` and
+`trackvault.application.InstalledAnalysis`.*
 
 ### What is calculated
 
@@ -971,7 +971,7 @@ maximum speed      the highest sustained window speed
 speed series       the same sustained window speeds <- not point-to-point speed
 ```
 
-`gpx_view.domain.analysis.series.derive_profile` therefore computes nothing of
+`trackvault.domain.analysis.series.derive_profile` therefore computes nothing of
 its own: it asks the elevation filter and the movement window for their own
 series and lays them out against the positions. It takes segments, like every
 other entry point in that package, which is what makes it source-agnostic by
@@ -994,7 +994,7 @@ the figures next to it were produced by the same rules.
 
 ### Bounded projections
 
-`gpx_view.application.projection` makes a large track small enough to send, and
+`trackvault.application.projection` makes a large track small enough to send, and
 it is **presentation, never normalization** -- nothing it does is written back,
 so the reduction can be redone differently tomorrow and asking for fewer points
 is not a way to lose data.
@@ -1078,7 +1078,7 @@ nothing is derived again.
 ### Periods and the aggregation timezone
 
 A month is a *local* month -- 23:30 UTC on 31 January is already February in
-Berlin -- so `GPX_VIEW_TIMEZONE` decides the boundaries and every response names
+Berlin -- so `TRACKVAULT_TIMEZONE` decides the boundaries and every response names
 the zone it used. The window is computed in that zone, the archive is queried in
 UTC, and the bucketing happens in Python: an offset is not a constant, and doing
 that arithmetic in SQL with a fixed one is how a daylight-saving transition
@@ -1326,25 +1326,25 @@ CLI           → parser C → DB
 
 ### Input paths
 
-*Implemented as `gpx_view.application.ImportTracks`.*
+*Implemented as `trackvault.application.ImportTracks`.*
 
 | Path | State |
 | --- | --- |
-| `gpx-view import <file>...` | implemented |
-| `gpx-view scan` over `GPX_VIEW_IMPORT_DIR` | implemented |
-| `gpx-view reprocess <sha256>` | implemented |
-| `gpx-view reprocess --failed` | implemented |
-| `gpx-view reprocess --outdated` | implemented |
-| `gpx-view processing-status <sha256>` | implemented |
-| `gpx-view analyze <track_id>` | implemented |
-| `gpx-view analyze --outdated` | implemented |
-| `gpx-view analyze --all` | implemented |
+| `trackvault import <file>...` | implemented |
+| `trackvault scan` over `TRACKVAULT_IMPORT_DIR` | implemented |
+| `trackvault reprocess <sha256>` | implemented |
+| `trackvault reprocess --failed` | implemented |
+| `trackvault reprocess --outdated` | implemented |
+| `trackvault processing-status <sha256>` | implemented |
+| `trackvault analyze <track_id>` | implemented |
+| `trackvault analyze --outdated` | implemented |
+| `trackvault analyze --all` | implemented |
 | `POST /api/v1/tracks/imports` | implemented -- see below |
-| `gpx-view export raw <sha256>` | implemented |
-| `gpx-view export track <track_id>` | implemented |
-| `gpx-view backup create` / `backup list` | implemented |
-| `gpx-view restore <archive>` | implemented |
-| `gpx-view doctor` | implemented |
+| `trackvault export raw <sha256>` | implemented |
+| `trackvault export track <track_id>` | implemented |
+| `trackvault backup create` / `backup list` | implemented |
+| `trackvault restore <archive>` | implemented |
+| `trackvault doctor` | implemented |
 | Future API import | not implemented |
 | An HTTP export endpoint | not implemented -- see "Output paths" |
 
@@ -1378,7 +1378,7 @@ shapes it now rather than what is missing from it:
   has been paid for, and a declared length over the ceiling before a chunk,
 * one file per request, so twenty files produce twenty verdicts,
 * the filename is display metadata and never a location,
-* `GPX_VIEW_UPLOAD_ENABLED` defaults to `false` and refuses the whole
+* `TRACKVAULT_UPLOAD_ENABLED` defaults to `false` and refuses the whole
   capability, so a deployment that never made a statement about its network
   does not get an unauthenticated write because a container started.
 
@@ -1423,7 +1423,7 @@ batch run and the status view cannot disagree about a source. Each source is
 attempted separately, one failure does not stop the rest, and the exit code
 reports a partial failure.
 
-`gpx-view processing-status <sha256>` is the read side of the same facts: the
+`trackvault processing-status <sha256>` is the read side of the same facts: the
 current run against the latest attempt, each processing component as "what
 produced this -> what is installed", the track count and the outdated verdict. It
 names hashes, run identities, versions and error codes, and never a path, a
@@ -1496,12 +1496,12 @@ reads them from, so an export loses no measurement and invents no schema.
 
 ### The archive format
 
-*Implemented as `gpx_view.application.archive` and
-`gpx_view.infrastructure.archive`. See `docs/adr/0012-export-archive-and-restore.md`.*
+*Implemented as `trackvault.application.archive` and
+`trackvault.infrastructure.archive`. See `docs/adr/0012-export-archive-and-restore.md`.*
 
 ```
 manifest.json                    first member, so a dry-run reads one small file
-database/gpx-view.sqlite3        captured through SQLite's own online backup
+database/trackvault.sqlite3      captured through SQLite's own online backup
 raw/sha256/ab/abcdef….raw        every original, byte-identical
 ```
 
@@ -1594,14 +1594,14 @@ reprocessing is.
 
 ## Diagnostics
 
-`gpx-view doctor` reports what is wrong with a deployment and **changes
+`trackvault doctor` reports what is wrong with a deployment and **changes
 nothing** -- no import, no migration, no repair, no network. That is a contract
 rather than an intention: it runs before anything migrates, and it reads the
 schema version through a read-only connection, because the obvious
 implementation creates the database it was asked about and then reports on the
 deployment it just made.
 
-Infrastructure observes and `gpx_view.application.diagnostics` judges. Three
+Infrastructure observes and `trackvault.application.diagnostics` judges. Three
 statuses, and the middle one carries its weight: a pending migration, a missing
 backup and an unmounted import folder are *degraded* rather than broken, and
 collapsing them into "error" trains an operator to ignore the output. Exit codes
@@ -1623,7 +1623,7 @@ profile.
 
 The boundaries above are not a convention, they are an executable contract.
 `tests/contract/test_architecture_contract.py` parses every module in
-`src/gpx_view` with `ast` and checks:
+`src/trackvault` with `ast` and checks:
 
 - the allowed internal import table per layer,
 - that the domain uses the standard library only,
@@ -1679,7 +1679,7 @@ Exactly one component owns each concern. Everything else is a projection.
 | What an archive holds | its own manifest, including what it deliberately omits |
 | Whether an archive may be restored | `compatibility_of`, from the format version and the schema version |
 | Deployment health | `Diagnose` over one observation; infrastructure observes, the application judges |
-| Configuration | `gpx_view.config` backend application settings |
+| Configuration | `trackvault.config` backend application settings |
 
 Consequences:
 
@@ -1713,7 +1713,7 @@ Open on purpose, and not to be pre-empted by "preparation" code:
 - authentication. The archive is unauthenticated on purpose and is meant for a
   trusted network; every endpoint assumes that. The one endpoint that *writes*
   is therefore off until an operator turns it on with
-  `GPX_VIEW_UPLOAD_ENABLED=true`; the reads are open to anyone who can reach
+  `TRACKVAULT_UPLOAD_ENABLED=true`; the reads are open to anyone who can reach
   the port either way.
 - a file system watcher, as opposed to the explicit scan
 - Android client or companion app

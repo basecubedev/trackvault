@@ -6,6 +6,10 @@
 !README.md
 !src/
 
+# The licence of the program the image conveys. Not documentation: the AGPL
+# requires the text to travel with what it covers.
+!LICENSE
+
 # The one documentation file that is a distribution artifact rather than
 # documentation: it ships in the image, for the operator who runs it.
 !docs/legal/third-party-notices.md

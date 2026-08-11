@@ -4,7 +4,7 @@ import dataclasses
 
 import pytest
 
-from gpx_view.domain import ClassificationResult, TrackClassification, TrackKind
+from trackvault.domain import ClassificationResult, TrackClassification, TrackKind
 
 
 @pytest.mark.unit

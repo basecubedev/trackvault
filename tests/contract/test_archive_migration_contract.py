@@ -25,18 +25,18 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.archive import (
+from trackvault.application.archive import (
     ArchiveCompatibility,
     ArchiveError,
     ArchiveErrorCode,
 )
-from gpx_view.config import Settings
-from gpx_view.domain import TrackKind
-from gpx_view.infrastructure.archive import FilesystemArchiveBuilder, FilesystemArchiveExtractor
-from gpx_view.infrastructure.assembly import TrackServices, build_services
-from gpx_view.infrastructure.database.inspection import read_schema_version
-from gpx_view.infrastructure.database.migrations import MIGRATIONS, SCHEMA_VERSION
-from gpx_view.infrastructure.filesystem import FilesystemRawImportStore
+from trackvault.config import Settings
+from trackvault.domain import TrackKind
+from trackvault.infrastructure.archive import FilesystemArchiveBuilder, FilesystemArchiveExtractor
+from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.database.inspection import read_schema_version
+from trackvault.infrastructure.database.migrations import MIGRATIONS, SCHEMA_VERSION
+from trackvault.infrastructure.filesystem import FilesystemRawImportStore
 
 pytestmark = [pytest.mark.contract, pytest.mark.persistence]
 
@@ -152,7 +152,7 @@ def _archive_of(data_dir: Path, destination: Path, services: TrackServices) -> P
     """Write an archive of a data directory that is not the wired one."""
     builder = FilesystemArchiveBuilder(
         destination=destination,
-        database_path=data_dir / "gpx-view.sqlite3",
+        database_path=data_dir / "trackvault.sqlite3",
         raw_root=data_dir / "raw",
     )
     services.create_archive(builder)
@@ -164,7 +164,7 @@ def _extractor(archive: Path, data_dir: Path) -> FilesystemArchiveExtractor:
     return FilesystemArchiveExtractor(
         source=archive,
         data_dir=data_dir,
-        database_path=data_dir / "gpx-view.sqlite3",
+        database_path=data_dir / "trackvault.sqlite3",
         raw_root=data_dir / "raw",
     )
 
@@ -192,7 +192,7 @@ def test_an_archive_from_an_older_build_reports_that_a_migration_is_coming(
     because that is the step a backup is taken before.
     """
     old = tmp_path / "old-deployment"
-    _database_at_schema(old / "gpx-view.sqlite3", SCHEMA_VERSION - 1)
+    _database_at_schema(old / "trackvault.sqlite3", SCHEMA_VERSION - 1)
     archive = _archive_of(old, tmp_path / "old.tar.gz", services)
 
     inspection = services.restore_archive.inspect(_extractor(archive, tmp_path / "fresh"))
@@ -211,18 +211,18 @@ def test_an_archive_from_an_older_build_restores_and_then_migrates(
     path an in-place upgrade takes -- one migration authority, not two.
     """
     old = tmp_path / "old-deployment"
-    _database_at_schema(old / "gpx-view.sqlite3", SCHEMA_VERSION - 1)
+    _database_at_schema(old / "trackvault.sqlite3", SCHEMA_VERSION - 1)
     archive = _archive_of(old, tmp_path / "old.tar.gz", services)
     fresh = tmp_path / "fresh"
 
     outcome = services.restore_archive(_extractor(archive, fresh))
     assert outcome.compatibility is ArchiveCompatibility.MIGRATION_REQUIRED
-    assert read_schema_version(fresh / "gpx-view.sqlite3") == SCHEMA_VERSION - 1
+    assert read_schema_version(fresh / "trackvault.sqlite3") == SCHEMA_VERSION - 1
 
     restored = build_services(Settings(data_dir=fresh))
     restored.prepare_storage()
 
-    assert read_schema_version(fresh / "gpx-view.sqlite3") == SCHEMA_VERSION
+    assert read_schema_version(fresh / "trackvault.sqlite3") == SCHEMA_VERSION
 
 
 def test_a_track_from_the_first_schema_survives_every_migration(
@@ -236,8 +236,8 @@ def test_a_track_from_the_first_schema_survives_every_migration(
     current model, this is where that shows.
     """
     old = tmp_path / "old-deployment"
-    _database_at_schema(old / "gpx-view.sqlite3", 1)
-    _insert_schema_1_track(old / "gpx-view.sqlite3")
+    _database_at_schema(old / "trackvault.sqlite3", 1)
+    _insert_schema_1_track(old / "trackvault.sqlite3")
     _store_schema_1_original(old)
     archive = _archive_of(old, tmp_path / "ancient.tar.gz", services)
     fresh = tmp_path / "fresh"
@@ -269,17 +269,17 @@ def test_the_manifest_of_an_old_archive_states_the_old_schema(
 ) -> None:
     """The manifest describes what is inside it, not what wrote the manifest.
 
-    Both facts are recorded -- `schema_version` and `gpx_view_version` -- because
+    Both facts are recorded -- `schema_version` and `trackvault_version` -- because
     they answer different questions and a restore reads only the first.
     """
     old = tmp_path / "old-deployment"
-    _database_at_schema(old / "gpx-view.sqlite3", 1)
+    _database_at_schema(old / "trackvault.sqlite3", 1)
     archive = _archive_of(old, tmp_path / "ancient.tar.gz", services)
 
     manifest = _extractor(archive, tmp_path / "fresh").manifest()
 
     assert manifest.schema_version == 1
-    assert manifest.gpx_view_version
+    assert manifest.trackvault_version
 
 
 def test_an_archive_from_a_newer_build_is_refused_and_changes_nothing(
@@ -291,8 +291,8 @@ def test_an_archive_from_a_newer_build_is_refused_and_changes_nothing(
     newer columns mean, and opening them anyway would be a silent downgrade.
     """
     future = tmp_path / "future-deployment"
-    _database_at_schema(future / "gpx-view.sqlite3", SCHEMA_VERSION)
-    connection = sqlite3.connect(future / "gpx-view.sqlite3")
+    _database_at_schema(future / "trackvault.sqlite3", SCHEMA_VERSION)
+    connection = sqlite3.connect(future / "trackvault.sqlite3")
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 5:d}")
     connection.commit()
     connection.close()
@@ -303,7 +303,7 @@ def test_an_archive_from_a_newer_build_is_refused_and_changes_nothing(
         services.restore_archive(_extractor(archive, fresh))
 
     assert raised.value.code is ArchiveErrorCode.SCHEMA_UNSUPPORTED
-    assert not (fresh / "gpx-view.sqlite3").exists()
+    assert not (fresh / "trackvault.sqlite3").exists()
 
 
 def test_a_dry_run_of_a_newer_archive_says_so_without_raising(
@@ -311,8 +311,8 @@ def test_a_dry_run_of_a_newer_archive_says_so_without_raising(
 ) -> None:
     """Finding out costs nothing, which is what a dry run is for."""
     future = tmp_path / "future-deployment"
-    _database_at_schema(future / "gpx-view.sqlite3", SCHEMA_VERSION)
-    connection = sqlite3.connect(future / "gpx-view.sqlite3")
+    _database_at_schema(future / "trackvault.sqlite3", SCHEMA_VERSION)
+    connection = sqlite3.connect(future / "trackvault.sqlite3")
     connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 5:d}")
     connection.commit()
     connection.close()
@@ -334,7 +334,7 @@ def test_the_archived_database_carries_its_own_schema_rather_than_the_builds(
     compatibility rule would never fire.
     """
     old = tmp_path / "old-deployment"
-    _database_at_schema(old / "gpx-view.sqlite3", 1)
+    _database_at_schema(old / "trackvault.sqlite3", 1)
     archive = _archive_of(old, tmp_path / "ancient.tar.gz", services)
 
     assert services.store.schema_version() == SCHEMA_VERSION

@@ -1,7 +1,7 @@
 """The third-party notice document may not drift from what is actually locked.
 
 ``docs/legal/third-party-notices.md`` is the canonical statement of what
-GPX-View depends on, in which version, for what, and under which licence. It is
+TrackVault depends on, in which version, for what, and under which licence. It is
 written by hand, which is exactly why it needs a gate: a dependency bump changes
 the lock file and leaves the document stating last month's version, and nothing
 about the result looks wrong.
@@ -72,7 +72,7 @@ def _audit_module() -> ModuleType:
     metadata reading beside it.
     """
     specification = importlib.util.spec_from_file_location(
-        "gpx_view_license_audit", PROJECT_ROOT / "scripts" / "audit_licenses.py"
+        "trackvault_license_audit", PROJECT_ROOT / "scripts" / "audit_licenses.py"
     )
     assert specification is not None
     assert specification.loader is not None

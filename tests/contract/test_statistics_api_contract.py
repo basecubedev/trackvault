@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view.config import Settings
-from gpx_view.main import create_app
+from trackvault.config import Settings
+from trackvault.main import create_app
 
 pytestmark = [pytest.mark.contract, pytest.mark.statistics]
 
@@ -68,7 +68,7 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
 def _import(client: TestClient, content: str, name: str) -> int:
     """Import one document through the canonical use case and return its track."""
     services = client.app.state.services  # type: ignore[attr-defined]
-    from gpx_view.application.import_tracks import ImportRequest
+    from trackvault.application.import_tracks import ImportRequest
 
     outcome = services.import_tracks(
         ImportRequest(content=content.encode("utf-8"), original_filename=name)

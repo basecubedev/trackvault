@@ -17,14 +17,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpx_view.application.projection import decimate_profile, simplify_geometry
-from gpx_view.application.track_profile import (
+from trackvault.application.projection import decimate_profile, simplify_geometry
+from trackvault.application.track_profile import (
     DEFAULT_PROFILE_SAMPLES,
     MAX_GEOMETRY_POINTS,
     MAX_PROFILE_SAMPLES,
 )
-from gpx_view.domain.analysis.series import derive_profile
-from gpx_view.domain.geometry import TrackPoint, TrackSegment
+from trackvault.domain.analysis.series import derive_profile
+from trackvault.domain.geometry import TrackPoint, TrackSegment
 
 pytestmark = [pytest.mark.integration, pytest.mark.analysis]
 

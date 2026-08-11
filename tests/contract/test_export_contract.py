@@ -19,17 +19,17 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.export import (
+from trackvault.application.export import (
     ExchangeDocument,
     ExportRawSource,
     ExportTrackDocument,
 )
-from gpx_view.application.import_tracks import ImportRequest, ImportStatus
-from gpx_view.application.importing import ImportLimits
-from gpx_view.config import Settings
-from gpx_view.domain import Activity, InputChannel, TrackPoint, TrackSegment, UserTrackMetadata
-from gpx_view.infrastructure.assembly import TrackServices, build_services
-from gpx_view.infrastructure.gpx import GPX_MEDIA_TYPE, GpxDocumentWriter, GpxImporter
+from trackvault.application.import_tracks import ImportRequest, ImportStatus
+from trackvault.application.importing import ImportLimits
+from trackvault.config import Settings
+from trackvault.domain import Activity, InputChannel, TrackPoint, TrackSegment, UserTrackMetadata
+from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.gpx import GPX_MEDIA_TYPE, GpxDocumentWriter, GpxImporter
 
 pytestmark = [pytest.mark.contract, pytest.mark.gpx]
 
@@ -60,7 +60,7 @@ def _import(services: TrackServices, name: str) -> tuple[str, tuple[int, ...]]:
 
 def _writer() -> GpxDocumentWriter:
     """Return the exchange writer under test."""
-    return GpxDocumentWriter(generator="GPX-View test")
+    return GpxDocumentWriter(generator="TrackVault test")
 
 
 def _reimport(document: bytes) -> tuple[TrackSegment, ...]:
@@ -268,7 +268,7 @@ def test_a_classification_is_not_exported_as_an_invented_extension() -> None:
     lowered = document.lower()
     assert b"recorded" not in lowered
     assert b"planned" not in lowered
-    assert b"gpx-view.org" not in lowered
+    assert b"trackvault.org" not in lowered
 
 
 def test_a_known_activity_is_exported_as_the_gpx_element_that_means_it() -> None:

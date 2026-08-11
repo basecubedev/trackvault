@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpx_view.domain import (
+from trackvault.domain import (
     Activity,
     ClassificationResult,
     EvidenceCode,

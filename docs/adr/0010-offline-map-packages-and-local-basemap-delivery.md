@@ -4,14 +4,14 @@
 
 Accepted (2026-08-09)
 
-Supersedes the basemap paragraph of ADR 0008 and the `GPX_VIEW_MAP_STYLE_URL`
+Supersedes the basemap paragraph of ADR 0008 and the `TRACKVAULT_MAP_STYLE_URL`
 arrangement it introduced. Everything else those decisions made — the track
 overlay, the sample identity, the profile — is untouched.
 
 ## Context
 
 A track drawn on a neutral grey rectangle is a shape, not a map. Until now the
-only way to get a background under it was `GPX_VIEW_MAP_STYLE_URL`: an operator
+only way to get a background under it was `TRACKVAULT_MAP_STYLE_URL`: an operator
 points the page at somebody else's tile service, and from then on every view of
 a private recording tells that service where the owner walked, one tile request
 at a time. `no-referrer` hides which archive is asking. It does not hide the
@@ -20,7 +20,7 @@ coordinates, because the coordinates *are* the request.
 That is the wrong shape for a self-hosted archive whose entire premise is that
 the movement data stays on the owner's machine. So:
 
-> GPX-View stores a regional map locally and serves it itself. After a package
+> TrackVault stores a regional map locally and serves it itself. After a package
 > is installed, viewing a track makes no external request of any kind.
 
 The network is reached exactly three times in a package's life: refreshing the
@@ -53,9 +53,9 @@ labels and points of interest at z14. Tiles are gzipped MVT; `tile_row` is TMS.
 
 **B — the same, converted to PMTiles.** Adds a conversion tool, an install-time
 CPU and disk cost proportional to the package, and an HTTP Range contract, in
-exchange for a delivery model that solves a problem GPX-View does not have. The
+exchange for a delivery model that solves a problem TrackVault does not have. The
 argument for PMTiles is serving tiles from object storage that cannot run code.
-GPX-View is code.
+TrackVault is code.
 
 **C — Protomaps, extracted regionally.** The planet build is 137 GB. Regional
 extraction is a client-side operation the `pmtiles` CLI performs over thousands
@@ -93,7 +93,7 @@ blocker. They do not.
 ### 1. Geofabrik Shortbread 1.0 MBTiles, served as MVT from this process
 
 Candidate A. One file per region, no conversion, no new runtime dependency, and
-delivery from the same origin as everything else GPX-View serves.
+delivery from the same origin as everything else TrackVault serves.
 
 ```
 Geofabrik regional Shortbread package
@@ -105,7 +105,7 @@ Geofabrik regional Shortbread package
 GET /api/v1/maps/tiles/<sha256>/{z}/{x}/{y}.mvt      same origin
         │
         ▼
-MapLibre  ──  local style, local glyphs, GPX-View track overlay
+MapLibre  ──  local style, local glyphs, TrackVault track overlay
 ```
 
 No PostGIS, no TileServer GL, no Martin, no second nginx. A read-only SQLite

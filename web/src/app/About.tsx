@@ -16,7 +16,7 @@ export function About() {
   if (info.error !== null) {
     return (
       <div className="panel" role="alert">
-        <h1>About GPX-View</h1>
+        <h1>About TrackVault</h1>
         <p className="notice notice--error">{info.error}</p>
         <button type="button" onClick={info.reload} data-testid="retry">
           Try again
@@ -34,7 +34,7 @@ export function About() {
 
   return (
     <div className="panel">
-      <h1>About GPX-View</h1>
+      <h1>About TrackVault</h1>
       <dl className="definition">
         <dt>Version</dt>
         <dd data-testid="about-version">{info.data.version}</dd>
@@ -75,7 +75,7 @@ export function About() {
       </details>
 
       <p className="muted">
-        GPX-View assumes a trusted network: it has no authentication, and it should be reachable
+        TrackVault assumes a trusted network: it has no authentication, and it should be reachable
         only from machines you trust or from behind a proxy that authenticates.
       </p>
     </div>

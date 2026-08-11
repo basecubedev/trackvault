@@ -22,15 +22,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view.config import Settings
-from gpx_view.main import create_app
 from support.network import forbid_external_network
+from trackvault.config import Settings
+from trackvault.main import create_app
 
 
 @pytest.fixture(autouse=True)
 def _without_browser_assets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Compose against an archive that ships no built browser application."""
-    monkeypatch.setenv("GPX_VIEW_WEB_DIR", str(tmp_path / "no-such-build"))
+    monkeypatch.setenv("TRACKVAULT_WEB_DIR", str(tmp_path / "no-such-build"))
 
 
 @pytest.fixture(autouse=True)

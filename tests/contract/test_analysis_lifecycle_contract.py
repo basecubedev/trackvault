@@ -24,9 +24,9 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.analysis import InstalledAnalysis
-from gpx_view.application.analyze import AnalyzeStatus, AnalyzeTrack
-from gpx_view.domain import (
+from trackvault.application.analysis import InstalledAnalysis
+from trackvault.application.analyze import AnalyzeStatus, AnalyzeTrack
+from trackvault.domain import (
     NORMALIZATION_SCHEMA_VERSION,
     ClassificationResult,
     EvidenceCode,
@@ -41,8 +41,8 @@ from gpx_view.domain import (
     TrackPoint,
     TrackSegment,
 )
-from gpx_view.domain.analysis import ANALYSIS_PROFILE, MetricName
-from gpx_view.infrastructure.database import SqliteTrackStore
+from trackvault.domain.analysis import ANALYSIS_PROFILE, MetricName
+from trackvault.infrastructure.database import SqliteTrackStore
 
 pytestmark = [pytest.mark.contract, pytest.mark.analysis]
 
@@ -65,7 +65,7 @@ class _FixedClock:
 @pytest.fixture
 def store(tmp_path: Path) -> SqliteTrackStore:
     """Return a migrated store in a throwaway directory."""
-    store = SqliteTrackStore(tmp_path / "gpx-view.sqlite3")
+    store = SqliteTrackStore(tmp_path / "trackvault.sqlite3")
     store.migrate()
     return store
 

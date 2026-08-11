@@ -1,6 +1,6 @@
 # Development
 
-Everything needed to work on GPX-View. The [README](../../README.md) is for
+Everything needed to work on TrackVault. The [README](../../README.md) is for
 running it; this is for changing it.
 
 The rules every change follows are in
@@ -27,7 +27,7 @@ cd web && npm ci
 ## Running it locally
 
 ```bash
-uv run uvicorn gpx_view.main:app --reload --port 8080
+uv run uvicorn trackvault.main:app --reload --port 8080
 ```
 
 Interactive API documentation: <http://127.0.0.1:8080/docs>.
@@ -192,7 +192,7 @@ Not part of any suite -- it downloads from somebody else's server. Monaco is
 1.7 MB and is the right size for a manual check:
 
 ```bash
-uv run gpx-view --help          # start the app, then use the /maps page
+uv run trackvault --help          # start the app, then use the /maps page
 ```
 
 Pick **Europe → Monaco → Download**, open a track in that area, then disconnect

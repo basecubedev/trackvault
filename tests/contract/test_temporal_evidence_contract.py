@@ -21,8 +21,8 @@ field.
 
 import pytest
 
-from gpx_view.domain import EvidenceCode, TrackKind
-from gpx_view.domain.temporal_evidence import (
+from trackvault.domain import EvidenceCode, TrackKind
+from trackvault.domain.temporal_evidence import (
     TemporalEvidence,
     supports_actual_metrics,
     supports_actual_timing,

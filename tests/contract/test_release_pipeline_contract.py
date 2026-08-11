@@ -44,6 +44,14 @@ def _project_version() -> str:
     return version
 
 
+def _project_license() -> str:
+    """Return the one SPDX identifier this project declares."""
+    identifier: str = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]["license"]
+    return identifier
+
+
 def _jobs(path: Path) -> dict[str, Any]:
     """Return the jobs of one workflow."""
     jobs: dict[str, Any] = _workflow(path)["jobs"]
@@ -142,24 +150,25 @@ def test_the_image_carries_the_metadata_a_build_can_actually_know() -> None:
 
     assert "docker/metadata-action" in recipe
     assert "labels: ${{ steps.metadata.outputs.labels }}" in recipe
-    assert "GPX_VIEW_VERSION=" in recipe
+    assert "TRACKVAULT_VERSION=" in recipe
 
 
-def test_the_image_claims_no_licence_this_project_has_not_chosen() -> None:
-    """A licence label invented by a build script is a legal claim nobody made.
+def test_the_published_image_states_the_licence_this_project_chose() -> None:
+    """A label is a legal claim, so it may only ever repeat the `LICENSE` file.
 
-    This project ships no LICENSE file yet. The label belongs in the same commit
-    that adds one.
+    What is checked is that the two agree, not merely that a label exists: a
+    published identifier naming a licence the repository does not carry would be
+    a claim invented by a build script.
     """
-    assert not (PROJECT_ROOT / "LICENSE").exists(), (
-        "a licence now exists; add org.opencontainers.image.licenses and delete this test"
-    )
+    assert (PROJECT_ROOT / "LICENSE").is_file()
+
     declared = [
-        line
+        line.strip()
         for line in RELEASE.read_text(encoding="utf-8").splitlines()
         if "image.licenses" in line and not line.lstrip().startswith("#")
     ]
-    assert not declared, declared
+
+    assert declared == [f"org.opencontainers.image.licenses={_project_license()}"], declared
 
 
 def test_the_release_publishes_a_bill_of_materials_and_its_provenance() -> None:
@@ -183,7 +192,7 @@ def test_the_image_name_is_derived_rather_than_typed() -> None:
     """A hand-written owner is a hand-written owner that will be wrong once."""
     recipe = RELEASE.read_text(encoding="utf-8")
 
-    assert "${{ github.repository_owner }}/gpx-view" in recipe
+    assert "${{ github.repository_owner }}/trackvault" in recipe
 
 
 def test_the_installer_default_image_matches_what_the_pipeline_publishes() -> None:
@@ -196,7 +205,7 @@ def test_the_installer_default_image_matches_what_the_pipeline_publishes() -> No
     script = INSTALLER.read_text(encoding="utf-8")
 
     assert 'DEFAULT_IMAGE_REPOSITORY="ghcr.io/' in script
-    assert script.rstrip().count("/gpx-view") >= 1
+    assert script.rstrip().count("/trackvault") >= 1
 
 
 def test_the_documented_release_version_is_the_declared_one() -> None:

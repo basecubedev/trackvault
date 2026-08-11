@@ -5,7 +5,7 @@ These pin the business contracts documented in ``docs/technical/contracts.md``.
 
 import pytest
 
-from gpx_view.domain import Activity, MetricProvenance, TrackKind
+from trackvault.domain import Activity, MetricProvenance, TrackKind
 
 
 @pytest.mark.unit

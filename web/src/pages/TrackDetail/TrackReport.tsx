@@ -199,7 +199,7 @@ export function TrackReport({
           <details className="operator-hint">
             <summary>What fixes this</summary>
             <p>
-              On the machine that holds the data, run <code>gpx-view analyze --outdated</code>.
+              On the machine that holds the data, run <code>trackvault analyze --outdated</code>.
             </p>
           </details>
         </Notice>

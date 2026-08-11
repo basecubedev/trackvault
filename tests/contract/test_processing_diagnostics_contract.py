@@ -25,11 +25,11 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.import_tracks import ImportRequest
-from gpx_view.application.processing_status import ProcessingStatusReport
-from gpx_view.config import Settings
-from gpx_view.domain import ProcessingRun, ProcessingStatus
-from gpx_view.infrastructure.assembly import TrackServices, build_services
+from trackvault.application.import_tracks import ImportRequest
+from trackvault.application.processing_status import ProcessingStatusReport
+from trackvault.config import Settings
+from trackvault.domain import ProcessingRun, ProcessingStatus
+from trackvault.infrastructure.assembly import TrackServices, build_services
 
 pytestmark = [pytest.mark.contract, pytest.mark.reprocessing, pytest.mark.persistence]
 

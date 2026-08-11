@@ -11,7 +11,7 @@ export function Header() {
         <span className="app-header__mark" aria-hidden="true">
           ▲
         </span>
-        <span className="app-header__title">GPX-View</span>
+        <span className="app-header__title">TrackVault</span>
       </div>
       <nav aria-label="Sections">
         <NavLink to="/" end className={({ isActive }) => (isActive ? 'is-active' : '')}>

@@ -12,15 +12,15 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application import ImportErrorCode
-from gpx_view.application.import_tracks import ImportStatus
-from gpx_view.application.ports import TrackQuery
-from gpx_view.cli import EXIT_DISABLED, EXIT_FAILED, EXIT_OK, main
-from gpx_view.config import Settings
-from gpx_view.domain import InputChannel
-from gpx_view.infrastructure.assembly import build_services
-from gpx_view.infrastructure.database import SqliteTrackStore
-from gpx_view.infrastructure.filesystem import import_directory, scan_import_directory
+from trackvault.application import ImportErrorCode
+from trackvault.application.import_tracks import ImportStatus
+from trackvault.application.ports import TrackQuery
+from trackvault.cli import EXIT_DISABLED, EXIT_FAILED, EXIT_OK, main
+from trackvault.config import Settings
+from trackvault.domain import InputChannel
+from trackvault.infrastructure.assembly import build_services
+from trackvault.infrastructure.database import SqliteTrackStore
+from trackvault.infrastructure.filesystem import import_directory, scan_import_directory
 
 pytestmark = [pytest.mark.integration, pytest.mark.persistence]
 

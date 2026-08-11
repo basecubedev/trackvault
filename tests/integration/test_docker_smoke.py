@@ -11,6 +11,8 @@ image deliberately ships no test fixtures.
 """
 
 import hashlib
+import json
+import re
 import shutil
 import subprocess
 import tarfile
@@ -23,14 +25,31 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "gpx"
-COMPOSE_PROJECT = "gpx-view-smoke"
-BASE_URL = "http://127.0.0.1:8080"
+COMPOSE_PROJECT = "trackvault-smoke"
+HOST_PORT = 8081
+"""The port ``compose.yaml`` publishes on the host, and the one a browser opens.
+
+Deliberately not the container's own 8080. The two are different numbers so that
+a mapping that quietly stopped being a mapping -- host networking, a published
+port that drifted -- fails here instead of passing because both ends happened to
+agree.
+"""
+CONTAINER_PORT = 8080
+"""What the application binds inside the container, and what its health check asks."""
+BASE_URL = f"http://127.0.0.1:{HOST_PORT}"
 HEALTH_URL = f"{BASE_URL}/healthz"
 TRACKS_URL = f"{BASE_URL}/api/v1/tracks"
 STARTUP_TIMEOUT_SECONDS = 90.0
 POLL_INTERVAL_SECONDS = 1.0
 
-CONTAINER = "gpx-view"
+CONTAINER = "trackvault"
+FORMER_NAME = re.compile(r"gpx[-_ ]?view(?!er)", re.IGNORECASE)
+"""What the project was called before it was named, in every spelling it used.
+
+``tests/contract/test_product_identity_contract.py`` states the same rule over
+the source tree. Here it is asked of a built and running deployment, which is
+the only place a stale bundle or a cached layer could still answer with it.
+"""
 CONTAINER_IMPORT_PATH = "/tmp/synthetic-import.gpx"  # noqa: S108
 CONTAINER_MAP_SEED = "/tmp/seed-map.py"  # noqa: S108
 CONTAINER_RESTORE_TARGET = "/tmp/restored"  # noqa: S108
@@ -49,14 +68,14 @@ import sqlite3, gzip, hashlib, os, shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gpx_view.config import Settings
-from gpx_view.domain.maps import (
+from trackvault.config import Settings
+from trackvault.domain.maps import (
     AttributionLink, MapAttribution, MapBounds, MapPackage, MapPackageFormat,
     MapRegionId, MapTileSchema,
 )
-from gpx_view.infrastructure.database import SqliteTrackStore
-from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore
-from gpx_view.infrastructure.maps import FilesystemMapPackageStorage, MbtilesPackageInspector
+from trackvault.infrastructure.database import SqliteTrackStore
+from trackvault.infrastructure.database.map_store import SqliteMapPackageStore
+from trackvault.infrastructure.maps import FilesystemMapPackageStorage, MbtilesPackageInspector
 
 settings = Settings()
 storage = FilesystemMapPackageStorage(settings.map_storage_dir)
@@ -83,7 +102,7 @@ connection.executemany(
     [
         ("name", "Shortbread"), ("version", "1.0"), ("format", "pbf"),
         ("minzoom", "0"), ("maxzoom", "6"), ("bounds", "-10,35,20,60"),
-        ("author", "OpenStreetMap contributors, GPX-View container smoke test"),
+        ("author", "OpenStreetMap contributors, TrackVault container smoke test"),
         ("license", "Open Database License 1.0"),
         ("json", '{"vector_layers":[' + described + ']}'),
     ],
@@ -225,11 +244,42 @@ def test_compose_file_is_valid() -> None:
 
 @pytest.mark.integration
 def test_container_serves_healthz(compose_stack: None) -> None:  # noqa: ARG001
-    """The running container answers the health contract on port 8080."""
+    """The running container answers the health contract on the published port."""
     response = httpx2.get(HEALTH_URL, timeout=5.0)
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.integration
+def test_the_published_port_maps_onto_the_container_port(
+    compose_stack: None,  # noqa: ARG001
+) -> None:
+    """8081 outside, 8080 inside, and the health check on the inside one.
+
+    Three statements that are easy to conflate and expensive to get wrong. A
+    health check pointed at the host port would report a container unhealthy
+    the moment somebody published it somewhere else, and a container that
+    listened on the published port would only work for one deployment.
+    """
+    assert _exec("printenv", "TRACKVAULT_PORT").strip() == str(CONTAINER_PORT)
+
+    inside = _exec(
+        "python",
+        "-c",
+        "import urllib.request;"
+        f"print(urllib.request.urlopen('http://127.0.0.1:{CONTAINER_PORT}/healthz',"
+        " timeout=3).status)",
+    )
+    assert inside.strip() == "200"
+
+    published = subprocess.run(
+        ["docker", "compose", "-p", COMPOSE_PROJECT, "port", CONTAINER, str(CONTAINER_PORT)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout.decode()
+    assert published.strip().endswith(f":{HOST_PORT}"), published
 
 
 @pytest.mark.integration
@@ -254,10 +304,10 @@ def test_the_container_writes_and_keeps_data_as_a_non_root_user(
 
     content = (FIXTURES / "recorded-measurements.gpx").read_bytes()
     _exec("sh", "-c", f"cat > {CONTAINER_IMPORT_PATH}", stdin=content)
-    _exec("gpx-view", "import", CONTAINER_IMPORT_PATH)
+    _exec("trackvault", "import", CONTAINER_IMPORT_PATH)
 
     stored = _exec("find", "/data", "-type", "f")
-    assert "gpx-view.sqlite3" in stored
+    assert "trackvault.sqlite3" in stored
     assert ".raw" in stored
 
     before = httpx2.get(TRACKS_URL, timeout=5.0).json()
@@ -299,7 +349,7 @@ def _import_the_reference(name: str = "recorded-measurements.gpx") -> str:
     """Import a synthetic fixture into the container and return its content hash."""
     content = (FIXTURES / name).read_bytes()
     _exec("sh", "-c", f"cat > {CONTAINER_IMPORT_PATH}", stdin=content)
-    _exec("gpx-view", "import", CONTAINER_IMPORT_PATH)
+    _exec("trackvault", "import", CONTAINER_IMPORT_PATH)
     return hashlib.sha256(content).hexdigest()
 
 
@@ -311,14 +361,14 @@ def test_private_data_in_the_container_is_not_world_readable(
     """The permissions the archive promises hold inside the container too.
 
     A named volume arrives with ordinary directory permissions, so what protects
-    the movement data is what GPX-View creates, not what Docker set up.
+    the movement data is what TrackVault creates, not what Docker set up.
     """
     _import_the_reference()
 
     modes = _exec(
         "sh",
         "-c",
-        "find /data -name 'gpx-view.sqlite3*' -o -name '*.raw' | "
+        "find /data -name 'trackvault.sqlite3*' -o -name '*.raw' | "
         "while read -r f; do stat -c '%a' \"$f\"; done",
     ).split()
     directories = _exec(
@@ -343,24 +393,24 @@ def test_the_container_reports_and_repairs_an_outdated_generation(
     build has to be installed to prove the path works.
     """
     sha256 = _import_the_reference()
-    assert "outdated:       no" in _exec("gpx-view", "processing-status", sha256)
+    assert "outdated:       no" in _exec("trackvault", "processing-status", sha256)
 
     _exec(
         "python",
         "-c",
         "import sqlite3\n"
-        "connection = sqlite3.connect('/data/gpx-view.sqlite3')\n"
+        "connection = sqlite3.connect('/data/trackvault.sqlite3')\n"
         "connection.execute(\"UPDATE processing_runs SET importer_version = '1'\")\n"
         "connection.commit()\n",
     )
-    outdated = _exec("gpx-view", "processing-status", sha256)
-    _exec("gpx-view", "reprocess", "--outdated")
-    repaired = _exec("gpx-view", "processing-status", sha256)
+    outdated = _exec("trackvault", "processing-status", sha256)
+    _exec("trackvault", "reprocess", "--outdated")
+    repaired = _exec("trackvault", "processing-status", sha256)
 
     assert "outdated:       yes" in outdated
     assert "importer:       1 -> installed" in outdated
     assert "outdated:       no" in repaired
-    assert _exec("gpx-view", "reprocess", "--outdated") == "nothing to reprocess\n"
+    assert _exec("trackvault", "reprocess", "--outdated") == "nothing to reprocess\n"
 
 
 @pytest.mark.integration
@@ -400,7 +450,7 @@ def test_analysis_and_statistics_survive_recreating_the_container(
     assert after_track["analysis"] == before_track["analysis"]
     assert after_year["totals"] == before_year["totals"]
     assert analysis["status"] == "current"
-    assert _exec("gpx-view", "analyze", "--outdated") == "nothing to analyze\n"
+    assert _exec("trackvault", "analyze", "--outdated") == "nothing to analyze\n"
 
 
 @pytest.mark.integration
@@ -417,23 +467,23 @@ def test_the_container_reanalyses_what_an_algorithm_change_outdates(
     wrote as current, or it would never regenerate them.
     """
     _import_the_reference()
-    assert "analysis outdated: no" in _exec("gpx-view", "processing-status", _CONTAINER_SHA)
+    assert "analysis outdated: no" in _exec("trackvault", "processing-status", _CONTAINER_SHA)
 
     _exec(
         "python",
         "-c",
         "import sqlite3\n"
-        "connection = sqlite3.connect('/data/gpx-view.sqlite3')\n"
+        "connection = sqlite3.connect('/data/trackvault.sqlite3')\n"
         'connection.execute("UPDATE analysis_runs SET elevation_algorithm_version = 2")\n'
         "connection.commit()\n",
     )
-    outdated = _exec("gpx-view", "processing-status", _CONTAINER_SHA)
-    _exec("gpx-view", "analyze", "--outdated")
-    repaired = _exec("gpx-view", "processing-status", _CONTAINER_SHA)
+    outdated = _exec("trackvault", "processing-status", _CONTAINER_SHA)
+    _exec("trackvault", "analyze", "--outdated")
+    repaired = _exec("trackvault", "processing-status", _CONTAINER_SHA)
 
     assert "analysis outdated: yes" in outdated
     assert "analysis outdated: no" in repaired
-    assert _exec("gpx-view", "analyze", "--outdated") == "nothing to analyze\n"
+    assert _exec("trackvault", "analyze", "--outdated") == "nothing to analyze\n"
 
 
 # --- The browser application ships with the archive ---------------------------
@@ -510,7 +560,70 @@ def test_the_image_ships_the_third_party_notices(compose_stack: None) -> None:  
 
     assert "# Third-party notices" in notices
     assert "maplibre-gl" in notices
-    assert "GPX-View itself" in notices
+    assert "TrackVault itself" in notices
+
+
+@pytest.mark.integration
+def test_the_image_ships_the_licence_of_the_program_it_conveys(
+    compose_stack: None,  # noqa: ARG001
+) -> None:
+    """An AGPL program travels with its licence, not with a link to one.
+
+    The label is the machine-readable half of the same statement, so a registry
+    listing and the file inside the image cannot disagree about what somebody is
+    allowed to do with what they pulled.
+    """
+    licence = _exec("cat", "/app/LICENSE")
+
+    assert "GNU AFFERO GENERAL PUBLIC LICENSE" in licence
+    assert "Version 3, 19 November 2007" in licence
+
+    labelled = subprocess.run(
+        [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            '{{ index .Config.Labels "org.opencontainers.image.licenses" }}',
+            "trackvault:dev",
+        ],
+        capture_output=True,
+        check=True,
+    ).stdout.decode()
+    assert labelled.strip() == "AGPL-3.0-only"
+
+
+@pytest.mark.integration
+def test_the_running_container_calls_itself_trackvault(
+    compose_stack: None,  # noqa: ARG001
+) -> None:
+    """The product name, on the three surfaces a deployment actually shows it.
+
+    The image label, the served page and the API document. A running deployment
+    is the last place a former name could survive the source tree -- a built
+    bundle, a cached page, a label baked into an older layer -- so the check is
+    made against what the container actually answers with.
+    """
+    page = httpx2.get(f"{BASE_URL}/", timeout=10.0)
+    schema = httpx2.get(f"{BASE_URL}/openapi.json", timeout=10.0).json()
+    titled = subprocess.run(
+        [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            '{{ index .Config.Labels "org.opencontainers.image.title" }}',
+            "trackvault:dev",
+        ],
+        capture_output=True,
+        check=True,
+    ).stdout.decode()
+
+    assert "<title>TrackVault</title>" in page.text
+    assert schema["info"]["title"] == "TrackVault"
+    assert titled.strip() == "TrackVault"
+    assert not FORMER_NAME.search(page.text)
+    assert not FORMER_NAME.search(json.dumps(schema))
 
 
 @pytest.mark.integration
@@ -523,10 +636,11 @@ def test_the_image_states_the_version_it_was_built_from(
     operator reporting a problem and a registry listing an image cannot disagree
     about which release it is.
     """
-    from gpx_view import __version__
+    from trackvault import __version__
 
     labelled = _compose("images", "--format", "json", CONTAINER).stdout.decode()
-    running = _exec("python", "-c", "from gpx_view import __version__; print(__version__)").strip()
+    report_version = "from trackvault import __version__; print(__version__)"
+    running = _exec("python", "-c", report_version).strip()
 
     assert running == __version__
     assert labelled  # the image exists under this project
@@ -537,7 +651,7 @@ def test_the_image_states_the_version_it_was_built_from(
             "inspect",
             "--format",
             '{{ index .Config.Labels "org.opencontainers.image.version" }}',
-            "gpx-view:dev",
+            "trackvault:dev",
         ],
         capture_output=True,
         check=True,
@@ -557,7 +671,7 @@ def test_the_container_serves_the_browser_application(compose_stack: None) -> No
     # injected script holding a basemap style URL; offline map packages replaced
     # that configuration, and its removal is what lets the content security
     # policy say `script-src 'self'`.
-    assert "__GPX_VIEW__" not in page.text
+    assert "__TRACKVAULT__" not in page.text
     assert "default-src 'self'" in page.headers["content-security-policy"]
 
 
@@ -716,11 +830,11 @@ def test_the_import_directory_is_configured_in_the_container(
     """The variable whose absence silently disables the whole feature.
 
     A deployment can mount a folder perfectly and still scan nothing, because
-    scanning is off unless ``GPX_VIEW_IMPORT_DIR`` is set. That failure looks
+    scanning is off unless ``TRACKVAULT_IMPORT_DIR`` is set. That failure looks
     exactly like "the import does not work", which is the hardest kind to
     diagnose, so the configuration is asserted rather than assumed.
     """
-    assert _exec("printenv", "GPX_VIEW_IMPORT_DIR").strip() == "/import"
+    assert _exec("printenv", "TRACKVAULT_IMPORT_DIR").strip() == "/import"
 
 
 @pytest.mark.integration
@@ -731,14 +845,14 @@ def test_a_file_in_the_host_import_directory_is_imported_by_a_scan(
     """The Locus AutoSync workflow, end to end, through a real mount.
 
     ```
-    host directory -> read-only mount -> GPX_VIEW_IMPORT_DIR -> scan -> track
+    host directory -> read-only mount -> TRACKVAULT_IMPORT_DIR -> scan -> track
     ```
 
     This is the test whose absence let a scan be run against a path that existed
     only on the developer's machine. It fails if the mount is missing, if the
     variable is unset, or if the container cannot read what the host wrote.
     """
-    output = _exec("gpx-view", "scan")
+    output = _exec("trackvault", "scan")
 
     assert "imported" in output
     assert dropped_import[:12] in output
@@ -759,9 +873,9 @@ def test_scanning_the_same_file_again_imports_nothing(
     Recognising known bytes as a duplicate is what makes a scheduled scan cheap
     and what stops one ride becoming forty copies of itself.
     """
-    _exec("gpx-view", "scan")
+    _exec("trackvault", "scan")
 
-    output = _exec("gpx-view", "scan")
+    output = _exec("trackvault", "scan")
 
     assert "duplicate" in output
     assert "imported" not in output
@@ -781,7 +895,7 @@ def test_the_import_directory_stays_input_only(
     dropped = HOST_IMPORT_DIRECTORY / "synthetic-autosync.gpx"
     before = dropped.read_bytes()
 
-    _exec("gpx-view", "scan")
+    _exec("trackvault", "scan")
     refusal = _compose_failure("exec", "-T", CONTAINER, "touch", "/import/proof")
 
     assert "read-only" in refusal.lower()
@@ -798,7 +912,7 @@ def test_the_container_diagnoses_itself(compose_stack: None) -> None:  # noqa: A
     that as degraded on purpose. What must be true is that nothing about the
     container deployment itself is broken.
     """
-    code, output = _exec_unchecked("gpx-view", "doctor")
+    code, output = _exec_unchecked("trackvault", "doctor")
 
     assert code != 1, output
     assert "in a container" in output
@@ -818,17 +932,17 @@ def test_the_container_backs_up_and_restores_its_own_archive(
     round trip, and a test that replaced the live archive would be a test that
     quietly depends on running last.
     """
-    _exec("gpx-view", "scan")
-    created = _exec("gpx-view", "backup", "create")
-    assert "/backups/gpx-view-" in created
+    _exec("trackvault", "scan")
+    created = _exec("trackvault", "backup", "create")
+    assert "/backups/trackvault-" in created
 
     archive = next(line.split()[1] for line in created.splitlines() if line.startswith("created:"))
-    inspected = _exec("gpx-view", "restore", archive, "--dry-run")
+    inspected = _exec("trackvault", "restore", archive, "--dry-run")
     assert "compatibility: supported" in inspected
 
-    restored = _exec("gpx-view", "restore", archive, "--into", CONTAINER_RESTORE_TARGET)
+    restored = _exec("trackvault", "restore", archive, "--into", CONTAINER_RESTORE_TARGET)
     assert "restored" in restored
-    assert dropped_import in _exec("gpx-view", "processing-status", dropped_import), (
+    assert dropped_import in _exec("trackvault", "processing-status", dropped_import), (
         "the restored archive does not hold the source it was taken from"
     )
 
@@ -846,7 +960,7 @@ def test_a_backup_can_be_copied_off_the_machine(
     inverts that -- bind mount plus PUID/PGID -- so backups land straight in a
     folder its owner can read; see `install-docker.sh`.
     """
-    created = _exec("gpx-view", "backup", "create")
+    created = _exec("trackvault", "backup", "create")
     archive = next(line.split()[1] for line in created.splitlines() if line.startswith("created:"))
     copied = tmp_path / "off-the-machine.tar.gz"
 

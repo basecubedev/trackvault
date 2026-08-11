@@ -37,15 +37,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view.application import ImportLimits
-from gpx_view.application.analysis import InstalledAnalysis
-from gpx_view.application.analyze import AnalyzeStatus
-from gpx_view.application.import_tracks import ImportRequest, ImportStatus
-from gpx_view.application.ports import RawArtifactState, TrackQuery, TrackSummary
-from gpx_view.application.reprocess import ReprocessStatus
-from gpx_view.application.statistics import AggregationScope, GetYearStatistics
-from gpx_view.config import Settings
-from gpx_view.domain import (
+from trackvault.application import ImportLimits
+from trackvault.application.analysis import InstalledAnalysis
+from trackvault.application.analyze import AnalyzeStatus
+from trackvault.application.import_tracks import ImportRequest, ImportStatus
+from trackvault.application.ports import RawArtifactState, TrackQuery, TrackSummary
+from trackvault.application.reprocess import ReprocessStatus
+from trackvault.application.statistics import AggregationScope, GetYearStatistics
+from trackvault.config import Settings
+from trackvault.domain import (
     Activity,
     ClassificationResult,
     EvidenceCode,
@@ -61,18 +61,18 @@ from gpx_view.domain import (
     supports_actual_calendar_placement,
     supports_actual_timing,
 )
-from gpx_view.domain.analysis import MetricName
-from gpx_view.infrastructure.assembly import (
+from trackvault.domain.analysis import MetricName
+from trackvault.infrastructure.assembly import (
     TrackServices,
     build_services,
     import_limits_from,
 )
-from gpx_view.infrastructure.gpx import GpxImporter
-from gpx_view.infrastructure.gpx.extensions import (
+from trackvault.infrastructure.gpx import GpxImporter
+from trackvault.infrastructure.gpx.extensions import (
     GARMIN_TRACK_POINT_EXTENSION_V2,
     LOCUS_MAP_EXTENSIONS,
 )
-from gpx_view.main import create_app
+from trackvault.main import create_app
 
 pytestmark = [pytest.mark.local_tracks, pytest.mark.integration]
 
@@ -313,7 +313,7 @@ def test_the_managed_copy_is_byte_identical_to_the_source(
 def test_importing_never_touches_the_source_file(
     archive: TrackServices, reference: Reference
 ) -> None:
-    """The developer's own files are input. GPX-View does not write to them.
+    """The developer's own files are input. TrackVault does not write to them.
 
     Content and modification time are both checked: a tool that rewrote a file
     identically would still have touched data the owner did not ask it to touch.

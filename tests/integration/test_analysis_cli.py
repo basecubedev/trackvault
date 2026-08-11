@@ -17,12 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.analyze import AnalyzeTrack
-from gpx_view.application.ports import TrackQuery
-from gpx_view.cli import EXIT_FAILED, EXIT_OK, main
-from gpx_view.config import Settings
-from gpx_view.domain.analysis import MetricName
-from gpx_view.infrastructure.assembly import build_services
+from trackvault.application.analyze import AnalyzeTrack
+from trackvault.application.ports import TrackQuery
+from trackvault.cli import EXIT_FAILED, EXIT_OK, main
+from trackvault.config import Settings
+from trackvault.domain.analysis import MetricName
+from trackvault.infrastructure.assembly import build_services
 
 pytestmark = [pytest.mark.integration, pytest.mark.analysis]
 

@@ -19,22 +19,22 @@ from tempfile import TemporaryDirectory
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPOSITORY / "tests"))
 
-from gpx_view.application.maps import (  # noqa: E402
+from support.fake_provider import FakeMapProvider, region  # noqa: E402
+from support.map_packages import build_package  # noqa: E402
+from trackvault.application.maps import (  # noqa: E402
     GetMapCatalog,
     InstallMapPackage,
     queued_job,
 )
-from gpx_view.config import Settings  # noqa: E402
-from gpx_view.domain.maps import MapRegionId  # noqa: E402
-from gpx_view.infrastructure.database import SqliteTrackStore  # noqa: E402
-from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore  # noqa: E402
-from gpx_view.infrastructure.maps import (  # noqa: E402
+from trackvault.config import Settings  # noqa: E402
+from trackvault.domain.maps import MapRegionId  # noqa: E402
+from trackvault.infrastructure.database import SqliteTrackStore  # noqa: E402
+from trackvault.infrastructure.database.map_store import SqliteMapPackageStore  # noqa: E402
+from trackvault.infrastructure.maps import (  # noqa: E402
     FilesystemMapCatalogCache,
     FilesystemMapPackageStorage,
     MbtilesPackageInspector,
 )
-from support.fake_provider import FakeMapProvider, region  # noqa: E402
-from support.map_packages import build_package  # noqa: E402
 
 REGION = "fixture:mallorca"
 # The seeded tracks sit around 39.8 N, 3.1 E. The package covers a rectangle
@@ -66,7 +66,7 @@ def main() -> int:
             regions=(region(REGION, "Mallorca (test fixture)"),),
             packages={REGION: source},
             slug="fixture",
-            display_name="GPX-View test fixtures",
+            display_name="TrackVault test fixtures",
         )
         catalog = GetMapCatalog(
             provider=provider,

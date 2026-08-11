@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 
-from gpx_view.application.archive import (
+from trackvault.application.archive import (
     ARCHIVE_FORMAT_NAME,
     ARCHIVE_FORMAT_VERSION,
     DATABASE_MEMBER,
@@ -41,12 +41,12 @@ from gpx_view.application.archive import (
     ArchiveManifest,
     compatibility_of,
 )
-from gpx_view.application.import_tracks import ImportRequest, ImportStatus
-from gpx_view.config import Settings
-from gpx_view.domain import InputChannel, TrackKind, UserTrackMetadata
-from gpx_view.infrastructure.archive import FilesystemArchiveBuilder, FilesystemArchiveExtractor
-from gpx_view.infrastructure.archive.manifest_codec import decode_manifest, encode_manifest
-from gpx_view.infrastructure.assembly import TrackServices, build_services
+from trackvault.application.import_tracks import ImportRequest, ImportStatus
+from trackvault.config import Settings
+from trackvault.domain import InputChannel, TrackKind, UserTrackMetadata
+from trackvault.infrastructure.archive import FilesystemArchiveBuilder, FilesystemArchiveExtractor
+from trackvault.infrastructure.archive.manifest_codec import decode_manifest, encode_manifest
+from trackvault.infrastructure.assembly import TrackServices, build_services
 
 pytestmark = [pytest.mark.contract, pytest.mark.persistence]
 
@@ -88,7 +88,7 @@ def _extractor(archive: Path, data_dir: Path) -> FilesystemArchiveExtractor:
     return FilesystemArchiveExtractor(
         source=archive,
         data_dir=data_dir,
-        database_path=data_dir / "gpx-view.sqlite3",
+        database_path=data_dir / "trackvault.sqlite3",
         raw_root=data_dir / "raw",
     )
 
@@ -138,7 +138,7 @@ def test_an_archive_carries_a_manifest_that_describes_it(
 
     assert manifest.format_name == ARCHIVE_FORMAT_NAME
     assert manifest.format_version == ARCHIVE_FORMAT_VERSION
-    assert manifest.gpx_view_version
+    assert manifest.trackvault_version
     assert manifest.schema_version > 0
     assert manifest.counts.raw_imports == 1
     assert manifest.counts.tracks == 1
@@ -219,7 +219,7 @@ def test_a_manifest_survives_being_written_and_read() -> None:
         format_name=ARCHIVE_FORMAT_NAME,
         format_version=ARCHIVE_FORMAT_VERSION,
         created_at=datetime(2026, 8, 10, 12, tzinfo=UTC),
-        gpx_view_version="9.9.9",
+        trackvault_version="9.9.9",
         schema_version=7,
         contents=ArchiveContents(
             database=ArchivedFile(name=DATABASE_MEMBER, size_bytes=3, sha256="a" * 64),
@@ -236,9 +236,9 @@ def test_a_manifest_survives_being_written_and_read() -> None:
     [
         b"not json at all",
         b"[]",
-        b'{"format_name": "gpx-view-archive"}',
+        b'{"format_name": "trackvault-archive"}',
         b'{"format_name": 1, "format_version": 1, "created_at": "2026-01-01T00:00:00+00:00",'
-        b' "gpx_view_version": "1", "schema_version": 1, "contents": {}, "counts": {}}',
+        b' "trackvault_version": "1", "schema_version": 1, "contents": {}, "counts": {}}',
     ],
 )
 def test_a_malformed_manifest_is_refused_rather_than_half_read(document: bytes) -> None:
@@ -256,7 +256,7 @@ def test_a_manifest_version_that_is_a_boolean_is_refused() -> None:
             format_name=ARCHIVE_FORMAT_NAME,
             format_version=1,
             created_at=datetime(2026, 1, 1, tzinfo=UTC),
-            gpx_view_version="1",
+            trackvault_version="1",
             schema_version=1,
             contents=ArchiveContents(
                 database=ArchivedFile(name=DATABASE_MEMBER, size_bytes=1, sha256="a" * 64),
@@ -396,7 +396,7 @@ def _manifest(
         format_name=format_name,
         format_version=format_version,
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        gpx_view_version="1",
+        trackvault_version="1",
         schema_version=schema,
         contents=ArchiveContents(
             database=ArchivedFile(name=DATABASE_MEMBER, size_bytes=1, sha256="a" * 64),
@@ -739,7 +739,7 @@ def test_a_truncated_archive_is_refused_rather_than_half_restored(
         ArchiveErrorCode.INCOMPLETE,
         ArchiveErrorCode.CHECKSUM_MISMATCH,
     }
-    assert not (target / "gpx-view.sqlite3").exists()
+    assert not (target / "trackvault.sqlite3").exists()
 
 
 def test_an_archive_whose_database_is_not_a_database_is_refused(
@@ -765,7 +765,7 @@ def test_an_archive_whose_database_is_not_a_database_is_refused(
             format_name=manifest.format_name,
             format_version=manifest.format_version,
             created_at=manifest.created_at,
-            gpx_view_version=manifest.gpx_view_version,
+            trackvault_version=manifest.trackvault_version,
             schema_version=manifest.schema_version,
             contents=ArchiveContents(
                 database=ArchivedFile(
@@ -872,7 +872,7 @@ def test_a_dry_run_reports_everything_a_decision_needs(
 
     assert inspection.manifest.format_name == ARCHIVE_FORMAT_NAME
     assert inspection.manifest.format_version == ARCHIVE_FORMAT_VERSION
-    assert inspection.manifest.gpx_view_version
+    assert inspection.manifest.trackvault_version
     assert inspection.manifest.schema_version > 0
     assert inspection.compatibility is ArchiveCompatibility.SUPPORTED
     assert inspection.manifest.counts.raw_imports == 1
@@ -908,7 +908,7 @@ def test_a_restore_into_an_empty_directory_needs_no_permission(
     outcome = services.restore_archive(_extractor(archive, target))
 
     assert not outcome.replaced_existing_data
-    assert (target / "gpx-view.sqlite3").is_file()
+    assert (target / "trackvault.sqlite3").is_file()
     assert any((target / "raw").rglob("*.raw"))
 
 
@@ -930,7 +930,7 @@ def test_a_refused_restore_leaves_the_destination_untouched(
     with pytest.raises(ArchiveError):
         services.restore_archive(_extractor(tampered, target))
 
-    assert not (target / "gpx-view.sqlite3").exists()
+    assert not (target / "trackvault.sqlite3").exists()
     assert list(target.iterdir()) == []
 
 
@@ -965,14 +965,14 @@ def test_a_restore_takes_the_old_journal_files_with_the_old_database(
     archive = _write_archive(services, tmp_path)
     target = tmp_path / "fresh"
     target.mkdir()
-    (target / "gpx-view.sqlite3").write_bytes(b"old")
-    (target / "gpx-view.sqlite3-wal").write_bytes(b"stale journal")
-    (target / "gpx-view.sqlite3-shm").write_bytes(b"stale shm")
+    (target / "trackvault.sqlite3").write_bytes(b"old")
+    (target / "trackvault.sqlite3-wal").write_bytes(b"stale journal")
+    (target / "trackvault.sqlite3-shm").write_bytes(b"stale shm")
 
     services.restore_archive(_extractor(archive, target), replace=True)
 
-    assert not (target / "gpx-view.sqlite3-wal").exists()
-    assert not (target / "gpx-view.sqlite3-shm").exists()
+    assert not (target / "trackvault.sqlite3-wal").exists()
+    assert not (target / "trackvault.sqlite3-shm").exists()
 
 
 def test_a_restore_leaves_no_staging_behind(services: TrackServices, tmp_path: Path) -> None:
@@ -1269,7 +1269,7 @@ def test_a_backup_describes_the_snapshot_it_captured_and_not_the_live_archive(
             format_name=ARCHIVE_FORMAT_NAME,
             format_version=ARCHIVE_FORMAT_VERSION,
             created_at=datetime(2026, 8, 10, 12, 0, tzinfo=UTC),
-            gpx_view_version="test",
+            trackvault_version="test",
             schema_version=staged.schema_version,
             contents=staged.contents,
             counts=staged.counts,
@@ -1448,7 +1448,7 @@ def test_an_empty_archive_is_not_data_worth_protecting(
     fresh = tmp_path / "fresh"
     started = build_services(Settings(data_dir=fresh))
     started.prepare_storage()
-    assert (fresh / "gpx-view.sqlite3").is_file()
+    assert (fresh / "trackvault.sqlite3").is_file()
 
     outcome = services.restore_archive(_extractor(archive, fresh))
 
@@ -1479,7 +1479,7 @@ def test_a_database_that_cannot_be_accounted_for_counts_as_data(
     archive = _write_archive(services, tmp_path)
     damaged = tmp_path / "damaged"
     damaged.mkdir()
-    (damaged / "gpx-view.sqlite3").write_bytes(b"this is not a database at all")
+    (damaged / "trackvault.sqlite3").write_bytes(b"this is not a database at all")
 
     extractor = _extractor(archive, damaged)
 
@@ -1518,6 +1518,6 @@ def test_an_archive_holding_no_originals_still_restores(
     outcome = services.restore_archive(_extractor(archive, fresh))
 
     assert outcome.manifest.counts.raw_imports == 0
-    assert (fresh / "gpx-view.sqlite3").is_file()
+    assert (fresh / "trackvault.sqlite3").is_file()
     assert (fresh / "raw").is_dir()
     assert not list((fresh / "raw").iterdir())

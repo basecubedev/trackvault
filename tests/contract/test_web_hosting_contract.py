@@ -24,14 +24,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view.api.web import IMMUTABLE_CACHE, NO_CACHE
-from gpx_view.config import Settings
-from gpx_view.main import create_app
+from trackvault.api.web import IMMUTABLE_CACHE, NO_CACHE
+from trackvault.config import Settings
+from trackvault.main import create_app
 
 pytestmark = pytest.mark.contract
 
 PAGE = """<!doctype html>
-<html lang="en"><head><title>GPX-View</title></head>
+<html lang="en"><head><title>TrackVault</title></head>
 <body><div id="root"></div><script type="module" src="/assets/app-abc123.js"></script></body>
 </html>
 """
@@ -144,7 +144,7 @@ def test_the_page_carries_no_injected_script(hosted: TestClient) -> None:
     body = hosted.get("/").text
 
     assert body == PAGE
-    assert "__GPX_VIEW__" not in body
+    assert "__TRACKVAULT__" not in body
     assert "<script" not in body.replace('<script type="module"', "", 1)
 
 

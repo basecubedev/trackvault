@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from gpx_view.domain import TrackPoint, TrackSegment, recording_fingerprint
+from trackvault.domain import TrackPoint, TrackSegment, recording_fingerprint
 
 START = datetime(2026, 5, 4, 8, 0, tzinfo=UTC)
 

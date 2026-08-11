@@ -15,17 +15,18 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.diagnostics import (
+from support.map_packages import build_package
+from trackvault.application.diagnostics import (
     CheckStatus,
     DeploymentObservation,
     Diagnose,
     DiagnosticReport,
 )
-from gpx_view.application.import_tracks import ImportRequest, ImportStatus
-from gpx_view.config import Settings
-from gpx_view.domain import InputChannel, ProcessingProfile
-from gpx_view.domain.analysis import AnalysisProfile
-from gpx_view.domain.maps import (
+from trackvault.application.import_tracks import ImportRequest, ImportStatus
+from trackvault.config import Settings
+from trackvault.domain import InputChannel, ProcessingProfile
+from trackvault.domain.analysis import AnalysisProfile
+from trackvault.domain.maps import (
     MapAttribution,
     MapBounds,
     MapPackage,
@@ -33,11 +34,10 @@ from gpx_view.domain.maps import (
     MapRegionId,
     MapTileSchema,
 )
-from gpx_view.infrastructure.assembly import TrackServices, build_services
-from gpx_view.infrastructure.database.migrations import SCHEMA_VERSION
-from gpx_view.infrastructure.diagnostics import observe
-from gpx_view.infrastructure.private_data import create_private_directory
-from support.map_packages import build_package
+from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.database.migrations import SCHEMA_VERSION
+from trackvault.infrastructure.diagnostics import observe
+from trackvault.infrastructure.private_data import create_private_directory
 
 pytestmark = pytest.mark.contract
 
@@ -185,7 +185,7 @@ def test_no_check_reports_a_path_a_title_or_a_coordinate() -> None:
     )
 
     for check in report.checks:
-        assert "/" not in check.detail.replace("`gpx-view backup create`", ""), check
+        assert "/" not in check.detail.replace("`trackvault backup create`", ""), check
 
 
 # --- the observation ------------------------------------------------------
@@ -304,7 +304,7 @@ def _package_of(region_id: MapRegionId, digest: str, size: int) -> MapPackage:
         max_zoom=6,
         attribution=MapAttribution(
             data_owner="OpenStreetMap contributors",
-            provider="GPX-View test fixtures",
+            provider="TrackVault test fixtures",
             license_identifier="ODbL-1.0",
             license_name="Open Database License 1.0",
             required_text="© OpenStreetMap contributors",

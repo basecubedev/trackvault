@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gpx_view.domain.maps import (
+from trackvault.domain.maps import (
     AttributionLink,
     MapAttribution,
     MapBounds,

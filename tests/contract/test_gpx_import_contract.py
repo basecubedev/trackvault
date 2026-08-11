@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application import ImportErrorCode, ImportLimits, TrackImportError
-from gpx_view.domain import Activity, EvidenceCode, ImportedTrack
-from gpx_view.infrastructure.gpx import GpxImporter
+from trackvault.application import ImportErrorCode, ImportLimits, TrackImportError
+from trackvault.domain import Activity, EvidenceCode, ImportedTrack
+from trackvault.infrastructure.gpx import GpxImporter
 
 pytestmark = [pytest.mark.contract, pytest.mark.gpx]
 

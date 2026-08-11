@@ -600,7 +600,7 @@ export interface components {
          * Activity
          * @description The activity a track belongs to.
          *
-         *     Activity is orthogonal to :class:`~gpx_view.domain.track_kind.TrackKind`: a
+         *     Activity is orthogonal to :class:`~trackvault.domain.track_kind.TrackKind`: a
          *     planned cycling route and a recorded cycling ride share this value and differ
          *     only in kind.
          *
@@ -649,7 +649,7 @@ export interface components {
          *
          *     Every read surface -- a listing row, the track's own analysis resource, a
          *     yearly total -- projects this same value, decided by
-         *     :meth:`~gpx_view.application.analysis.InstalledAnalysis.availability`.
+         *     :meth:`~trackvault.application.analysis.InstalledAnalysis.availability`.
          *
          *     Attributes:
          *         CURRENT: The metrics were produced by the installed algorithms from the
@@ -1500,7 +1500,7 @@ export interface components {
          * @description What this deployment is running.
          */
         SystemInfoResponse: {
-            analysis: components["schemas"]["gpx_view__api__system__AnalysisProfileResponse"];
+            analysis: components["schemas"]["trackvault__api__system__AnalysisProfileResponse"];
             /**
              * Processing
              * @description One entry per installed import adapter
@@ -1523,7 +1523,7 @@ export interface components {
             upload_enabled: boolean;
             /**
              * Version
-             * @description The GPX-View release, from its distribution metadata
+             * @description The TrackVault release, from its distribution metadata
              */
             version: string;
         };
@@ -1691,7 +1691,7 @@ export interface components {
              */
             error_code: string | null;
             geometry: components["schemas"]["GeometryMetricsResponse"];
-            profile: components["schemas"]["gpx_view__api__tracks__AnalysisProfileResponse"] | null;
+            profile: components["schemas"]["trackvault__api__tracks__AnalysisProfileResponse"] | null;
             /**
              * Quality
              * @description What was wrong with the data the metrics were derived from
@@ -1804,7 +1804,7 @@ export interface components {
             /** @description What the track's stored aggregate metrics amount to */
             analysis_status: components["schemas"]["AnalysisAvailability"];
             /** @description The algorithms these series were derived by, always the installed ones */
-            derived_with: components["schemas"]["gpx_view__api__tracks__AnalysisProfileResponse"];
+            derived_with: components["schemas"]["trackvault__api__tracks__AnalysisProfileResponse"];
             /** Is Actual Activity Timing */
             is_actual_activity_timing: boolean;
             /**
@@ -1966,7 +1966,7 @@ export interface components {
          * ErrorBody
          * @description The one error envelope this API answers with.
          */
-        gpx_view__api__maps__ErrorBody: {
+        trackvault__api__maps__ErrorBody: {
             /**
              * Code
              * @description Stable error code
@@ -1982,14 +1982,14 @@ export interface components {
          * ErrorResponse
          * @description The error envelope, wrapped as every other endpoint wraps it.
          */
-        gpx_view__api__maps__ErrorResponse: {
-            error: components["schemas"]["gpx_view__api__maps__ErrorBody"];
+        trackvault__api__maps__ErrorResponse: {
+            error: components["schemas"]["trackvault__api__maps__ErrorBody"];
         };
         /**
          * AnalysisProfileResponse
          * @description The algorithms this build derives metrics with.
          */
-        gpx_view__api__system__AnalysisProfileResponse: {
+        trackvault__api__system__AnalysisProfileResponse: {
             /** Distance Algorithm */
             distance_algorithm: string;
             /** Distance Algorithm Version */
@@ -2012,7 +2012,7 @@ export interface components {
          *     Reported so that "why did my elevation gain change?" is answerable from the
          *     data rather than from a changelog.
          */
-        gpx_view__api__tracks__AnalysisProfileResponse: {
+        trackvault__api__tracks__AnalysisProfileResponse: {
             /** Distance Algorithm */
             distance_algorithm: string;
             /** Distance Algorithm Version */
@@ -2032,7 +2032,7 @@ export interface components {
          * ErrorBody
          * @description The stable shape of an error, without internals.
          */
-        gpx_view__api__tracks__ErrorBody: {
+        trackvault__api__tracks__ErrorBody: {
             code: components["schemas"]["ImportErrorCode"];
             /** Message */
             message: string;
@@ -2041,8 +2041,8 @@ export interface components {
          * ErrorResponse
          * @description An error response. Never carries a stack trace, a path or a coordinate.
          */
-        gpx_view__api__tracks__ErrorResponse: {
-            error: components["schemas"]["gpx_view__api__tracks__ErrorBody"];
+        trackvault__api__tracks__ErrorResponse: {
+            error: components["schemas"]["trackvault__api__tracks__ErrorBody"];
         };
     };
     responses: never;
@@ -2109,7 +2109,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
         };
@@ -2138,7 +2138,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
         };
@@ -2223,7 +2223,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
             /** @description Conflict */
@@ -2232,7 +2232,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2250,7 +2250,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
         };
@@ -2301,7 +2301,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2341,7 +2341,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2379,7 +2379,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
             /** @description Conflict */
@@ -2388,7 +2388,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2438,7 +2438,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__maps__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__maps__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2692,7 +2692,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description This deployment refuses uploads */
@@ -2701,7 +2701,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Larger than this archive accepts */
@@ -2710,7 +2710,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2742,7 +2742,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrackResponse"] | components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["TrackResponse"] | components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description No such track */
@@ -2751,7 +2751,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2783,7 +2783,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrackAnalysisResponse"] | components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["TrackAnalysisResponse"] | components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description No such track */
@@ -2792,7 +2792,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2828,7 +2828,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrackResponse"] | components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["TrackResponse"] | components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description No such track */
@@ -2837,7 +2837,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2869,7 +2869,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrackResponse"] | components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["TrackResponse"] | components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description No such track */
@@ -2878,7 +2878,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2913,7 +2913,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GeometryResponse"] | components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["GeometryResponse"] | components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description No such track */
@@ -2922,7 +2922,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2958,7 +2958,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrackResponse"] | components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["TrackResponse"] | components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description No such track */
@@ -2967,7 +2967,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3002,7 +3002,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TrackProfileResponse"] | components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["TrackProfileResponse"] | components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description No such track */
@@ -3011,7 +3011,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                    "application/json": components["schemas"]["trackvault__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */

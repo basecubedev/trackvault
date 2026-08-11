@@ -115,7 +115,7 @@ describe('the track detail page', () => {
     })
     expect(screen.getByTestId('detail-distance').textContent).toContain('—')
     expect(screen.getByTestId('track-map')).toBeInTheDocument()
-    expect(screen.getByText('gpx-view analyze --outdated')).toBeInTheDocument()
+    expect(screen.getByText('trackvault analyze --outdated')).toBeInTheDocument()
   })
 
   it('keeps the geometry usable when a stored analysis is damaged', async () => {

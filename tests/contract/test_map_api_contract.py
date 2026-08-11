@@ -22,27 +22,27 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view.application.import_tracks import ImportRequest
-from gpx_view.application.maps import (
+from support.fake_provider import FakeMapProvider, region
+from support.map_packages import build_package, layer_names
+from trackvault.application.import_tracks import ImportRequest
+from trackvault.application.maps import (
     GetMapCatalog,
     InstallMapPackage,
     LocateTracks,
     SuggestMapRegions,
     queued_job,
 )
-from gpx_view.config import Settings
-from gpx_view.domain.maps import MapRegionId
-from gpx_view.infrastructure.database import SqliteTrackStore
-from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore
-from gpx_view.infrastructure.maps import (
+from trackvault.config import Settings
+from trackvault.domain.maps import MapRegionId
+from trackvault.infrastructure.database import SqliteTrackStore
+from trackvault.infrastructure.database.map_store import SqliteMapPackageStore
+from trackvault.infrastructure.maps import (
     FilesystemMapCatalogCache,
     FilesystemMapPackageStorage,
     MapInstallJobs,
     MbtilesPackageInspector,
 )
-from gpx_view.main import create_app
-from support.fake_provider import FakeMapProvider, region
-from support.map_packages import build_package, layer_names
+from trackvault.main import create_app
 
 pytestmark = [pytest.mark.contract, pytest.mark.maps]
 

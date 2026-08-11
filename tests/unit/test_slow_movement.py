@@ -37,9 +37,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpx_view.domain import TrackPoint, TrackSegment
-from gpx_view.domain.analysis import analyse_movement
-from gpx_view.domain.analysis.movement import (
+from trackvault.domain import TrackPoint, TrackSegment
+from trackvault.domain.analysis import analyse_movement
+from trackvault.domain.analysis.movement import (
     MOVEMENT_SPEED_THRESHOLD_MPS,
     MOVEMENT_WINDOW_SECONDS,
     POSITION_NOISE_METRES,

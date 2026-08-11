@@ -62,7 +62,7 @@ promised: no parser, source application or exchange format is reachable from a
 tuple of segments. A future FIT adapter that produces the same segments reaches
 the same numbers without this code being told it exists.
 
-Analysis lives in `gpx_view.domain.analysis`, so the domain's stdlib-only and
+Analysis lives in `trackvault.domain.analysis`, so the domain's stdlib-only and
 format-free rules apply to it automatically.
 `tests/contract/test_architecture_contract.py` checks that the package imports
 no format module and no outer layer, and that no route imports a calculation.
@@ -238,7 +238,7 @@ recalculated.
 
 ### 12. Buckets are local, and every response says so
 
-`GPX_VIEW_TIMEZONE` is an IANA zone, defaulting to `UTC`. Not the host zone: a
+`TRACKVAULT_TIMEZONE` is an IANA zone, defaulting to `UTC`. Not the host zone: a
 container inherits whatever its image carries, so a local-time default would
 make the same archive report different monthly totals on two machines. UTC is
 wrong for most people and *visibly* wrong, which is what gets it configured. An
@@ -282,7 +282,7 @@ issues a query per track.
   such.
 - Moving time depends on a 0.5 m/s threshold and a 30-second window. Both are in
   the profile, so a future change is a version bump rather than a silent shift.
-- A track's month depends on configuration. Changing `GPX_VIEW_TIMEZONE` changes
+- A track's month depends on configuration. Changing `TRACKVAULT_TIMEZONE` changes
   monthly figures without any data changing, which is why every response names
   the zone it used.
 - Analysis at import time makes an import slower by roughly the cost of one pass

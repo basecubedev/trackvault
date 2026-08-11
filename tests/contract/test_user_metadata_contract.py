@@ -21,9 +21,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view.application.import_tracks import ImportRequest
-from gpx_view.config import Settings
-from gpx_view.domain import (
+from trackvault.application.import_tracks import ImportRequest
+from trackvault.config import Settings
+from trackvault.domain import (
     MAX_NOTE_LENGTH,
     MAX_TITLE_LENGTH,
     UserTrackMetadata,
@@ -31,8 +31,8 @@ from gpx_view.domain import (
     normalize_note,
     normalize_title,
 )
-from gpx_view.infrastructure.assembly import build_services
-from gpx_view.main import create_app
+from trackvault.infrastructure.assembly import build_services
+from trackvault.main import create_app
 
 pytestmark = pytest.mark.contract
 

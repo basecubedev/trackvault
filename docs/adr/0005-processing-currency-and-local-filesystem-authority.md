@@ -187,5 +187,5 @@ Trade-offs, accepted:
 - **Resolving import-directory candidates to absolute paths and re-checking
   them.** Rejected: any check on a path is a statement about the past, however
   often it is repeated.
-- **`chmod`ing existing files into line.** Rejected: GPX-View does not know why a
+- **`chmod`ing existing files into line.** Rejected: TrackVault does not know why a
   file inside the data directory has the mode it has.

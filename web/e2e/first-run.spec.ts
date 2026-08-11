@@ -18,7 +18,7 @@ test('an empty dashboard explains itself instead of showing nothing', async ({ p
   await page.goto(`${EMPTY_ARCHIVE}/`)
 
   await expect(page.getByTestId('empty-archive')).toBeVisible()
-  await expect(page.getByTestId('empty-archive')).toContainText('gpx-view import')
+  await expect(page.getByTestId('empty-archive')).toContainText('trackvault import')
   await expect(page.getByText('NaN')).toHaveCount(0)
   await expect(page.getByText('undefined')).toHaveCount(0)
 })

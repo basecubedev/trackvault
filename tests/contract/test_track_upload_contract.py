@@ -14,7 +14,7 @@ intentions:
 **On the exposure.** The archive has no authentication, which is why it had no
 upload endpoint: an unauthenticated write is a bigger thing than an
 unauthenticated read. The project owner asked for it anyway, for a deployment on
-a trusted network, and `GPX_VIEW_UPLOAD_ENABLED=false` is how a deployment that
+a trusted network, and `TRACKVAULT_UPLOAD_ENABLED=false` is how a deployment that
 cannot make that assumption says so. That is a decision recorded in
 `docs/adr/0011-web-upload.md`, not a gap nobody noticed.
 """
@@ -29,10 +29,10 @@ import pytest
 from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
-from gpx_view.api.tracks import _bounded_body
-from gpx_view.config import Settings
-from gpx_view.domain.raw_import import InputChannel
-from gpx_view.main import create_app
+from trackvault.api.tracks import _bounded_body
+from trackvault.config import Settings
+from trackvault.domain.raw_import import InputChannel
+from trackvault.main import create_app
 
 pytestmark = [pytest.mark.contract, pytest.mark.gpx]
 

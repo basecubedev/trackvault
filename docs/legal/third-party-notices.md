@@ -1,6 +1,6 @@
 # Third-party notices
 
-The canonical list of what GPX-View depends on, what each dependency is for, and
+The canonical list of what TrackVault depends on, what each dependency is for, and
 what licence it arrived under. There is exactly one of these: `README.md`, the
 `Dockerfile` and the ADRs point here rather than repeating it, because three
 copies of a dependency list are three lists and only one of them is right.
@@ -100,7 +100,7 @@ staying in a repository that operator may never see.
 | --- | --- | --- | --- | --- |
 | `fastapi` | 0.141.1 | FastAPI, the HTTP framework the API is projected through | MIT | <https://github.com/fastapi/fastapi> |
 | `pydantic` | 2.13.4 | Request and response validation | MIT | <https://github.com/pydantic/pydantic> |
-| `pydantic-settings` | 2.15.0 | Reading `GPX_VIEW_*` configuration | MIT | <https://github.com/pydantic/pydantic-settings> |
+| `pydantic-settings` | 2.15.0 | Reading `TRACKVAULT_*` configuration | MIT | <https://github.com/pydantic/pydantic-settings> |
 | `uvicorn` | 0.52.1 | ASGI server | BSD-3-Clause | <https://github.com/encode/uvicorn> |
 | `defusedxml` | 0.7.1 | Hardened XML parsing for untrusted GPX documents | Python-2.0 | <https://github.com/tiran/defusedxml> |
 
@@ -157,7 +157,7 @@ Everything here is bundled into the assets the container serves.
 
 ## Map data, tiles and fonts
 
-GPX-View ships **no map data in its image**. A regional map is a package an
+TrackVault ships **no map data in its image**. A regional map is a package an
 operator installs into their own data directory, and everything about it --
 where it came from, under what licence, and what has to be shown while it
 renders -- is read out of the package and stored beside it. See
@@ -176,7 +176,7 @@ renders -- is read out of the package and stored beside it. See
 Three consequences an operator has to know about.
 
 **Attribution is a requirement, not a decoration.** ODbL-1.0 requires that the
-data's source be credited wherever it is publicly used. GPX-View reads the
+data's source be credited wherever it is publicly used. TrackVault reads the
 attribution out of the package's own metadata and renders it beside every map
 it draws, on the track page, in the map manager and on `/credits`. It cannot be
 switched off, and a package that states no author and no licence is refused
@@ -189,7 +189,7 @@ software allowlist would make both statements harder to read. This section is
 where the data decision is recorded.
 
 **Redistributing a package is the operator's decision, not this project's.**
-GPX-View downloads a package into one deployment for that deployment's use. An
+TrackVault downloads a package into one deployment for that deployment's use. An
 operator who then publishes those tiles onwards is making an ODbL decision of
 their own, and this document does not make it for them.
 
@@ -219,17 +219,37 @@ there is no icon set to license and nothing to load.
   community infrastructure whose usage policies exist to prevent exactly the
   bulk download an offline archive would need. They are not used, and they are
   not an offline-download authority.
-- **No commercial provider, no API key, no account.** Normal use of GPX-View
+- **No commercial provider, no API key, no account.** Normal use of TrackVault
   needs none.
 - **No CDN.** Scripts, styles, fonts, sprites and tiles are all served by the
   deployment itself, and the content security policy says `default-src 'self'`
   so a browser refuses anything else.
 
-## GPX-View itself
+## TrackVault itself
 
-The project declares no licence of its own. That is a gap rather than a
-statement, and it is the project owner's decision to make: until a `LICENSE`
-file exists, no licence is granted to anybody, and the audit reports the
-project's own distribution as unstated rather than pretending otherwise. It is
-excluded from the third-party count because auditing a project against a policy
-it wrote says nothing.
+TrackVault is licensed under the **GNU Affero General Public License, version 3
+only** (`AGPL-3.0-only`). The full text is in [`LICENSE`](../../LICENSE) at the
+repository root, and it ships inside the container image at `/app/LICENSE` --
+conveying the program means conveying its licence, and a licence that stays in a
+Git tree the operator never sees is not one.
+
+The identifier is stated in exactly three machine-readable places, all derived
+from that one file:
+
+| Where | What it says |
+| --- | --- |
+| `pyproject.toml` | `license = "AGPL-3.0-only"`, `license-files = ["LICENSE"]` |
+| `web/package.json` | `"license": "AGPL-3.0-only"` |
+| the image | `org.opencontainers.image.licenses=AGPL-3.0-only` |
+
+AGPL-3.0-only is deliberately **not** on the `allowed` list in
+`license-policy.json`. That list is what this project accepts *from a
+dependency*, and the two questions are unrelated: a copyleft licence this
+project chose for its own code says nothing about which licences it is willing
+to take somebody else's code under. The project's own distributions are named in
+the policy's `self` list and excluded from both audits, because auditing a
+project against a policy it wrote says nothing.
+
+Everything in the tables above keeps its own licence, unchanged. So does the map
+data (ODbL) and so do the fonts (OFL) -- see the sections above. Nothing here
+relicenses anybody else's work.

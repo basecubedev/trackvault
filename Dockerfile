@@ -54,20 +54,21 @@ FROM python:3.13-slim-bookworm AS runtime
 # release. Deliberately absent: `revision` and `source`. An ordinary
 # `docker compose build` knows neither, and an empty label is a worse statement
 # than no label.
-ARG GPX_VIEW_VERSION=0.1.0
+ARG TRACKVAULT_VERSION=0.1.0
 
-LABEL org.opencontainers.image.title="GPX-View" \
-      org.opencontainers.image.description="Self-hosted archive for recorded and planned geospatial tracks." \
-      org.opencontainers.image.version="${GPX_VIEW_VERSION}"
+LABEL org.opencontainers.image.title="TrackVault" \
+      org.opencontainers.image.description="Self-hosted archive for recorded and planned activity tracks." \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${TRACKVAULT_VERSION}"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:${PATH}" \
-    GPX_VIEW_HOST=0.0.0.0 \
-    GPX_VIEW_PORT=8080 \
-    GPX_VIEW_DATA_DIR=/data \
-    GPX_VIEW_BACKUP_DIR=/backups \
-    GPX_VIEW_WEB_DIR=/app/web
+    TRACKVAULT_HOST=0.0.0.0 \
+    TRACKVAULT_PORT=8080 \
+    TRACKVAULT_DATA_DIR=/data \
+    TRACKVAULT_BACKUP_DIR=/backups \
+    TRACKVAULT_WEB_DIR=/app/web
 
 # A fixed uid/gid keeps ownership predictable across rebuilds, which matters as
 # soon as an operator wants to bind-mount a host directory instead of using the
@@ -93,7 +94,10 @@ COPY --from=frontend --chown=app:app /web/dist /app/web
 
 # Whoever runs the container is who the attribution and licence statements are
 # for. A notice that stays in a repository the operator never sees is not a
-# notice, so it ships as a distribution artifact beside what it describes.
+# notice, so it ships as a distribution artifact beside what it describes. The
+# AGPL is not documentation either: conveying the program means conveying its
+# licence, so the text travels in the image rather than only in a Git tree.
+COPY --chown=app:app LICENSE /app/LICENSE
 COPY --chown=app:app docs/legal/third-party-notices.md /app/THIRD_PARTY_NOTICES.md
 
 USER app
@@ -103,4 +107,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
 
-CMD ["uvicorn", "gpx_view.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "trackvault.main:app", "--host", "0.0.0.0", "--port", "8080"]

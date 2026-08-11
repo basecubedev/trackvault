@@ -19,8 +19,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from gpx_view.domain import TrackPoint, TrackSegment
-from gpx_view.domain.analysis import analyse_movement
+from trackvault.domain import TrackPoint, TrackSegment
+from trackvault.domain.analysis import analyse_movement
 
 pytestmark = [pytest.mark.unit, pytest.mark.analysis]
 

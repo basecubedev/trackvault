@@ -14,7 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.maps import (
+from support.fake_provider import FakeMapProvider, region
+from support.map_packages import build_package, layer_names
+from trackvault.application.maps import (
     GetMapCatalog,
     InstallMapPackage,
     InstallOutcome,
@@ -25,17 +27,15 @@ from gpx_view.application.maps import (
     RemoveMapPackage,
     queued_job,
 )
-from gpx_view.domain.maps import MapInstallState, MapJobState, MapRegionId
-from gpx_view.infrastructure.database import SqliteTrackStore
-from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore
-from gpx_view.infrastructure.maps import (
+from trackvault.domain.maps import MapInstallState, MapJobState, MapRegionId
+from trackvault.infrastructure.database import SqliteTrackStore
+from trackvault.infrastructure.database.map_store import SqliteMapPackageStore
+from trackvault.infrastructure.maps import (
     FilesystemMapCatalogCache,
     FilesystemMapPackageStorage,
     MbtilesPackageInspector,
     MbtilesTileReader,
 )
-from support.fake_provider import FakeMapProvider, region
-from support.map_packages import build_package, layer_names
 
 pytestmark = [pytest.mark.contract, pytest.mark.maps, pytest.mark.persistence]
 
@@ -66,7 +66,7 @@ class Archive:
         self.clock = FixedClock()
         self.storage = FilesystemMapPackageStorage(root / "maps")
         self.storage.prepare()
-        self.store = SqliteTrackStore(root / "gpx-view.sqlite3")
+        self.store = SqliteTrackStore(root / "trackvault.sqlite3")
         self.store.migrate()
         self.repository = SqliteMapPackageStore(self.store)
         self.sources = root / "remote"
@@ -618,7 +618,7 @@ def _recover(archive: Archive) -> None:
 def test_a_relative_data_directory_still_installs_and_serves(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`GPX_VIEW_DATA_DIR` defaults to a *relative* path, and that has to work.
+    """`TRACKVAULT_DATA_DIR` defaults to a *relative* path, and that has to work.
 
     It did not. Reading a package builds a SQLite URI, `Path.as_uri()` refuses a
     relative path, and every install failed at validation with a `ValueError`

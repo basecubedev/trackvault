@@ -80,7 +80,7 @@ Those are different things and the interface says them differently.
 
 | Bound | Why |
 | --- | --- |
-| `GPX_VIEW_UPLOAD_ENABLED` defaults to `false` | Writing must not become reachable because a container started. Enabling it is a statement about a network |
+| `TRACKVAULT_UPLOAD_ENABLED` defaults to `false` | Writing must not become reachable because a container started. Enabling it is a statement about a network |
 | `import_max_bytes`, checked while reading | A limit applied after loading the body has already paid the cost it exists to prevent |
 | Declared `Content-Length` over the ceiling | Refused before a chunk is pulled |
 | One file per request | A batch endpoint is one verdict for twenty files, or this response inside a list |
@@ -105,7 +105,7 @@ could not read. Answering that inside a batch response means building this
 response into a list; answering it with one status means hiding it.
 
 **Writing into the import directory.** Uploading a file into
-`GPX_VIEW_IMPORT_DIR` and letting `scan` pick it up would reuse a path that
+`TRACKVAULT_IMPORT_DIR` and letting `scan` pick it up would reuse a path that
 already exists. It would also break the promise that directory carries — that
 nothing in it is written, renamed, moved or deleted — and turn a read-only mount
 into a writable one. The upload writes where every other import writes: the

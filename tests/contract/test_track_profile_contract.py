@@ -32,13 +32,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gpx_view.application.import_tracks import ImportRequest
-from gpx_view.config import Settings
-from gpx_view.domain import TrackPoint, TrackSegment
-from gpx_view.domain.analysis import analyse_elevation, analyse_movement
-from gpx_view.domain.analysis.series import derive_profile
-from gpx_view.infrastructure.assembly import build_services
-from gpx_view.main import create_app
+from trackvault.application.import_tracks import ImportRequest
+from trackvault.config import Settings
+from trackvault.domain import TrackPoint, TrackSegment
+from trackvault.domain.analysis import analyse_elevation, analyse_movement
+from trackvault.domain.analysis.series import derive_profile
+from trackvault.infrastructure.assembly import build_services
+from trackvault.main import create_app
 
 pytestmark = [pytest.mark.contract, pytest.mark.analysis]
 
