@@ -1,13 +1,23 @@
-"""What the release pipeline is allowed to publish, and from where.
+"""What the pipelines are allowed to publish, under which name, and from where.
 
 The images people run are the most trusted artifact this project produces, and
-the whole access-control model for them is "only a release tag publishes". That
-is a property of two YAML files, so it is checked like any other contract.
+two of them are published:
+
+```
+:latest, :v1.2.3, :1.2.3, :1.2   a release tag, and nothing else
+:edge                            every commit that lands on main
+```
+
+The distinction is the whole access-control model. `latest` is what an unpinned
+deployment pulls and what the installer defaults to, so nothing but a release
+may write it; `edge` moves with the main branch and is the tag somebody asks for
+knowing that. Both pass the same quality gate first. That is a property of a few
+YAML files, so it is checked like any other contract.
 
 Nothing here runs GitHub Actions. What is asserted is the shape of the
-workflows: which events start them, which one is allowed to push, and that the
-release runs the *same* quality gate as the main branch rather than a copy of it
-that will eventually be an older copy.
+workflows: which events start them, which are allowed to push, which names they
+may push under, and that both run the *same* quality gate rather than a copy of
+it that will eventually be an older copy.
 """
 
 import tomllib
@@ -23,6 +33,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = PROJECT_ROOT / ".github" / "workflows"
 CI = WORKFLOWS / "ci.yml"
 RELEASE = WORKFLOWS / "release.yml"
+EDGE = WORKFLOWS / "edge.yml"
 INSTALLER = PROJECT_ROOT / "install-docker.sh"
 
 
@@ -36,20 +47,28 @@ def _workflow(path: Path) -> dict[str, Any]:
     return {("on" if key is True else key): value for key, value in document.items()}
 
 
-def _project_version() -> str:
-    """Return the one version this project declares."""
-    version: str = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
-        "project"
-    ]["version"]
-    return version
-
-
 def _project_license() -> str:
     """Return the one SPDX identifier this project declares."""
     identifier: str = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]["license"]
     return identifier
+
+
+def _published_tag_patterns(path: Path) -> list[str]:
+    """Return every image tag pattern a workflow hands to the metadata action.
+
+    Read structurally rather than by searching the file, because the words
+    "latest" and "edge" appear in the comments explaining why each workflow may
+    write one and not the other -- and a contract that a comment can satisfy is
+    not a contract.
+    """
+    return [
+        str(step["with"]["tags"])
+        for job in _jobs(path).values()
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith("docker/metadata-action")
+    ]
 
 
 def _jobs(path: Path) -> dict[str, Any]:
@@ -85,11 +104,32 @@ def test_the_release_runs_the_same_quality_gate_as_the_main_branch() -> None:
     assert "workflow_call" in _workflow(CI)["on"]
 
 
-def test_publishing_waits_for_the_quality_gate_and_the_version_check() -> None:
-    """Nothing reaches a registry that has not passed both."""
+def test_publishing_waits_for_the_quality_gate() -> None:
+    """Nothing reaches a registry that has not passed it."""
     publish = _jobs(RELEASE)["publish"]
 
-    assert set(publish["needs"]) == {"version", "quality"}
+    assert set(publish["needs"]) == {"quality"}
+
+
+def test_every_checkout_can_see_the_tags() -> None:
+    """The version comes from the tag, so a shallow checkout cannot build.
+
+    `actions/checkout` fetches a single commit by default and no tags with it.
+    Every job here installs the project or builds the image from it, and
+    `hatch-vcs` has nothing to read in a repository whose history was cut off
+    -- so this is a build failure waiting for whoever adds the next job.
+    """
+    for workflow in (CI, RELEASE, EDGE):
+        steps = [
+            step
+            for job in _jobs(workflow).values()
+            for step in job.get("steps", [])
+            if str(step.get("uses", "")).startswith("actions/checkout")
+        ]
+
+        assert steps, f"{workflow.name} checks nothing out"
+        for step in steps:
+            assert step.get("with", {}).get("fetch-depth") == 0, f"{workflow.name}: {step}"
 
 
 def test_the_quality_gate_still_covers_everything_a_release_depends_on() -> None:
@@ -104,24 +144,80 @@ def test_the_quality_gate_still_covers_everything_a_release_depends_on() -> None
     steps = str(jobs)
     for gate in ("uv lock --check", "mypy", "pytest", "npm run licenses", "docker build"):
         assert gate in steps, gate
-    assert "git diff --exit-code -- openapi.json src/api/schema.ts" in steps, (
+    assert "git diff --exit-code -- src/api/schema.ts" in steps, (
         "the frontend API drift check is a release gate and has gone missing"
     )
 
 
-def test_only_the_release_workflow_pushes_an_image() -> None:
-    """CI builds the image to prove it builds. It must never publish one."""
+def test_the_quality_gate_itself_never_publishes_an_image() -> None:
+    """CI builds the image to prove it builds. It must never publish one.
+
+    It is called by both publishing workflows, so a push from inside it would
+    be a push nobody chose -- including one from a pull request.
+    """
     assert "push: true" not in CI.read_text(encoding="utf-8")
     assert "docker/login-action" not in CI.read_text(encoding="utf-8")
 
 
-def test_a_release_refuses_a_tag_that_disagrees_with_the_declared_version() -> None:
-    """One version authority, checked before a full test run is spent on it."""
-    version_job = _jobs(RELEASE)["version"]
-    steps = str(version_job)
+def test_a_commit_on_main_publishes_one_rolling_image() -> None:
+    """Every commit that lands replaces the same tag, and starts nothing else."""
+    triggers = _workflow(EDGE)["on"]
 
-    assert "pyproject.toml" in steps
-    assert "does not match pyproject version" in steps
+    assert set(triggers) == {"push"}
+    assert triggers["push"] == {"branches": ["main"]}
+    assert [pattern.strip() for pattern in _published_tag_patterns(EDGE)] == ["type=raw,value=edge"]
+
+
+def test_the_rolling_image_waits_for_the_same_quality_gate() -> None:
+    """A rolling image nobody tested is a rolling image nobody can trust."""
+    jobs = _jobs(EDGE)
+
+    assert jobs["quality"]["uses"] == "./.github/workflows/ci.yml"
+    assert set(jobs["publish"]["needs"]) == {"quality"}
+
+
+def test_nothing_but_a_release_writes_latest() -> None:
+    """The tag an unpinned deployment pulls, and the installer's default.
+
+    A development build reaching it would be a build nobody asked for arriving
+    on somebody's machine at the next `docker compose pull`. This is the one
+    assertion that keeps the promise `install-docker.sh` prints.
+    """
+    assert not any("latest" in pattern for pattern in _published_tag_patterns(EDGE))
+    assert _published_tag_patterns(CI) == [], "the quality gate names no image tags at all"
+    assert any("latest" in pattern for pattern in _published_tag_patterns(RELEASE))
+
+
+def test_the_rolling_image_states_which_build_it_is() -> None:
+    """`edge` names a moving pointer, and must not be mistaken for a version.
+
+    `metadata-action` labels an image with the tag it wrote unless it is told
+    otherwise, which would leave every rolling image claiming to be release
+    "edge". The development version is stated instead, and the same value is
+    what the distribution inside the image is built with.
+    """
+    recipe = EDGE.read_text(encoding="utf-8")
+
+    assert "org.opencontainers.image.version=${{ steps.build.outputs.version }}" in recipe
+    assert "TRACKVAULT_VERSION=${{ steps.build.outputs.version }}" in recipe
+    assert "python -m setuptools_scm" in recipe, "the version would not be the build's own"
+
+
+def test_the_release_builds_the_image_with_the_version_the_tag_names() -> None:
+    """The tag is the version, so nothing else may decide what the image says.
+
+    There is deliberately no reconciliation step here: with nothing to
+    reconcile a tag *cannot* disagree with a declared version, which is the
+    class of release failure this arrangement removes rather than reports.
+    """
+    recipe = RELEASE.read_text(encoding="utf-8")
+
+    assert "TRACKVAULT_VERSION=${{ github.ref_name }}" not in recipe, (
+        "a build argument is a literal string, so the image would be labelled `v1.2.3`"
+    )
+    assert 'echo "version=${VERSION#v}"' in recipe
+    assert "TRACKVAULT_VERSION=${{ steps.release.outputs.version }}" in recipe
+    assert "version" not in _jobs(RELEASE), "a version job is a second authority"
 
 
 def test_latest_is_published_only_for_a_final_release() -> None:
@@ -206,8 +302,3 @@ def test_the_installer_default_image_matches_what_the_pipeline_publishes() -> No
 
     assert 'DEFAULT_IMAGE_REPOSITORY="ghcr.io/' in script
     assert script.rstrip().count("/trackvault") >= 1
-
-
-def test_the_documented_release_version_is_the_declared_one() -> None:
-    """The version a reader is told to install is the one this build is."""
-    assert _project_version()

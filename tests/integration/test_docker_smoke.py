@@ -23,6 +23,8 @@ from pathlib import Path
 import httpx2
 import pytest
 
+from trackvault import __version__
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "gpx"
 COMPOSE_PROJECT = "trackvault-smoke"
@@ -224,7 +226,11 @@ def compose_stack() -> Iterator[None]:
     if not _docker_is_available():
         pytest.skip("no usable Docker daemon")
 
-    _compose("build")
+    # The build context carries no `.git`, so the image is told which release it
+    # is instead of reading a tag. Handing it the version this checkout is
+    # installed as is what lets the assertions below compare the label, the
+    # metadata inside the image and the running application against one value.
+    _compose("build", "--build-arg", f"TRACKVAULT_VERSION={__version__}")
     _compose("up", "-d")
     try:
         _wait_until_healthy()
@@ -635,9 +641,11 @@ def test_the_image_states_the_version_it_was_built_from(
     The label and the running application answer the same question, so an
     operator reporting a problem and a registry listing an image cannot disagree
     about which release it is.
-    """
-    from trackvault import __version__
 
+    Both are checked against the version the build was given, which is what
+    proves the whole path: the argument reaches `hatch-vcs`, the distribution
+    metadata records it, and the label repeats it.
+    """
     labelled = _compose("images", "--format", "json", CONTAINER).stdout.decode()
     report_version = "from trackvault import __version__; print(__version__)"
     running = _exec("python", "-c", report_version).strip()

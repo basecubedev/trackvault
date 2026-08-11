@@ -3,7 +3,12 @@
 # the product name. One name, and nothing beside it: a command or a module path
 # named after something else is a second name to keep true.
 name = "trackvault"
-version = "0.1.0"
+# Stated nowhere in this repository: the Git tag is the version, and
+# `hatch-vcs` reads it while the wheel is built. A number here would be a
+# second authority, and the first tag somebody sets without editing it would
+# make one of the two wrong. See
+# `tests/contract/test_release_metadata_contract.py`.
+dynamic = ["version"]
 description = "TrackVault: a self-hosted archive for recorded and planned activity tracks."
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -37,8 +42,15 @@ dev = [
 trackvault = "trackvault.cli:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+# No fallback version. A build that can see neither a tag nor an explicit
+# `SETUPTOOLS_SCM_PRETEND_VERSION` does not know which release it is, and
+# failing there is cheaper than shipping an image labelled with a number
+# somebody invented. The container build is told; see the Dockerfile.
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trackvault"]

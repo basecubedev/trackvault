@@ -131,9 +131,19 @@ def _documented(section: str) -> dict[str, DocumentedDependency]:
 
 
 def _locked_python_versions() -> dict[str, str]:
-    """Return every version ``uv.lock`` resolved, by distribution name."""
+    """Return every version ``uv.lock`` resolved, by distribution name.
+
+    An entry without one is skipped. This project's own package is such an
+    entry -- its version is the Git tag rather than anything the repository
+    declares, so the lock file records none -- and it is not a third-party
+    dependency that this notice has to account for anyway.
+    """
     locked = tomllib.loads(UV_LOCK.read_text(encoding="utf-8"))
-    return {package["name"].lower(): package["version"] for package in locked["package"]}
+    return {
+        package["name"].lower(): package["version"]
+        for package in locked["package"]
+        if "version" in package
+    }
 
 
 def _direct_python_dependencies() -> tuple[set[str], set[str]]:

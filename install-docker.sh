@@ -44,8 +44,9 @@ Usage: sh install-docker.sh [options]
 
 Options:
   --dir <path>          Install into this directory (default: the current one)
-  --tag <tag>           Image tag: "latest" for the newest release, or vX.Y.Z
-                        for a specific one (default: latest)
+  --tag <tag>           Image tag: "latest" for the newest release, vX.Y.Z for
+                        a specific one, or "edge" for the current development
+                        build (default: latest)
   --image <repository>  Image repository (default: ghcr.io/basecubedev/trackvault)
   --port <port>         Host port to serve on (default: 8081). The container
                         always listens on 8080; this is the host side of it.
@@ -59,8 +60,13 @@ Options:
 
 Version selection:
   "latest" is the newest tagged release. It is never a development build --
-  images are published from release tags only, so an untagged commit on the
-  main branch cannot become anybody's "latest".
+  no commit on the main branch can become anybody's "latest", whatever else
+  gets published.
+
+  "edge" is that development build: rebuilt from every commit that lands on
+  main, and replaced by the next one. It passes the same tests a release does
+  and is still the state between releases -- ask for it deliberately, pin a
+  vX.Y.Z if you would rather decide when to move.
 
 After installing:
   docker compose up -d                                      start it

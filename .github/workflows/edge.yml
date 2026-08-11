@@ -1,0 +1,110 @@
+name: Edge
+
+# Every commit that lands on main is published as one rolling image, and each
+# one replaces the last.
+#
+# Deliberately not `latest`. That tag is what an unpinned deployment pulls and
+# what `install-docker.sh` installs by default, and it promises to be the newest
+# *release* -- never a development build. `edge` is the tag somebody asks for on
+# purpose, knowing it moves under them.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.11.32"
+  REGISTRY: ghcr.io
+
+jobs:
+  # The same gate a pull request runs and the same one a release runs, called
+  # rather than restated. An image nobody tested is an image nobody can trust,
+  # whichever tag it carries.
+  quality:
+    name: Quality gate
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish the rolling image
+    needs: [quality]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # Required for the signed build attestations produced below.
+      id-token: write
+      attestations: write
+    steps:
+      # Full history, tags included: the version below is derived from the last
+      # release tag plus the distance to it, and a shallow checkout has neither.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      # No tag names this commit, so this build is not a release and must not
+      # claim to be one. What it states instead is the development version the
+      # build derives for itself -- `0.1.2.dev4+g2c1a524`, the last release plus
+      # how far past it this is. Computed with the very library `hatch-vcs`
+      # delegates to, under the same default configuration, so the number is the
+      # one an installation of this commit reports.
+      - name: Read the version this commit is
+        id: build
+        run: |
+          version="$(uv run --no-project --with 'setuptools-scm>=8' python -m setuptools_scm)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "building $version"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Sign in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # One tag, and it moves. `org.opencontainers.image.version` is overridden
+      # on purpose: left alone, `metadata-action` fills it with the name of the
+      # tag it just wrote -- `edge` -- which names a moving pointer rather than
+      # stating which build this is. `revision`, `source` and `created` come
+      # from this run, which is the only place that knows them.
+      - name: Decide tags and OCI labels
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/trackvault
+          tags: |
+            type=raw,value=edge
+          labels: |
+            org.opencontainers.image.title=TrackVault
+            org.opencontainers.image.description=Self-hosted archive for recorded and planned activity tracks.
+            org.opencontainers.image.licenses=AGPL-3.0-only
+            org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}#readme
+            org.opencontainers.image.version=${{ steps.build.outputs.version }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            TRACKVAULT_VERSION=${{ steps.build.outputs.version }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          # The same bill of materials and provenance statement a release
+          # carries. A development image is the one people most need to be able
+          # to ask "what is actually in this" about.
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
