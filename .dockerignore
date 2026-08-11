@@ -1,0 +1,11 @@
+# Deny everything, then allow exactly what the image build needs.
+*
+
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+
+# Never ship caches or byte code, even from an allowed directory.
+**/__pycache__/
+**/*.py[cod]

@@ -1,0 +1,14 @@
+services:
+  gpx-view:
+    build:
+      context: .
+    image: gpx-view:dev
+    ports:
+      - "8080:8080"
+    environment:
+      GPX_VIEW_DATA_DIR: /data
+    volumes:
+      # Reserves the stable data path for later persistence work. Nothing is
+      # written there yet.
+      - ./data:/data
+    restart: unless-stopped

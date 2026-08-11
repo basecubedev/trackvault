@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# Environments and secrets
+.venv/
+venv/
+.env
+
+# Tooling caches and reports
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+junit*.xml
+
+# Local agent/tool data
+.serena/
+.gitnexus/
+.claude/skills/gitnexus/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local runtime data, bind-mounted into the container at /data
+/data/
+
+# Personal GPS recordings are private user data and must never be committed.
+# Synthetic, explicitly cleared fixtures live under tests/fixtures/ and are exempt.
+*.gpx
+!tests/fixtures/**/*.gpx
