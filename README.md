@@ -98,6 +98,25 @@ as well.
 You can also import from the command line (`trackvault import <file>`) or from the
 browser, once you have switched uploading on.
 
+### Getting a GPX file out of the app you recorded with
+
+TrackVault does not connect to any of these services. There is no account to
+link and nothing to authorise: you export a GPX file from the app that holds the
+activity, and you import that file. That is the whole reason an archive built
+this way keeps working when a service changes its API, its terms or its mind.
+
+| Where the track is now | How to export it | Worth knowing |
+| --- | --- | --- |
+| [Locus Map](https://docs.locusmap.app/doku.php?id=manual:user_guide:tracks:export) | Track or route → **Export** → GPX | Locus AutoSync can write into the synced folder above, which is the setup at the top of this section |
+| [komoot](https://support.komoot.com/hc/en-us/articles/10115477099674-Export-and-import-Routes-and-Activities) | Tour → **Export GPX** | The region the tour starts in has to be unlocked. The file carries the geometry, not komoot's waypoints or voice directions |
+| [Strava](https://support.strava.com/hc/en-us/articles/216918437-Exporting-your-Data-and-Bulk-Export) | Activity → **Export GPX** | An activity recorded without GPS exports an empty file. Power from a meter is included, estimated power is not |
+| [Garmin Connect](https://support.garmin.com/en-US/?faq=W1TvTPW8JZ6LfJSfK512Q8) | Activity → **Export to GPX** | TCX and the original FIT are offered beside it; GPX is the one TrackVault reads today |
+
+A planned route and a recorded activity are both welcome — TrackVault keeps them
+apart rather than adding them together. Richer formats carry sensor data a GPX
+document does not, which is why the archive model is format-independent and FIT
+is a later adapter rather than a rewrite.
+
 More: [Importing and exporting](docs/user/importing.md) — the full command list,
 the phone-sync walkthrough, scheduling a scan, and the three ways to get data
 back out.
