@@ -30,6 +30,7 @@ from gpx_view.domain import (
     TrackKind,
     TrackPoint,
     TrackSegment,
+    UserTrackMetadata,
 )
 from gpx_view.infrastructure.database import SCHEMA_VERSION, SqliteTrackStore, migrations
 from gpx_view.infrastructure.database.migrations import LEGACY_SOURCE_KEY_PREFIX, MIGRATIONS
@@ -980,3 +981,80 @@ def test_a_database_without_analysis_gains_it_without_losing_a_track(tmp_path: P
     assert summary.title == "Old track"
     assert store.current_analysis(summary.track_id) is None
     assert store.analysis_run_count(summary.track_id) == 0
+
+
+def _fill_schema_5(path: Path) -> None:
+    """Put one analysed track into a schema-5 database.
+
+    Schema 5 is what the release before user-owned metadata wrote, so this is
+    the shape a real upgrade meets: a track, its classification, its geometry,
+    a published analysis run and one metric.
+    """
+    _fill_schema_4(path)
+    connection = sqlite3.connect(path, isolation_level=None)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "INSERT INTO analysis_runs (id, track_id, processing_run_id, distance_algorithm, "
+            "distance_algorithm_version, movement_algorithm, movement_algorithm_version, "
+            "elevation_algorithm, elevation_algorithm_version, metric_schema_version, "
+            "analyzed_at, status, error_code) "
+            "VALUES (1, 1, 1, 'haversine', 1, 'windowed-extent', 2, 'median-deadband', 2, 1, "
+            "?, 'succeeded', NULL)",
+            (_as_stored(NOW),),
+        )
+        connection.execute(
+            "INSERT INTO track_metrics (analysis_run_id, metric, value, unit, provenance) "
+            "VALUES (1, 'distance_m', 1234.5, 'm', 'derived')"
+        )
+        connection.execute("UPDATE tracks SET current_analysis_run_id = 1 WHERE id = 1")
+        connection.execute("COMMIT")
+    finally:
+        connection.close()
+
+
+@pytest.mark.persistence
+def test_a_schema_5_database_gains_user_metadata_without_losing_anything(tmp_path: Path) -> None:
+    """The upgrade an existing deployment actually performs.
+
+    Schema 6 adds a table and touches nothing else, which is exactly what has to
+    be provable: the track, its correction, its geometry and its published
+    analysis all read the same afterwards, and the new metadata starts empty
+    rather than back-filled from the source title. Copying the source title into
+    an override would manufacture a correction nobody made, and then hide every
+    later improvement to the importer behind it.
+    """
+    path = tmp_path / "schema-5.sqlite3"
+    _database_at(path, 5)
+    _fill_schema_5(path)
+    store = SqliteTrackStore(path)
+
+    assert store.migrate() == SCHEMA_VERSION
+
+    (summary,) = store.list_tracks(TrackQuery()).tracks
+    assert summary.title == "Old track"
+    assert summary.display_title == "Old track"
+    assert summary.user_metadata == UserTrackMetadata()
+    assert store.analysis_run_count(summary.track_id) == 1
+    assert store.current_analysis(summary.track_id) is not None
+    geometry = store.get_geometry(summary.track_id)
+    assert geometry is not None
+    assert geometry[0].point_count == 1
+
+
+@pytest.mark.persistence
+def test_user_metadata_written_after_an_upgrade_survives_the_next_read(tmp_path: Path) -> None:
+    """The new table is usable the moment the migration finishes."""
+    path = tmp_path / "schema-5.sqlite3"
+    _database_at(path, 5)
+    _fill_schema_5(path)
+    store = SqliteTrackStore(path)
+    store.migrate()
+    (summary,) = store.list_tracks(TrackQuery()).tracks
+
+    assert store.set_user_metadata(summary.track_id, UserTrackMetadata(title="Mine"), NOW)
+
+    reread = store.get_track(summary.track_id)
+    assert reread is not None
+    assert reread.display_title == "Mine"
+    assert reread.title == "Old track"

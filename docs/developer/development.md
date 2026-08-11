@@ -1,0 +1,275 @@
+# Development
+
+Everything needed to work on GPX-View. The [README](../../README.md) is for
+running it; this is for changing it.
+
+The rules every change follows are in
+[agent-rules.md](agent-rules.md) — the single canonical source for both
+automated agents and human contributors.
+
+## Requirements
+
+- **Python 3.13**, exactly: the supported range is `>=3.13,<3.14`. Packaging
+  metadata, `.python-version`, the Ruff and mypy targets, the container base
+  image and CI all state that range, and a contract test keeps them aligned.
+- [uv](https://docs.astral.sh/uv/), pinned to the same patch version in CI and
+  in the container build.
+- **Node 24** for the browser application.
+- Docker, optional, for the container workflow and the opt-in Docker tests.
+
+## Setup
+
+```bash
+uv sync
+cd web && npm ci
+```
+
+## Running it locally
+
+```bash
+uv run uvicorn gpx_view.main:app --reload --port 8080
+```
+
+Interactive API documentation: <http://127.0.0.1:8080/docs>.
+
+In another terminal, the browser application with hot reloading:
+
+```bash
+cd web
+npm run dev            # http://127.0.0.1:5173, proxying /api to :8080
+```
+
+The development server proxies `/api` and `/healthz` to the backend, so
+development and production are the same origin. A CORS configuration that
+exists only in development is a configuration nobody exercises before it is
+needed.
+
+## Generating the API types
+
+The browser's types come from the backend's own OpenAPI document. A
+hand-written `TrackResponse` that has drifted from the server is a bug that
+type-checks, and it is the failure the whole architecture is arranged against.
+
+```bash
+cd web
+npm run generate:api   # writes openapi.json and src/api/schema.ts
+```
+
+CI regenerates both and fails on a non-empty diff.
+
+## Tests
+
+```bash
+uv run pytest                  # default suite: no network, no Docker, no real GPS files
+uv run pytest -m contract      # documented project and API contracts
+uv run pytest -m analysis      # the analysis algorithms and their versioning
+uv run pytest -m statistics    # aggregation, scopes and periods
+uv run pytest -m persistence   # SQLite, migrations and managed raw storage
+uv run pytest -m gpx           # the GPX adapter
+uv run pytest -m reprocessing  # reprocessing and the current generation
+uv run pytest -m maps          # offline map packages, delivery and providers
+uv run pytest -m docker        # opt-in: needs a running Docker daemon
+uv run pytest -m local_tracks  # opt-in: needs private files under ./import-tracks
+uv run pytest --cov            # with coverage
+```
+
+The default suite composes every application against `tmp_path`, so nothing
+touches `./data`, `/data` or a home directory. Committed fixtures under
+`tests/fixtures/gpx/` are synthetic throughout.
+
+`./import-tracks/` is the local reference directory: real private recordings a
+developer keeps to explore against. The whole directory is git-ignored, nothing
+in the suite requires it, and the tests that read it skip when it is absent.
+
+### The browser suites
+
+```bash
+cd web
+npm run typecheck      # strict TypeScript, no `any` escape hatch
+npm run lint           # ESLint, type-aware
+npm test               # unit and component tests (Vitest)
+npm run build          # production bundle
+npm run test:e2e       # Playwright, Chromium
+npm run licenses       # dependency licence audit
+```
+
+Playwright starts **two** archives: a seeded synthetic one and an empty one on
+its own port. A fresh installation is the first thing anybody sees and the
+state most likely to render as `NaN km`, and it cannot be reached by filtering
+a seeded archive. The seeded one also gets a synthetic map package installed
+through the real pipeline (`web/scripts/seed-map.py`), so
+`e2e/offline-maps.spec.ts` is a test of a rendered map rather than of a grey
+rectangle.
+
+Neither browser suite ever touches a real recording. A private track in a
+screenshot or a trace is personal movement data leaving the machine it belongs
+to, and no assertion is worth that.
+
+## Working on offline maps
+
+The design and its rejected alternatives are in
+[`docs/adr/0010-offline-map-packages-and-local-basemap-delivery.md`](../adr/0010-offline-map-packages-and-local-basemap-delivery.md).
+What follows is how to work on it.
+
+### The shape
+
+```
+domain/maps/            identity, bounds, attribution, coverage selection
+application/maps/       use cases and four ports
+infrastructure/maps/    storage, MBTiles, HTTP transfer, one provider, jobs
+api/maps.py             the HTTP projection
+web/src/map/style.ts    coverage -> a MapLibre style
+web/src/pages/Maps/     the manager
+```
+
+### Adding a provider
+
+One module in `infrastructure/maps/`, implementing `MapPackageProvider`:
+
+| It owns | It must |
+| --- | --- |
+| the index URL and how to parse it | validate everything; drop what it cannot express rather than repairing it |
+| the package URL convention | derive it from a `MapRegionId`, never from a caller |
+| the hosts it may talk to | declare them, so a redirect elsewhere is refused |
+| its slug and display name | match the slug to the region identities it produces |
+
+Then one line in `build_map_services`. Nothing above infrastructure changes:
+the use cases, the routes, the manager and the styles all work through ports.
+
+A package still has to validate as a schema the styles are written against. If
+the new provider ships a different vocabulary, that is a style and an inspector
+change as well, and `MapTileSchema` is where the two are kept honest.
+
+### Test fixtures
+
+`tests/support/map_packages.py` builds a **real** Shortbread-shaped MBTiles
+archive -- gzipped vector tiles with actual geometry, in a SQLite container with
+the metadata the inspector reads. A few kilobytes, generated at test time. It
+can also build a deliberately broken one, which is most of what the validation
+tests need:
+
+```python
+build_package(path, bounds=(7.4, 43.48, 7.6, 43.76))  # valid
+build_package(path, bounds=..., licence=None)  # no licence
+build_package(path, bounds=..., layers=("buildings",))  # wrong schema
+build_package(path, bounds=..., with_tiles=False)  # empty
+```
+
+`tests/support/fake_provider.py` has two halves. `serve_packages` is a real
+loopback HTTP server that can misbehave in the specific ways a provider might --
+declare a length it does not deliver, hang up mid-body, redirect off-host -- and
+is what the transfer contracts run against. `FakeMapProvider` reads a package
+off disk and is what the install pipeline tests use, because making every one of
+those pay for a socket would buy no coverage.
+
+**No downloaded map is ever committed.** A country package is hundreds of
+megabytes; the whole point of the builder is that the suite makes its own.
+
+### Regenerating the label glyphs
+
+Only when a script range or the font changes:
+
+```bash
+uv run --with pillow --with fonttools python scripts/generate_glyphs.py \
+    --regular /usr/share/fonts/truetype/noto/NotoSans-Regular.ttf \
+    --bold    /usr/share/fonts/truetype/noto/NotoSans-Bold.ttf
+```
+
+The rasteriser is installed for the length of one run rather than added to the
+lock file the runtime image is built from. The output goes to
+`web/public/fonts/` and is committed; Vite copies it into the build, the
+Dockerfile copies `web/public` into the Node stage, and a
+[Docker smoke test](../../tests/integration/test_docker_smoke.py) asserts the
+glyphs are in the final image. Forgetting any of those three renders every
+place name as nothing.
+
+### Trying it against the real provider
+
+Not part of any suite -- it downloads from somebody else's server. Monaco is
+1.7 MB and is the right size for a manual check:
+
+```bash
+uv run gpx-view --help          # start the app, then use the /maps page
+```
+
+Pick **Europe → Monaco → Download**, open a track in that area, then disconnect
+the network and reload. Remove it afterwards unless you want to keep it.
+
+## Quality gates
+
+Before reporting anything as done:
+
+```bash
+uv lock --check
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src
+uv run pytest
+uv run python -m compileall -q src tests
+git diff --check
+```
+
+Ruff is the only formatter and linter, mypy the only type checker, pytest the
+only test runner. Do not add a second tool for a job that already has one.
+
+## Licences
+
+Two audits read the **resolved** trees rather than the intent files, because
+what ends up in a container is what was resolved:
+
+```bash
+uv run python scripts/audit_licenses.py
+cd web && npm run licenses
+```
+
+Both read one `license-policy.json` at the repository root, so a licence
+decision is made once for the repository rather than once per ecosystem. A
+manually reviewed exception names the licence it was granted for, and stops
+applying if the package is relicensed.
+
+`docs/legal/third-party-notices.md` is the canonical dependency list, and
+`tests/contract/test_third_party_notice_contract.py` checks every direct
+dependency in it against `uv.lock` and `package-lock.json` for existence,
+version, licence and a stated purpose. Bumping a dependency therefore means
+updating that document in the same commit.
+
+## Measuring a large track
+
+```bash
+uv run python scripts/benchmark_projection.py
+uv run python scripts/benchmark_projection.py --sizes 1000 100000 --repeat 3
+```
+
+A developer tool, deliberately not a test: a wall-clock threshold on a shared
+runner is noise with a red cross attached. What the suite asserts is the
+property those measurements exist to protect — that the responses stay bounded
+however long the track is
+(`tests/integration/test_large_track_projection.py`).
+
+The stages are measured separately, because "the profile takes two seconds" is
+the absence of a finding rather than one. On a 250 000-position synthetic
+recording the movement window is roughly 70% of the cost, and profiling it
+shows no redundancy to remove: the sliding spread already runs as a monotonic
+queue and the rest is per-position work. Nothing here is cached — a cache would
+need binding to the processing generation, the analysis profile, the projection
+version and the sample budget, which is a fourth derived-state lifecycle bought
+to avoid an honest linear cost.
+
+## Tooling
+
+GitNexus answers "what can this change affect?"; Serena answers "what is the
+working tree right now?". Both complement tests and reading the code — they
+never replace them. Their local data is never committed, and the generated
+rule block `gitnexus analyze` appends to `AGENTS.md` and `CLAUDE.md` is removed
+again: a second rule source is exactly what the single-source-of-truth rule
+forbids.
+
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [agent-rules.md](agent-rules.md) | The canonical rules for every change |
+| [architecture.md](../technical/architecture.md) | Layers, boundaries, authorities |
+| [contracts.md](../technical/contracts.md) | The business invariants |
+| [adr/](../adr/) | Why each slice looks the way it does |
+| [third-party-notices.md](../legal/third-party-notices.md) | Dependencies and licences |

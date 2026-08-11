@@ -1,0 +1,43 @@
+{
+  "$comment": [
+    "The licences this repository has decided it accepts, and why the list is short.",
+    "It is not a catalogue of every permissive licence in existence: an identifier",
+    "is added when a dependency this project actually needs arrives with it, and",
+    "somebody has read it. An unlisted licence is not 'bad' -- it is unreviewed,",
+    "which is a different and more honest thing to report.",
+    "",
+    "One file for both languages. web/scripts/audit-licenses.mjs reads the npm",
+    "tree and scripts/audit_licenses.py reads the Python one, so a licence",
+    "decision is made once for the repository rather than once per ecosystem.",
+    "",
+    "A 'reviewed' entry names the licence it was granted for, because that is",
+    "what somebody read. Bound to the package name alone, the exception would",
+    "outlive the licence: a relicensed package would keep passing the gate under",
+    "a decision nobody made about it.",
+    "",
+    "This is an engineering gate, not legal advice. See docs/legal/third-party-notices.md."
+  ],
+  "allowed": [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CC-BY-4.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "PSF-2.0",
+    "Python-2.0"
+  ],
+  "reviewed": {
+    "pathspec": {
+      "license": "MPL-2.0",
+      "reason": "A build-time dependency of the linter, used unmodified and never shipped in the runtime image. File-level copyleft reaches modified MPL files, of which this repository has none."
+    }
+  },
+  "self": [
+    "gpx-view",
+    "gpx-view-web"
+  ]
+}

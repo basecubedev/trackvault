@@ -253,6 +253,84 @@ CREATE INDEX ix_tracks_started_at ON tracks(started_at);
 """
 
 
+# User-owned metadata is its own table for the same reason the classification
+# override is: it must survive a reprocess that replaces every normalized column
+# of the track row. `tracks.title` keeps stating what the document said, and this
+# states what the owner said about it.
+#
+# The row is keyed on the track identity, which is stable across reprocessing --
+# a candidate keeps its row and its corrections even while a later run stops
+# producing it, and gets them back when it reappears.
+#
+# The CHECK is the invariant that "the user has said nothing" is the absence of a
+# row rather than a row of nulls. Two representations of nothing would be two
+# answers to "has this track been corrected?".
+_SCHEMA_6 = """
+CREATE TABLE track_user_metadata (
+    track_id   INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    title      TEXT,
+    note       TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK (title IS NOT NULL OR note IS NOT NULL)
+);
+"""
+
+
+_SCHEMA_7 = """
+CREATE TABLE map_packages (
+    region_id              TEXT    PRIMARY KEY,
+    region_name            TEXT    NOT NULL,
+    provider               TEXT    NOT NULL,
+    format                 TEXT    NOT NULL,
+    tile_schema            TEXT    NOT NULL,
+    tile_schema_version    TEXT    NOT NULL,
+    content_sha256         TEXT    NOT NULL,
+    size_bytes             INTEGER NOT NULL,
+    min_longitude          REAL    NOT NULL,
+    min_latitude           REAL    NOT NULL,
+    max_longitude          REAL    NOT NULL,
+    max_latitude           REAL    NOT NULL,
+    min_zoom               INTEGER NOT NULL,
+    max_zoom               INTEGER NOT NULL,
+    attribution_data_owner TEXT    NOT NULL,
+    attribution_provider   TEXT    NOT NULL,
+    license_identifier     TEXT    NOT NULL,
+    license_name           TEXT    NOT NULL,
+    attribution_text       TEXT    NOT NULL,
+    dataset_version        TEXT,
+    dataset_timestamp      TEXT,
+    downloaded_at          TEXT    NOT NULL,
+    source_url             TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX ix_map_packages_delivery ON map_packages(content_sha256);
+
+CREATE TABLE map_package_attribution_links (
+    region_id TEXT    NOT NULL REFERENCES map_packages(region_id) ON DELETE CASCADE,
+    position  INTEGER NOT NULL,
+    label     TEXT    NOT NULL,
+    url       TEXT    NOT NULL,
+    PRIMARY KEY (region_id, position)
+);
+
+CREATE TABLE map_install_jobs (
+    job_id           TEXT    PRIMARY KEY,
+    region_id        TEXT    NOT NULL,
+    region_name      TEXT    NOT NULL,
+    state            TEXT    NOT NULL,
+    bytes_downloaded INTEGER NOT NULL,
+    bytes_total      INTEGER,
+    error_code       TEXT,
+    is_update        INTEGER NOT NULL,
+    started_at       TEXT    NOT NULL,
+    updated_at       TEXT    NOT NULL
+);
+
+CREATE INDEX ix_map_install_jobs_region ON map_install_jobs(region_id, started_at);
+CREATE INDEX ix_map_install_jobs_state ON map_install_jobs(state);
+"""
+
+
 def _migrate_to_1(connection: sqlite3.Connection) -> None:
     """Create the first productive schema: imports, runs, tracks and geometry."""
     _execute_all(connection, _SCHEMA_1)
@@ -332,12 +410,58 @@ def _migrate_to_5(connection: sqlite3.Connection) -> None:
     _execute_all(connection, _SCHEMA_5)
 
 
+def _migrate_to_6(connection: sqlite3.Connection) -> None:
+    """Let the archive's owner correct a track's title and keep a note.
+
+    Source titles are what an exporting application happened to write, and a
+    personal archive stops being pleasant to keep the moment three of them read
+    `Track`. The correction is user-owned data with its own authority and it
+    lives beside the source rather than over it: the raw import stays
+    byte-identical, the normalized projection keeps saying what the file said,
+    and a reprocess replaces neither this row nor the classification override.
+
+    Nothing is back-filled -- nobody has corrected anything yet, and copying a
+    source title in here would manufacture an override that says nothing and
+    then hide every later improvement to the importer behind it.
+    """
+    _execute_all(connection, _SCHEMA_6)
+
+
+def _migrate_to_7(connection: sqlite3.Connection) -> None:
+    """Record which regional map packages this deployment has installed.
+
+    Two tables and no foreign key to anything else, because a map has nothing to
+    do with a track. Removing every track leaves the maps; removing every map
+    leaves the tracks. The only thing the two share is a bounding box, and it is
+    compared at query time rather than stored as a relationship.
+
+    A package row is deliberately *not* the authority for "installed". The
+    managed file beside it is the other half, and a row whose file is gone
+    reports ``INVALID`` rather than ``INSTALLED`` -- which is why nothing here
+    stores a state column. A state that can be written independently of the
+    thing it describes is a second authority, and it is the one that goes stale.
+
+    ``content_sha256`` is unique across regions: it is the identity tiles are
+    served under, and two rows claiming one delivery identity would make a tile
+    URL ambiguous. Two regions with byte-identical packages is not a case worth
+    supporting -- it cannot happen for real extracts, and allowing it would cost
+    the immutable URL guarantee.
+
+    Jobs are kept after they finish. "Why is this region not installed?" is
+    answered by the failed job that says so, and deleting the record would make
+    the answer "nothing ever happened".
+    """
+    _execute_all(connection, _SCHEMA_7)
+
+
 MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_to_1,
     _migrate_to_2,
     _migrate_to_3,
     _migrate_to_4,
     _migrate_to_5,
+    _migrate_to_6,
+    _migrate_to_7,
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

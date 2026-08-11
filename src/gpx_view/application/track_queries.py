@@ -6,6 +6,7 @@ over HTTP is the projection's business, not this layer's.
 """
 
 from datetime import datetime
+from enum import Enum, auto
 from zoneinfo import ZoneInfo
 
 from gpx_view.application.analysis import InstalledAnalysis
@@ -19,7 +20,30 @@ from gpx_view.application.ports import (
     TrackRepository,
     TrackSummary,
 )
-from gpx_view.domain import Activity, TrackKind, TrackSegment
+from gpx_view.domain import (
+    Activity,
+    TrackKind,
+    TrackSegment,
+    UserTrackMetadata,
+    normalize_note,
+    normalize_title,
+)
+
+
+class Unchanged(Enum):
+    """A field a partial update did not mention.
+
+    ``None`` already means something here -- clear this value -- so "the caller
+    said nothing about it" needs a token of its own. Without one, a request that
+    only renames a track would silently delete its note, which is the classic
+    way a PATCH endpoint loses data.
+    """
+
+    SENTINEL = auto()
+
+
+UNCHANGED = Unchanged.SENTINEL
+"""The default of every field of a partial metadata update."""
 
 DEFAULT_PAGE_SIZE = 50
 """How many tracks a listing returns when nobody says.
@@ -153,5 +177,50 @@ class TrackQueries:
     def reset_classification(self, track_id: int) -> TrackSummary | None:
         """Withdraw a user correction, handing authority back to the classifier."""
         if not self._repository.clear_override(track_id):
+            return None
+        return self._repository.get_track(track_id, self._analysis.profile)
+
+    def set_metadata(
+        self,
+        track_id: int,
+        *,
+        title: str | Unchanged | None = UNCHANGED,
+        note: str | Unchanged | None = UNCHANGED,
+    ) -> TrackSummary | None:
+        """Record what the user says about a track, and return the updated track.
+
+        A partial update: a field nobody mentioned keeps its stored value, and a
+        field explicitly set to ``None`` -- or to whitespace -- is cleared. That
+        is what makes "reset the title" a real operation rather than a rename to
+        something empty, and clearing the title hands the source title back the
+        display.
+
+        Nothing here reaches the raw import, the normalized track or the
+        detected classification. The correction is stored beside them, so a
+        later reprocess replaces every one of those and leaves this standing.
+
+        Args:
+            track_id: Identity of the track.
+            title: A new title, ``None`` to fall back to the source title, or
+                left out to keep the stored one.
+            note: A new note, ``None`` to remove it, or left out to keep it.
+
+        Returns:
+            The updated track, or ``None`` if there is no such current track.
+
+        Raises:
+            ValueError: If a value is too long or is not plain text. Deciding
+                what to do with that is the caller's business; silently
+                truncating somebody's sentence is not this layer's decision.
+        """
+        stored = self._repository.get_track(track_id, self._analysis.profile)
+        if stored is None:
+            return None
+        current = stored.user_metadata
+        updated = UserTrackMetadata(
+            title=current.title if isinstance(title, Unchanged) else normalize_title(title),
+            note=current.note if isinstance(note, Unchanged) else normalize_note(note),
+        )
+        if not self._repository.set_user_metadata(track_id, updated, self._clock.now()):
             return None
         return self._repository.get_track(track_id, self._analysis.profile)

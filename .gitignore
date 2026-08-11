@@ -44,3 +44,9 @@ junit*.xml
 # note or a future FIT recording cannot slip in either. The suite never requires
 # this directory to exist.
 /import-tracks/
+
+# Frontend build output, browser caches and browser-test artefacts.
+/web/node_modules/
+/web/dist/
+/web/playwright-report/
+/web/test-results/

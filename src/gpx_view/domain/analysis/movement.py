@@ -337,7 +337,7 @@ def analyse_movement(segments: Sequence[TrackSegment]) -> MovementAnalysis:
     elapsed = _elapsed(first, last)
     missing = any(point.time is None for segment in segments for point in segment.points)
 
-    steps = [_steps_of(run) for _, run in runs]
+    steps = [_steps_of(run.points) for run in runs]
     _classify(steps)
     flat = [step for run_steps in steps for step in run_steps]
 
@@ -369,6 +369,44 @@ def analyse_movement(segments: Sequence[TrackSegment]) -> MovementAnalysis:
     )
 
 
+def sustained_speeds(segments: Sequence[TrackSegment]) -> dict[tuple[int, int], float]:
+    """Return the sustained speed at each position that has one.
+
+    The series a chart draws and the maximum a headline quotes come from **one**
+    rule: this runs the same window over the same believable intervals that
+    :func:`analyse_movement` reads its maximum from. A chart plotting
+    point-to-point speed under a headline labelled "maximum sustained speed"
+    would be two different quantities sharing an axis, and the peak of the first
+    is a bad fix while the peak of the second is a descent.
+
+    Args:
+        segments: The normalized geometry, in source order.
+
+    Returns:
+        Speeds in metres per second, keyed by ``(segment index, position index)``
+        so a caller can address the same position the geometry does. A position
+        whose interval was a gap, an outlier, a backwards clock or an untimed
+        neighbour is **absent** rather than zero -- a speed that could not be
+        derived is not a speed of nothing.
+    """
+    runs = _timed_runs(segments)
+    steps = [_steps_of(run.points) for run in runs]
+    _classify(steps)
+
+    speeds: dict[tuple[int, int], float] = {}
+    for run, run_steps in zip(runs, steps, strict=True):
+        for group in _observed_groups(run.points, run_steps):
+            base = run.start + group.offset
+            for window in _windowed(group.points, MOVEMENT_WINDOW_SECONDS):
+                position = base + window.index
+                speeds[(run.segment, position)] = window.speed
+                # The position an interval ends on inherits it, so the last
+                # sample of a believable stretch carries a value too. The next
+                # interval overwrites it with its own.
+                speeds.setdefault((run.segment, position + 1), window.speed)
+    return speeds
+
+
 @dataclass(frozen=True, slots=True)
 class _Group:
     """A run of consecutive believable intervals, and where it starts."""
@@ -377,27 +415,43 @@ class _Group:
     offset: int
 
 
-def _timed_runs(
-    segments: Sequence[TrackSegment],
-) -> list[tuple[int, tuple[TrackPoint, ...]]]:
+@dataclass(frozen=True, slots=True)
+class _Run:
+    """A maximal run of adjacent timed positions, and where it sits.
+
+    Attributes:
+        segment: Which segment the run belongs to.
+        start: Index of the run's first position within that segment, so a
+            result can be reported against the geometry a reader sees.
+        points: The positions themselves, all of them timed.
+    """
+
+    segment: int
+    start: int
+    points: tuple[TrackPoint, ...]
+
+
+def _timed_runs(segments: Sequence[TrackSegment]) -> list[_Run]:
     """Return each maximal run of adjacent timed positions, with its segment.
 
     A position without an instant breaks the chain rather than being bridged
     over. The time on either side of it is real, but which part of it belongs to
     which interval is not knowable, and a bridge would quietly assert that it is.
     """
-    runs: list[tuple[int, tuple[TrackPoint, ...]]] = []
+    runs: list[_Run] = []
     for index, segment in enumerate(segments):
         current: list[TrackPoint] = []
-        for point in segment.points:
+        start = 0
+        for position, point in enumerate(segment.points):
             if point.time is None:
                 if len(current) >= 2:
-                    runs.append((index, tuple(current)))
+                    runs.append(_Run(segment=index, start=start, points=tuple(current)))
                 current = []
+                start = position + 1
             else:
                 current.append(point)
         if len(current) >= 2:
-            runs.append((index, tuple(current)))
+            runs.append(_Run(segment=index, start=start, points=tuple(current)))
     return runs
 
 
@@ -489,7 +543,7 @@ def _classify(steps: Sequence[Sequence[_Step]]) -> None:
 
 
 def _attribute(
-    runs: Sequence[tuple[int, tuple[TrackPoint, ...]]],
+    runs: Sequence[_Run],
     steps: Sequence[Sequence[_Step]],
     first: datetime,
 ) -> tuple[list[_Stretch], float, float | None]:
@@ -502,7 +556,8 @@ def _attribute(
     moving_distance = 0.0
     maximum: float | None = None
 
-    for run_index, ((_, points), run_steps) in enumerate(zip(runs, steps, strict=True)):
+    for run_index, (run, run_steps) in enumerate(zip(runs, steps, strict=True)):
+        points = run.points
         speeds: dict[int, float] = {}
         verdicts: dict[int, _Attribution] = {}
         for group in _observed_groups(points, run_steps):
@@ -538,9 +593,7 @@ def _attribute(
     return stretches, moving_distance, maximum
 
 
-def _hole_after(
-    runs: Sequence[tuple[int, tuple[TrackPoint, ...]]], index: int, first: datetime
-) -> list[_Stretch]:
+def _hole_after(runs: Sequence[_Run], index: int, first: datetime) -> list[_Stretch]:
     """Return the labelled hole between one run and the next, if there is one.
 
     A segment boundary *is* a recording interruption -- that is what makes it a
@@ -550,8 +603,8 @@ def _hole_after(
     """
     if index + 1 >= len(runs):
         return []
-    segment, previous = runs[index][0], runs[index][1]
-    following_segment, following = runs[index + 1]
+    segment, previous = runs[index].segment, runs[index].points
+    following_segment, following = runs[index + 1].segment, runs[index + 1].points
     end, start = previous[-1].time, following[0].time
     if end is None or start is None or start <= end:
         return []

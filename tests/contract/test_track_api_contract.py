@@ -256,13 +256,28 @@ def test_the_api_publishes_exactly_the_implemented_surface(client: TestClient) -
 
     assert paths == {
         "/healthz",
+        "/api/v1/system/info",
         "/api/v1/tracks",
         "/api/v1/tracks/{track_id}",
         "/api/v1/tracks/{track_id}/geometry",
+        "/api/v1/tracks/{track_id}/profile",
         "/api/v1/tracks/{track_id}/analysis",
         "/api/v1/tracks/{track_id}/classification",
+        "/api/v1/tracks/{track_id}/metadata",
+        "/api/v1/statistics/years",
         "/api/v1/statistics/year/{year}",
         "/api/v1/statistics/year/{year}/monthly",
+        "/api/v1/maps",
+        "/api/v1/maps/catalog",
+        "/api/v1/maps/catalog/refresh",
+        "/api/v1/maps/install",
+        "/api/v1/maps/regions/{region_id}",
+        "/api/v1/maps/jobs",
+        "/api/v1/maps/jobs/{job_id}",
+        "/api/v1/maps/jobs/{job_id}/cancel",
+        "/api/v1/maps/coverage",
+        "/api/v1/maps/credits",
+        "/api/v1/maps/tiles/{delivery_id}/{zoom}/{column}/{row}.mvt",
     }
 
 
@@ -272,6 +287,31 @@ def test_no_write_endpoint_accepts_a_file(client: TestClient) -> None:
 
     assert "multipart/form-data" not in schema["components"].get("requestBodies", {})
     assert not [path for path in schema["paths"] if "import" in path or "upload" in path]
+
+
+def test_no_endpoint_accepts_a_url_to_fetch(client: TestClient) -> None:
+    """Installing a map takes a region, never an address.
+
+    A `url` field anywhere on this surface would make the archive a
+    general-purpose fetcher operated by whoever can reach it -- the
+    server-side request forgery primitive the provider port exists to prevent.
+    """
+    schema = client.get("/openapi.json").json()
+    requested = {
+        media["schema"]["$ref"].rsplit("/", 1)[-1]
+        for path in schema["paths"].values()
+        for operation in path.values()
+        for media in operation.get("requestBody", {}).get("content", {}).values()
+        if "$ref" in media.get("schema", {})
+    }
+    fields = {
+        name
+        for component in requested
+        for name in schema["components"]["schemas"][component].get("properties", {})
+    }
+
+    assert requested, "the surface has request bodies; this check must see them"
+    assert not [name for name in fields if name in {"url", "href", "endpoint", "host"}]
 
 
 # --- The API answers from the current generation only ------------------------

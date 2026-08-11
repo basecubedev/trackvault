@@ -24,6 +24,7 @@ from gpx_view.application.ports import (
     AnalysisRun,
     AnalysisSnapshot,
     AnalysisStatus,
+    DatedTrackRow,
     ProcessingSnapshot,
     StoredAnalysis,
     TrackAggregationRow,
@@ -48,6 +49,7 @@ from gpx_view.domain import (
     TrackKind,
     TrackPoint,
     TrackSegment,
+    UserTrackMetadata,
     temporal_evidence_of,
 )
 from gpx_view.domain.analysis import (
@@ -555,6 +557,31 @@ class SqliteTrackStore:
             )
             return True
 
+    # --- user-owned metadata --------------------------------------------
+
+    def set_user_metadata(self, track_id: int, metadata: UserTrackMetadata, at: datetime) -> bool:
+        """Store what the user says about a current track, or clear it.
+
+        Empty metadata deletes the row. "Nothing was said" is then the absence
+        of a record rather than a record of two nulls, which the table's own
+        CHECK also refuses -- one representation, so a reset really resets.
+        """
+        with self._transaction() as connection:
+            if not _is_current(connection, track_id):
+                return False
+            if metadata.is_empty:
+                connection.execute(
+                    "DELETE FROM track_user_metadata WHERE track_id = ?", (track_id,)
+                )
+                return True
+            connection.execute(
+                "INSERT INTO track_user_metadata (track_id, title, note, updated_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT (track_id) DO UPDATE SET "
+                "title = excluded.title, note = excluded.note, updated_at = excluded.updated_at",
+                (track_id, metadata.title, metadata.note, _as_text(at)),
+            )
+            return True
+
     # --- analysis -------------------------------------------------------
 
     def record_analysis(self, run: AnalysisRun, analysis: TrackAnalysis | None) -> int:
@@ -734,6 +761,37 @@ class SqliteTrackStore:
         )
         return self._aggregation_rows(f"{window} AND ({anchored})", (*instants, *anchor_values))
 
+    def dated_track_rows(self) -> tuple[DatedTrackRow, ...]:
+        """Return every current track a calendar period may date.
+
+        Three columns per track and no join to a metric, because the question
+        is which periods exist rather than what they hold. The cost is one short
+        row per dated track and never a position, which is the same promise
+        every other aggregate here makes.
+        """
+        anchored, anchor_values = _calendar_anchored()
+        with self.connection() as connection:
+            rows = connection.execute(
+                "SELECT t.id, t.activity, t.started_at, "
+                f"{_EFFECTIVE_KIND} AS effective_kind{_CURRENT_GENERATION}"
+                f" WHERE t.started_at IS NOT NULL AND ({anchored})",
+                anchor_values,
+            ).fetchall()
+        return tuple(
+            DatedTrackRow(
+                effective_kind=TrackKind(row["effective_kind"]),
+                activity=Activity(row["activity"]),
+                started_at=instant,
+            )
+            for row in rows
+            if (instant := _as_instant(row["started_at"])) is not None
+        )
+
+    def current_track_count(self) -> int:
+        """Return how many tracks the archive currently holds, in any scope."""
+        with self.connection() as connection:
+            return int(connection.execute(f"SELECT count(*){_CURRENT_GENERATION}").fetchone()[0])
+
     def unplaced_aggregation_rows(self) -> tuple[TrackAggregationRow, ...]:
         """Return the current tracks that belong to no calendar period at all.
 
@@ -817,6 +875,7 @@ _CURRENT_GENERATION = """
    AND i.active_processing_run_id = t.processing_run_id
   JOIN track_classifications c ON c.track_id = t.id
   LEFT JOIN track_classification_overrides o ON o.track_id = t.id
+  LEFT JOIN track_user_metadata u ON u.track_id = t.id
   LEFT JOIN analysis_runs cur ON cur.id = t.current_analysis_run_id
 """
 
@@ -825,7 +884,8 @@ SELECT t.id, t.raw_import_sha256, t.source_index, t.source_key, t.title, t.activ
        t.exchange_format, t.format_version, t.creator, t.started_at, t.ended_at,
        t.point_count, t.segment_count, i.received_at AS raw_received_at,
        c.detected_kind, c.confidence, c.method, c.method_version,
-       o.override_kind, t.current_analysis_run_id
+       o.override_kind, t.current_analysis_run_id,
+       u.title AS user_title, u.note AS user_note
 """
 
 # The distance of the current analysis, joined so that a listing can be ordered
@@ -1619,6 +1679,7 @@ def _summary_from(
             if availability is AnalysisAvailability.CURRENT and analysis_run_id is not None
             else {}
         ),
+        user_metadata=UserTrackMetadata(title=row["user_title"], note=row["user_note"]),
     )
 
 

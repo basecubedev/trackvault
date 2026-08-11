@@ -136,6 +136,29 @@ def analyse_elevation(segments: Sequence[TrackSegment]) -> ElevationAnalysis:
     return ElevationAnalysis(min(observed), max(observed), gain, loss)
 
 
+def filtered_elevation_profile(segment: TrackSegment) -> tuple[float | None, ...]:
+    """Return the filtered elevation of every position of one segment.
+
+    The series a chart draws and the ascent a total quotes come from **one**
+    filter: this runs the same rolling median over the same observations that
+    :func:`analyse_elevation` accumulates from. Two implementations would put a
+    raw, noisy line under a filtered number and leave a reader to work out why
+    the picture and the figure disagree.
+
+    A position that carried no elevation has no filtered elevation either. The
+    filter is computed over the observations only -- interpolating across a hole
+    would invent ground -- and the result is mapped back onto the positions, so
+    a sample index in the series is the same sample index as in the geometry.
+    """
+    observed = _elevations_of(segment)
+    if not observed:
+        return tuple(None for _ in segment.points)
+    smoothed = iter(_rolling_median(observed))
+    return tuple(
+        next(smoothed) if point.elevation is not None else None for point in segment.points
+    )
+
+
 def _elevations_of(segment: TrackSegment) -> list[float]:
     """Return one segment's elevations, skipping the positions that carry none.
 

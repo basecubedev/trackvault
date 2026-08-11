@@ -6,6 +6,28 @@
 !README.md
 !src/
 
-# Never ship caches or byte code, even from an allowed directory.
+# The one documentation file that is a distribution artifact rather than
+# documentation: it ships in the image, for the operator who runs it.
+!docs/legal/third-party-notices.md
+
+# The browser application's sources and its lock file. Its build output is not
+# copied in: it is produced by the Node stage, from these.
+!web/package.json
+!web/package-lock.json
+!web/tsconfig.json
+!web/vite.config.ts
+!web/index.html
+!web/src/
+
+# The map label glyphs. They are generated once by scripts/generate_glyphs.py
+# and committed, and Vite copies them into the build verbatim -- so a map draws
+# its place names from this deployment rather than from a font service.
+!web/public/
+
+# Never ship caches, byte code or an installed dependency tree, even from an
+# allowed directory. `npm ci` installs its own inside the build stage, and a
+# host tree copied in would be somebody else's platform binaries.
 **/__pycache__/
 **/*.py[cod]
+web/node_modules/
+web/dist/

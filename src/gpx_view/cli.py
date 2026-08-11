@@ -15,6 +15,7 @@ the machine that holds the data, not an unauthenticated upload endpoint.
 """
 
 import argparse
+import json
 import logging
 import sys
 from collections.abc import Sequence
@@ -28,6 +29,7 @@ from gpx_view.config import Settings, get_settings
 from gpx_view.domain import InputChannel, ProcessingProfile
 from gpx_view.infrastructure.assembly import TrackServices, build_services
 from gpx_view.infrastructure.filesystem import read_bounded, scan_import_directory
+from gpx_view.main import create_app
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -86,6 +88,16 @@ def _parser() -> argparse.ArgumentParser:
         help="report what happened to one source and whether it is still current",
     )
     status_command.add_argument("sha256", help="content hash of the raw import")
+
+    openapi_command = commands.add_parser(
+        "openapi", help="write the HTTP schema the frontend types are generated from"
+    )
+    openapi_command.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="file to write; standard output when omitted",
+    )
     return parser
 
 
@@ -330,10 +342,35 @@ def _scan(services: TrackServices) -> int:
     )
 
 
+def _openapi(destination: Path | None) -> int:
+    """Write the HTTP schema, byte-for-byte reproducibly.
+
+    The backend is the API authority and the browser's types are generated from
+    it, so this has to be deterministic: sorted keys, one fixed indentation, a
+    trailing newline. A schema that reorders itself between two runs would make
+    every regeneration a diff and every drift check useless.
+
+    Nothing is composed against a data directory: building the schema reads the
+    routes and the response models, and writing a file to disk to describe them
+    would be a side effect a documentation command has no business having.
+    """
+    schema = json.dumps(create_app(Settings()).openapi(), indent=2, sort_keys=True) + "\n"
+    if destination is None:
+        sys.stdout.write(schema)
+    else:
+        destination.write_text(schema, encoding="utf-8")
+    return EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None, settings: Settings | None = None) -> int:
     """Run one command and return the process exit code."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     arguments = _parser().parse_args(argv)
+
+    # The schema describes the code rather than an archive, so it is answered
+    # before anything opens a database.
+    if arguments.command == "openapi":
+        return _openapi(arguments.output)
 
     services = build_services(settings or get_settings())
     services.prepare_storage()

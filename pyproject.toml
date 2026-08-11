@@ -76,6 +76,12 @@ extra_checks = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+# `tests/support/` holds helpers that build the suite's own inputs -- a valid
+# vector tile package, a provider on loopback. They are importable as
+# `support.*` rather than through a conftest fixture because several of them
+# are constructors, not fixtures, and a fixture that returns a builder is a
+# fixture in name only.
+pythonpath = ["tests"]
 # Docker tests and the local reference regression are opt-in:
 # `uv run pytest -m docker`, `uv run pytest -m local_tracks`.
 addopts = "--strict-markers --strict-config -ra -m 'not docker and not local_tracks'"
@@ -93,6 +99,7 @@ markers = [
     "analysis: exercises the track analysis algorithms and their versioning",
     "statistics: exercises actual/planned aggregation and the statistics queries",
     "local_tracks: requires private local reference files under ./import-tracks (opt-in)",
+    "maps: exercises offline map packages, their delivery and their provider adapters",
 ]
 
 [tool.coverage.run]

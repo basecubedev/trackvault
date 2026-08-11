@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from gpx_view.application.calendar import MAX_QUERY_YEAR, MIN_QUERY_YEAR
 from gpx_view.application.statistics import (
     AggregationScope,
+    GetAvailableYears,
     GetMonthlyStatistics,
     GetYearStatistics,
     MonthlyStatistics,
@@ -139,6 +140,45 @@ class MonthlyResponse(BaseModel):
     months: list[MonthResponse]
 
 
+class UnplacedCountsResponse(BaseModel):
+    """How many tracks belong to no calendar period, split by why.
+
+    The two halves are different facts and the second is the one that looks
+    answered: no instants at all, against instants nothing showed to be
+    measured.
+    """
+
+    without_date: int
+    with_unverified_date: int
+
+
+class AvailableYearsResponse(BaseModel):
+    """Which years this archive has something to show for.
+
+    Deliberately not a range: an interface that offered "this year and the
+    eleven before it" opened an archive of 2019 recordings on an empty 2026,
+    and it computed a calendar the archive already owns.
+    """
+
+    scope: AggregationScope
+    activity: Activity | None
+    timezone: str
+    years: list[int] = Field(
+        description="Local years the scope holds tracks in, newest first",
+    )
+    unplaced: UnplacedCountsResponse = Field(
+        description="Tracks in scope that belong to no year -- reported beside it, never inside"
+    )
+    archive_track_count: int = Field(
+        description="Tracks held in any scope: what tells an empty archive from an empty selection"
+    )
+
+
+def _years_query(request: Request) -> GetAvailableYears:
+    """Return the available-years query the composition root wired into the app."""
+    return cast(GetAvailableYears, request.app.state.available_years)
+
+
 def _year_query(request: Request) -> GetYearStatistics:
     """Return the year query the composition root wired into the app."""
     return cast(GetYearStatistics, request.app.state.year_statistics)
@@ -197,6 +237,31 @@ def _project_monthly(statistics: MonthlyStatistics) -> MonthlyResponse:
             MonthResponse(month=bucket.month, totals=_totals(bucket.totals))
             for bucket in statistics.months
         ],
+    )
+
+
+@router.get("/years", summary="List the years this archive holds tracks in")
+def read_available_years(
+    request: Request,
+    scope: Scope = AggregationScope.RECORDED,
+    activity: ActivityFilter = None,
+) -> AvailableYearsResponse:
+    """Return the years one scope holds, newest first.
+
+    Registered before ``/year/{year}`` so that the literal path wins over the
+    parameterised one whatever the router's matching order turns out to be.
+    """
+    available = _years_query(request)(scope=scope, activity=activity)
+    return AvailableYearsResponse(
+        scope=available.scope,
+        activity=available.activity,
+        timezone=available.timezone,
+        years=list(available.years),
+        unplaced=UnplacedCountsResponse(
+            without_date=available.unplaced_without_date,
+            with_unverified_date=available.unplaced_with_unverified_date,
+        ),
+        archive_track_count=available.archive_track_count,
     )
 
 

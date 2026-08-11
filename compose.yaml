@@ -7,6 +7,17 @@ services:
       - "8080:8080"
     environment:
       GPX_VIEW_DATA_DIR: /data
+      # The zone month and year boundaries are drawn in. UTC by default, because
+      # a container inherits whatever its image carries and the same archive
+      # would otherwise report different monthly totals on two machines.
+      # GPX_VIEW_TIMEZONE: Europe/Berlin
+      #
+      # Offline maps are installed through the web interface and stored in the
+      # volume below, so there is no tile provider to configure. Set
+      # GPX_VIEW_MAPS_ENABLED=false to refuse every map download outright --
+      # installed maps keep working.
+      # GPX_VIEW_MAPS_ENABLED: "false"
+      #
       # Set GPX_VIEW_IMPORT_DIR and mount a read-only directory below to enable
       # `gpx-view scan`. Unset, the feature is off.
     volumes:
@@ -15,6 +26,9 @@ services:
       # user and stays writable without `chmod 777` and without running as root.
       # A bind mount would arrive with the host directory's ownership instead;
       # see README.md for how to use one deliberately.
+      #
+      # Installed offline maps live here too, so they survive a recreate and
+      # never enter the image. They can be hundreds of megabytes each.
       - gpx-view-data:/data
       # - ./import:/import:ro
     restart: unless-stopped

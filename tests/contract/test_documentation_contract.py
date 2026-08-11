@@ -92,7 +92,6 @@ def test_contracts_document_states_invariant(anchor: str) -> None:
     "deferred",
     [
         "analysis algorithms",
-        "frontend technology",
         "semantic duplicate",
         "authentication",
         "file system watcher",

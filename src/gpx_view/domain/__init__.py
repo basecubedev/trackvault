@@ -35,8 +35,20 @@ from gpx_view.domain.temporal_evidence import (
 )
 from gpx_view.domain.track import ImportedTrack, NormalizedTrack
 from gpx_view.domain.track_kind import TrackKind
+from gpx_view.domain.user_metadata import (
+    EMPTY_USER_METADATA,
+    MAX_NOTE_LENGTH,
+    MAX_TITLE_LENGTH,
+    UserTrackMetadata,
+    effective_title,
+    normalize_note,
+    normalize_title,
+)
 
 __all__ = [
+    "EMPTY_USER_METADATA",
+    "MAX_NOTE_LENGTH",
+    "MAX_TITLE_LENGTH",
     "MEASUREMENT_EVIDENCE_CODES",
     "NORMALIZATION_SCHEMA_VERSION",
     "Activity",
@@ -56,9 +68,13 @@ __all__ = [
     "TrackKind",
     "TrackPoint",
     "TrackSegment",
+    "UserTrackMetadata",
     "classify",
+    "effective_title",
     "in_canonical_order",
     "is_processing_current",
+    "normalize_note",
+    "normalize_title",
     "supports_actual_calendar_placement",
     "supports_actual_metrics",
     "supports_actual_timing",

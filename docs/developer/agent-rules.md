@@ -50,6 +50,7 @@ authority table. In short:
 | Normalized track data | the canonical normalized track model |
 | Detected classification | the classifier result, with confidence, evidence and method version |
 | Effective classification | an explicit user override if present, otherwise the detected kind |
+| Displayed track title | an explicit user title if present, otherwise the source title |
 | Calculated statistics | the analysis layer, from the canonical normalized track |
 | Analysis algorithms | the installed `AnalysisProfile` |
 | Per-track derived metrics | the current successful `AnalysisRun` for the current processing generation |
@@ -59,7 +60,14 @@ authority table. In short:
 | Source metadata | evidence and provenance information, never business authority |
 | Import | the single canonical `ImportTrack` use case |
 | HTTP representation | projection only |
+| Analysis availability | `InstalledAnalysis.availability` -- one answer, projected everywhere |
+| List headline metrics | the current analysis only |
+| Actual calendar placement | trusted temporal evidence, never the track kind |
+| Profile and map series | the current geometry plus the installed analysis algorithms |
 | Browser/frontend state | projection only |
+| Installed map packages | a database row **and** a managed file that hashes to it |
+| Map attribution | the installed package's own metadata |
+| Which map draws behind a track | `SelectMapCoverage` over installed coverage |
 | Configuration | `gpx_view.config` backend settings |
 
 No UI and no import adapter may ever create a second, independent business truth.
@@ -188,6 +196,35 @@ Full detail in `docs/technical/contracts.md`. Non-negotiable:
   learned about it and a document's export time is when the file was written;
   neither is an activity date, and a track without timestamps belongs to no
   month rather than to 1970.
+- **Public map tile services are never an offline-download authority.**
+  Community tile servers run on donated bandwidth and their usage policies
+  exist to forbid the bulk download an offline archive would need. An offline
+  map comes from a provider whose download service is meant for it.
+- **Installed map packages are replaceable external datasets, not track source
+  evidence.** A raw import is the only copy of somebody's afternoon and fails
+  closed on corruption; a map package is public data that can be fetched again,
+  so corruption there is discarded and reinstalled. What both share is that an
+  installation is a database row *and* a file that hashes to what the row says
+  — either alone is `invalid`, never `installed`.
+- **Normal map viewing must not require an external network request.** With
+  coverage installed, a track page reaches the provider not at all. The network
+  is touched during three actions somebody pressed: refresh the catalog,
+  install, update.
+- **Map attribution is package metadata and must survive every projection.** It
+  is read out of the package, not written into the build, and it reaches the
+  map, the manager and the credits page unchanged. A package stating no author
+  and no licence is refused rather than installed under an assumption, and
+  credit links are structured pairs rather than markup.
+- **Map package installation is atomic, and a failed update preserves the
+  previous valid package.** The new package is fetched and validated beside the
+  old one, never over it; the old file goes only after the new row commits.
+- **Provider URLs are infrastructure-owned and may never be supplied by an API
+  caller.** A caller names a region; the adapter resolves the address, and a
+  redirect is followed only inside the hosts that adapter declares.
+- **Remote map packages are untrusted input and are validated before
+  publication.** Bounded stream, hash while streaming, declared length checked,
+  container and tile vocabulary verified, and nothing a provider sends is ever
+  used as a path.
 - **Timestamp presence is not calendar placement.** A track's instants are its
   *timeline*; the claim that the activity happened in a given period is a
   separate, stronger statement, and only instants shown to have been measured

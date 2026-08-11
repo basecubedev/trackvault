@@ -77,6 +77,13 @@ infrastructure corners (`xml`, `sqlite3`, `pathlib`, `os`, `json`, `csv`, `http`
 `urllib`). It must not import `gpx_view.api`, `gpx_view.application`,
 `gpx_view.infrastructure` or `gpx_view.config`.
 
+It also holds the `maps/` package -- `MapRegionId`, `MapBounds`,
+`MapAttribution`, `MapTileSchema`, `MapPackage`, `MapInstallState`,
+`MapJobState` and `select_coverage`. Offline maps are a capability of their own
+beside the track model, not part of it: nothing in `NormalizedTrack`,
+`TrackAnalysis` or the statistics knows a map exists, and the only thing the two
+share is a rectangle.
+
 Current content: `TrackKind`, `Activity`, `MetricProvenance`, `EvidenceCode`,
 `ClassificationResult`, `TrackClassification`, the `classify` rules, `TrackPoint`,
 `TrackSegment`, `ImportedTrack`, `NormalizedTrack`, `SourceMetadata`, `RawImport`,
@@ -102,6 +109,13 @@ the bytes come from and in what the caller is told. A second copy of that step
 would be a second import pipeline, and it would be the copy that runs less often
 -- the one nobody notices going wrong.
 
+`maps/` holds the offline map use cases: `GetMapCatalog`, `InstallMapPackage`
+(install and update are one authority), `RemoveMapPackage`, `RecoverMapStorage`,
+`ListInstalledMaps`, `SelectMapCoverage` and `GetMapInstallJob`, behind the
+ports `MapPackageProvider`, `MapPackageStorage`, `MapPackageInspector`,
+`MapPackageRepository`, `MapCatalogCache`, `MapInstallationService` and
+`MapTileSource`.
+
 It also owns the ports -- `TrackImporter`, `TrackRepository`, `RawImportStore`,
 `Clock` -- the import limits, the public error codes, `InstalledProcessing` and
 `InstalledAnalysis`: the one statement of what processing and what analysis this
@@ -116,10 +130,22 @@ FIT or TCX type may appear here.
 
 Owns concrete adapters and is the only layer that knows formats and storage.
 Implemented packages: `gpx/` (the GPX 1.1/1.0 adapter, including the table of
-extension schemas it understands), `database/` (SQLite, the only place that
-imports `sqlite3`), `filesystem/` (managed raw storage and the import directory
-boundary), plus `clock.py`, `private_data.py` and `assembly.py`. Planned: `fit/`,
-`tcx/`.
+extension schemas it understands), `database/` (the archive's own SQLite),
+`filesystem/` (managed raw storage and the import directory boundary), `maps/`
+(managed map storage, the MBTiles reader, the bounded HTTP transfer, the
+Geofabrik adapter, the catalog cache and the install worker), plus `clock.py`,
+`private_data.py` and `assembly.py`. Planned: `fit/`, `tcx/`.
+
+Two modules may name the SQLite driver, and the split is deliberate.
+`database/` owns the archive's own database. `maps/mbtiles.py` reads a *foreign*
+container that happens to be SQLite -- a downloaded map package -- strictly
+read-only, through its own connections, never touching the archive's file. That
+is a format adapter, and keeping it out of the database package is what stops
+"the store" from meaning two things.
+
+`gpx_view.release` is a leaf module holding the build's version string. Every
+layer but the domain may read it; the first thing that needed it further in was
+the User-Agent an outbound map download presents.
 
 `assembly.py` builds the object graph both entry points share -- the HTTP
 application and the command line -- so a second, subtly different wiring cannot
@@ -141,15 +167,42 @@ Current content:
 
 ```
 GET    /healthz
+GET    /api/v1/system/info
 GET    /api/v1/tracks
 GET    /api/v1/tracks/{track_id}
 GET    /api/v1/tracks/{track_id}/geometry
+GET    /api/v1/tracks/{track_id}/profile
 GET    /api/v1/tracks/{track_id}/analysis
 PUT    /api/v1/tracks/{track_id}/classification
 DELETE /api/v1/tracks/{track_id}/classification
+PATCH  /api/v1/tracks/{track_id}/metadata
+GET    /api/v1/statistics/years
 GET    /api/v1/statistics/year/{year}
 GET    /api/v1/statistics/year/{year}/monthly
 ```
+
+`/system/info` describes the **build**, not the machine: the release, the schema
+version, the aggregation zone and both currency profiles. It carries no path, no
+data directory and no configured provider, and it is what makes "why did this
+number change?" answerable from the deployment rather than from a changelog.
+
+`/statistics/years` answers which local years the archive holds tracks in,
+newest first, over exactly the tracks a period may date. The interface used to
+compute "this year and the eleven before it" from the reader's own clock, which
+is a second authority on the calendar and wrong in both directions: it offered
+years the archive had nothing for and hid the years of an archive nobody had
+added to since 2019. The response also carries the archive's total track count,
+because "nothing imported yet" and "nothing matches this selection" are opposite
+instructions to whoever is reading.
+
+Every response carries `X-Content-Type-Options`, `Referrer-Policy: no-referrer`,
+`X-Frame-Options` and a `Content-Security-Policy` that names **every** source
+the page may load: `default-src 'self'`, `script-src 'self'`, `connect-src
+'self'`, `font-src 'self'`, plus `blob:` for MapLibre's worker and `data: blob:`
+for the textures it builds in memory. The policy used to name no source at all,
+because a configured basemap put a style on one host and its tiles, sprites and
+glyphs on others; offline map packages removed that unknown, so the browser now
+enforces the offline contract rather than only the test suite.
 
 Metrics are a resource of their own rather than a field on the track. They have
 their own lifecycle -- missing, outdated or freshly derived while the track
@@ -181,10 +234,47 @@ on the command line rather than over HTTP: `/api/v1/imports/{sha256}/processing`
 would open a resource family whose other verbs do not exist, and the operator who
 can act on the answer is on the machine that holds the data anyway.
 
-### Future browser UI
+### The browser application
 
 Also projection only. Browser state is never business authority; every value the
-UI shows must be recomputable by the backend.
+page shows is recomputable by the backend, which is why there is no state
+library: a cache of the truth beside the truth is the browser's version of a
+second authority.
+
+It lives in `web/` -- TypeScript, React, Vite, MapLibre GL JS and Apache ECharts
+-- and is built into static assets. In production the same process serves them,
+so the page and the data it reads share an origin and there is no CORS
+configuration to get wrong. `gpx_view.api.web` owns that: one route resolves
+inside the build directory, never answers an `/api` path with HTML, and hands
+the entry page to anything else, so a deep link to `/tracks/123` survives a
+refresh. Hashed assets are cacheable for a year and the entry page is not,
+because its name never changes.
+
+The page's types are **generated from this API's own OpenAPI document**
+(`gpx-view openapi`, deterministic, checked for drift in CI). A hand-written
+`TrackResponse` that has drifted from the server is a bug that type-checks, and
+it is the same failure the whole architecture is arranged against.
+
+Two rules the interface exists to keep. **Absent is not zero**: a metric the
+archive could not derive renders as a dash and is announced as unavailable.
+**Nothing is distinguished by colour alone**: every state carries a word and a
+glyph, because `current` and `invalid` are exactly the two a reader has to act
+on differently.
+
+The basemap comes from packages installed into this deployment and served by
+it. The page asks `/api/v1/maps/coverage?bbox=…` which packages belong behind a
+track and composes the MapLibre style itself: *selection* is a decision about
+data and belongs to the backend, *colour and line width* are presentation and
+belong to the page. A style document assembled in Python would put a design
+system in the API layer.
+
+Two themes and none -- Outdoor, Light, No basemap. Glyphs are SDF ranges
+generated from Noto Sans by `scripts/generate_glyphs.py` and committed under
+`web/public/fonts/`, so they ship with the page. No sprite sheet exists, because
+no layer uses `icon-image`. Every URL in a composed style is same-origin.
+
+Attribution comes out of the installed package's own metadata and is rendered
+beside every map that is drawn. See `docs/legal/third-party-notices.md`.
 
 ### `gpx_view.main`
 
@@ -551,7 +641,8 @@ processing_runs                 append-only history per raw import, each stating
                                 the whole processing profile it applied
 tracks                          identified by (raw import, source key)
 track_classifications           the detected result
-track_classification_overrides  what the user said
+track_classification_overrides  what the user said about the kind
+track_user_metadata             what the user said about the track: title, note
 track_evidence
 track_external_links
 track_extension_namespaces
@@ -563,7 +654,16 @@ analysis_runs                   append-only history per track, each stating the
 track_metrics                   one typed row per derived value, with its unit
                                 and its provenance
 analysis_quality_flags          what was wrong with the data a run worked from
+map_packages                    one installed regional map, keyed by region
+map_package_attribution_links   its structured credit links
+map_install_jobs                what an installation did, kept after it finished
 ```
+
+The map tables have no foreign key to anything else. Removing every track leaves
+the maps; removing every map leaves the tracks. A package row also stores no
+state column: whether a region is installed is the row **and** a managed file
+that hashes to what the row says, and a state that can be written independently
+of the thing it describes is a second authority.
 
 Metrics are typed rows rather than a JSON blob: summing a month would otherwise
 become a scan and a parse, and a value whose unit nothing declares is a value
@@ -582,7 +682,8 @@ Rules the schema encodes:
 - write-ahead logging lets the HTTP server and a command-line import share the
   file; all journal files stay inside the data directory,
 - reprocessing updates the track row of the same `source_key` in place, so the
-  identity a user corrected survives and the override table is never touched,
+  identity a user corrected survives and neither the override table nor the
+  user-metadata table is ever touched,
 - **no effective kind is stored.** It is projected from the detected result and
   the override on read,
 - **history is never rewritten.** A migration that adds a column to
@@ -686,6 +787,39 @@ overwriting that silently would replace one surprise with a worse one. The
 container is unaffected: a named volume arrives owned by the non-root runtime
 user, and what the archive creates inside it is private.
 
+## User-owned metadata
+
+> A correction belongs to the user, and it never edits the evidence.
+
+Exports arrive titled `Track`, `2024-06-11 09:14`, or nothing at all, and a
+personal archive stops being pleasant to keep the moment three rows read the
+same. The correction is therefore the user's own data with its own authority,
+stored *beside* the source rather than over it:
+
+```
+source title       what the document said         never modified
+title override     what the user said             the display authority
+effective title    the override, else the source  a projection of the two
+```
+
+That is deliberately the shape the classification override already has, and for
+the same reason: a reprocess replaces every normalized column of a track row, so
+a title stored there would be a title an importer upgrade silently discards.
+`track_user_metadata` is keyed on the track identity, which survives
+reprocessing, so a correction outlives a parser upgrade and comes back with a
+candidate a later run temporarily stopped producing.
+
+`display_title` is a projection, exactly as `effective_kind` is: no third value
+is stored, and `None` stays a real answer -- some documents genuinely name
+nothing, and inventing a name in the domain would put a guess where a
+presentation layer can say something honest and admit that it did.
+
+Titles and notes are **plain text**, trimmed, length-bounded, and refused rather
+than truncated when they are too long. Nothing here is markup and nothing
+interprets it as such. `PATCH` is a real partial update -- an absent field keeps
+its value, an explicit `null` or a blank string clears it -- because a rename
+that silently deleted a note is how a partial update loses data.
+
 ## Track analysis
 
 > Derived metrics are rebuildable and never source authority.
@@ -777,6 +911,64 @@ calculation is wrong:
   application. Every clock-dependent metric is still derived and is never
   presented without it; only a recorded track with observed instants may have
   its durations called actual activity timing.
+
+### Series, and why they are not a second analysis
+
+The metrics above are aggregates: one distance, one ascent, one maximum speed. A
+map and a chart need the other shape of the same analysis -- a value at every
+position -- and the failure that invites is the quiet one:
+
+```
+elevation_gain_m   accumulated from the filtered profile
+elevation series   the same filtered profile        <- not the raw altitude
+maximum speed      the highest sustained window speed
+speed series       the same sustained window speeds <- not point-to-point speed
+```
+
+`gpx_view.domain.analysis.series.derive_profile` therefore computes nothing of
+its own: it asks the elevation filter and the movement window for their own
+series and lays them out against the positions. It takes segments, like every
+other entry point in that package, which is what makes it source-agnostic by
+construction.
+
+A sample is addressed by `(segment_index, point_index)` -- the position's own
+address in the geometry -- so a map marker and a chart cursor mean the same
+sample without the browser matching a coordinate. Nearest-coordinate matching is
+a second authority on identity and it picks the wrong position exactly where a
+track crosses itself.
+
+Cumulative distance is summed **within** segments and carried across them: the
+ground between two segments was not travelled and never enters the total, while
+the axis stays one axis with no jump at a boundary.
+
+The series are always derived by the algorithms this build installs, from the
+geometry a reader currently sees. The response reports the track's *stored*
+analysis availability beside them, so a reader can tell whether the chart and
+the figures next to it were produced by the same rules.
+
+### Bounded projections
+
+`gpx_view.application.projection` makes a large track small enough to send, and
+it is **presentation, never normalization** -- nothing it does is written back,
+so the reduction can be redone differently tomorrow and asking for fewer points
+is not a way to lose data.
+
+A map and a chart need different points, so there are two reductions over one
+set of samples:
+
+| Projection | Keeps | Because |
+| --- | --- | --- |
+| map simplification | the positions carrying the shape (Ramer--Douglas--Peucker, run as a heap) | a corner matters, a straight kilometre does not |
+| profile decimation | ends, segment boundaries, elevation and speed turning points | a summit sits on nearly straight ground and is the first thing a shape simplifier drops |
+
+Both run per segment and keep each segment's ends, so no reduction ever joins
+two segments. `/profile` is bounded by default; `/geometry` is the canonical
+normalized geometry unless a caller asks for `max_points`, and says which of the
+two it returned.
+
+Nothing is persisted. A third derived-state lifecycle -- written, versioned,
+invalidated, repaired -- is three more ways to hold something stale, and no
+benchmark has yet shown it is needed.
 
 **Missing is never zero.** An underivable metric is absent from the stored set
 and `null` in the API. A planned route has no moving time, and `0` would claim
@@ -920,6 +1112,126 @@ authority.
 total nor a track listing touches `track_points`, that neither issues a query
 per track, and -- at the query-plan level -- that the year window is served by
 its index rather than by a scan.
+
+## Offline map packages
+
+> A map package is a replaceable external dataset, not source evidence.
+
+That sentence decides the whole model, and it is the one place this capability
+deliberately does *not* copy the raw import:
+
+```
+raw GPX import    private user source authority   irreplaceable, immutable,
+                                                  corruption fails closed and
+                                                  is preserved as evidence
+
+map package       external reference dataset      replaceable, re-downloadable,
+                                                  corruption is discarded and
+                                                  the package reinstalled
+```
+
+What *is* copied is the integrity rule, because that one is about honesty
+rather than about evidence. An installed package is two facts -- a database row
+**and** a managed file that hashes to what the row says -- and either alone is
+`INVALID`, never `INSTALLED`.
+
+### Provider, catalog and the network
+
+A provider is a port. Geofabrik is one adapter, and it is the only module in the
+codebase that knows a map provider exists -- exactly as `gpx/extensions.py` is
+the only one that knows a recording application's schema.
+
+The network is reached in three situations, all of them something a person
+pressed: refreshing the catalog, installing, updating. The catalog itself is a
+cache; reading a track never touches it, and provider downtime shows a sentence
+in the map manager while every installed map carries on.
+
+An API caller supplies a `region_id` and never a URL. The adapter resolves the
+address, redirects are followed only within the hosts that adapter declares, and
+the transfer is HTTPS-only, streamed, hashed as it goes and bounded by a
+configured ceiling. A caller who could name the host would have a server-side
+request forgery primitive, and there is no feature here worth that.
+
+### Storage and identity
+
+```
+<data dir>/maps/packages/<sha256-of-region-id>/<content-sha256>.mbtiles
+<data dir>/maps/downloads/<job-id>.part
+<data dir>/maps/catalog/<provider>.json
+```
+
+Neither name comes from a caller. The directory is a digest of the validated
+region identity and the file is the digest of the bytes themselves, so there is
+no code path from a provider's string to a path component. `MapRegionId` is
+validated to segments of `[a-z0-9-]`, a class with no `.` in it, which makes
+`..` unwriteable rather than merely refused -- and the digest is the second,
+independent reason, the one that still holds if the first is ever wrong.
+
+### Installation is atomic
+
+```
+resolve → preflight (size, free space for old + new) → stream to .part, hashing
+        → publish the file → validate what was published → commit the row
+        → delete the package that was current before
+```
+
+> A failed update leaves the previous map usable.
+
+The new package is fetched and checked *beside* the installed one and never over
+it, which is why the free-space preflight asks for room for both and why the old
+file is deleted only after the row has committed. A byte-identical re-download
+answers `ALREADY_CURRENT` and switches nothing: switching would invalidate every
+cached tile URL to change nothing.
+
+Three kinds of debris survive a crash, and each gets a different answer at
+start-up. A job stuck in `downloading` becomes `interrupted`; a `.part` file is
+deleted; a managed file no row points at is deleted rather than adopted --
+promoting it would be inferring an installation nobody completed from a file
+whose provenance the archive has no record of.
+
+### Delivery
+
+`/api/v1/maps/tiles/{content-sha256}/{z}/{x}/{y}.mvt`, from this process, out of
+a read-only SQLite connection per worker thread. The identity in the URL is
+matched against the database and is never a path; because it names the content,
+a tile is `Cache-Control: immutable` for a year and an update is a new address
+rather than a cache somebody has to clear. Stored tiles are gzipped vector tiles
+and are served **as stored**, with `Content-Encoding: gzip`. A missing tile is
+`204`: a hole in coverage happens at every edge of every region and is not an
+error.
+
+Nothing here touches the archive's own database file, so a screenful of tile
+reads cannot take a lock a track listing is waiting for.
+
+### Which map goes behind a track
+
+`SelectMapCoverage` takes a rectangle and the installed packages. Two facts
+decide it, and they are different kinds of fact: whether a package *covers* the
+rectangle is geometry, and whether one package *supersedes* another is
+**hierarchy**, taken from the region identity the provider published.
+
+That distinction is the point. Germany's bounding box reaches well into the
+Netherlands, so a rectangle near Aachen is "covered" by both and geometry alone
+cannot tell that only one of them holds data there. The region tree can.
+
+| Situation | Answer |
+| --- | --- |
+| a package covers the rectangle | the covering ones, minus any whose descendant also covers |
+| several cover it and one is inside another | the descendant alone |
+| a parent covers it and its child does not | the parent alone -- the child would leave a gap |
+| nothing covers it | every intersecting package, minus superseded ones |
+| nothing intersects | nothing; the track draws on a neutral background |
+
+### Attribution
+
+`MapAttribution` is read out of the package at install time and stored beside
+it: data owner, provider, licence identifier, licence name, the line that must
+stay visible, and structured `(label, https url)` credit links. A package that
+states no author and no licence does not install, because a hard-coded
+"© OpenStreetMap contributors" would be a claim this build makes about a file it
+did not read. Links are structured rather than markup: remote metadata reaching
+`dangerouslySetInnerHTML` is the shortest path from a provider to a cross-site
+scripting hole.
 
 ## Vendor and format extensions
 
@@ -1123,6 +1435,9 @@ Exactly one component owns each concern. Everything else is a projection.
 | Normalized track data | the canonical normalized track model |
 | Detected classification | the classifier result, with confidence, evidence and method version |
 | Effective classification | an explicit user override if present, otherwise the detected kind |
+| Displayed track title | an explicit user title if present, otherwise the source title |
+| User-owned metadata | `track_user_metadata` — never the normalized track, never the raw import |
+| Which years exist | the calendar-eligible tracks the archive holds, in the aggregation zone |
 | Activity | explicit source metadata or the user, never a guess |
 | Analysis algorithms | the installed `AnalysisProfile` |
 | Per-track derived metrics | the current successful `AnalysisRun` for the current processing generation |
@@ -1135,7 +1450,17 @@ Exactly one component owns each concern. Everything else is a projection.
 | Source metadata | evidence and provenance information, never business authority |
 | Import | the single canonical `ImportTrack` use case |
 | HTTP representation | projection only |
+| Analysis availability | `InstalledAnalysis.availability` — one answer, projected by list, detail and totals |
+| List headline metrics | the current analysis only; a stale or damaged number is not a headline |
+| Longest-first ordering | the current distance only |
+| Actual calendar placement | trusted temporal evidence — `supports_actual_calendar_placement` |
+| Profile and map series | the current normalized geometry plus the installed analysis algorithms |
+| Presentation projections | decimation and simplification; never normalization, never written back |
 | Browser/frontend state | projection only |
+| Installed map packages | a database row **and** a managed file that hashes to it — either alone is `INVALID` |
+| Map attribution | the installed package's own metadata, never a build-time string |
+| Which map draws behind a track | `SelectMapCoverage`, from installed coverage and the provider's region tree |
+| Map provider addresses | the provider adapter; never an API caller |
 | Configuration | `gpx_view.config` backend application settings |
 
 Consequences:
@@ -1150,10 +1475,13 @@ Consequences:
 
 Open on purpose, and not to be pre-empted by "preparation" code:
 
-- frontend technology, map library and charts
 - analysis algorithms beyond the first versions: 3D path length, grade, splits,
   personal records, streaks and lifetime totals
 - digital elevation model correction, which needs a network dependency
+- map contours, hillshade and terrain: the chosen packages carry none, and a
+  DEM pipeline is a separate decision with its own storage and licensing
+- resuming an interrupted map download; a retry re-downloads
+- automatic background map updates
 - planned duration as an explicitly estimated metric
 - week-based or custom statistics periods, and a per-request timezone override
 - FIT, TCX, KML and GeoJSON adapters -- the boundary is proven, the adapters are
@@ -1166,5 +1494,6 @@ Open on purpose, and not to be pre-empted by "preparation" code:
 
 See `docs/adr/0001-project-foundation.md`,
 `docs/adr/0002-source-agnostic-track-model.md`,
-`docs/adr/0006-track-analysis-and-statistics.md` and
+`docs/adr/0006-track-analysis-and-statistics.md`,
+`docs/adr/0008-read-authority-calendar-and-track-profiles.md` and
 `docs/technical/contracts.md`.

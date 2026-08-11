@@ -36,6 +36,7 @@ from gpx_view.application.analysis import InstalledAnalysis
 from gpx_view.application.calendar import MONTHS_IN_YEAR, period_window
 from gpx_view.application.ports import (
     AnalysisAvailability,
+    DatedTrackRow,
     TrackAggregationRow,
     TrackRepository,
 )
@@ -263,6 +264,94 @@ class _Aggregator:
         if started is None:  # pragma: no cover - dated rows always carry one
             raise ValueError("a dated aggregation row must carry a start instant")
         return started.astimezone(self._zone).month
+
+
+@dataclass(frozen=True, slots=True)
+class AvailableYears:
+    """Which periods an archive has something to show for, and what it misses.
+
+    Attributes:
+        scope: Which set of tracks the years were read from.
+        activity: The activity the selection was narrowed to, if any.
+        timezone: The zone the year boundaries were drawn in -- the same one
+            every total and the listing's period filter use, so a year offered
+            here is a year those two agree exists.
+        years: The local years the scope holds tracks in, **newest first**. A
+            caller picking a default picks the first element, and the useful
+            default is the most recent year there is something to show for
+            rather than whatever year the reader's own clock says.
+        unplaced_without_date: Tracks in scope carrying no instants at all.
+        unplaced_with_unverified_date: Tracks in scope carrying instants nothing
+            showed to be measured. Kept apart from the previous count for the
+            same reason the yearly totals keep them apart: one has no date and
+            the other has one nobody can check, and only the second one looks
+            like a date until somebody looks.
+        archive_track_count: Tracks the archive holds in *any* scope. The one
+            number that tells "nothing has been imported yet" apart from
+            "nothing matches this selection", which are opposite instructions
+            to whoever is reading.
+    """
+
+    scope: AggregationScope
+    activity: Activity | None
+    timezone: str
+    years: tuple[int, ...]
+    unplaced_without_date: int
+    unplaced_with_unverified_date: int
+    archive_track_count: int
+
+    @property
+    def unplaced_track_count(self) -> int:
+        """Return how many tracks in scope belong to no calendar period."""
+        return self.unplaced_without_date + self.unplaced_with_unverified_date
+
+
+class GetAvailableYears:
+    """Answers which calendar years an archive actually holds tracks in.
+
+    The alternative -- a browser generating "this year and the eleven before
+    it" -- is a second authority on the calendar, and it is wrong in both
+    directions at once: it offers years the archive has nothing for, and it
+    hides the years of an archive nobody has added to since 2019.
+    """
+
+    def __init__(self, *, repository: TrackRepository, timezone: str) -> None:
+        """Wire the query to its repository and its aggregation zone."""
+        self._repository = repository
+        self._timezone = timezone
+        self._zone = ZoneInfo(timezone)
+
+    def __call__(
+        self,
+        *,
+        scope: AggregationScope = AggregationScope.RECORDED,
+        activity: Activity | None = None,
+    ) -> AvailableYears:
+        """Return the years one scope holds, newest first.
+
+        Bucketing happens here rather than in SQL for the same reason every
+        other period decision does: a zone's offset is not a constant, and
+        23:30 UTC on 31 December is already the next year in Berlin.
+        """
+        rows = [
+            row
+            for row in self._repository.dated_track_rows()
+            if row.effective_kind is scope.kind and (activity is None or row.activity is activity)
+        ]
+        unplaced = _selected(self._repository.unplaced_aggregation_rows(), scope, activity)
+        return AvailableYears(
+            scope=scope,
+            activity=activity,
+            timezone=self._timezone,
+            years=tuple(sorted({self._year_of(row) for row in rows}, reverse=True)),
+            unplaced_without_date=sum(1 for row in unplaced if row.started_at is None),
+            unplaced_with_unverified_date=sum(1 for row in unplaced if row.started_at is not None),
+            archive_track_count=self._repository.current_track_count(),
+        )
+
+    def _year_of(self, row: DatedTrackRow) -> int:
+        """Return the local year a track's activity started in."""
+        return row.started_at.astimezone(self._zone).year
 
 
 class GetYearStatistics:

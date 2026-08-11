@@ -304,6 +304,61 @@ track stores the detected result and any override, never a third derived kind
 column, and the HTTP payload projects both so a reader can tell a verdict from a
 correction.
 
+## User-owned track metadata
+
+*Implemented as `gpx_view.domain.UserTrackMetadata`, `effective_title` and
+`TrackQueries.set_metadata`.*
+
+> A correction belongs to the user, and it never edits the evidence.
+
+```
+source title       what the document said         never modified
+title override     what the user said             the display authority
+effective title    the override, else the source  a projection of the two
+```
+
+The same arrangement as the classification override, for the same reason: a
+reprocess replaces every normalized column of a track row, so a title stored
+there would be one an importer upgrade silently discards. The correction lives
+in its own table, keyed on the track identity, and therefore survives
+reprocessing and returns with a candidate a later run temporarily stopped
+producing.
+
+Enforced invariants:
+
+- **The raw import stays byte-identical.** Nothing on this path writes to the
+  source, the normalized track or the detected classification.
+- **`display_title` is a projection.** No third title is stored, and `None`
+  stays a real answer for a document that names nothing.
+- **Blank is absence, not an empty name.** A title of spaces clears the
+  correction; storing it would hide the source title behind something that
+  renders as nothing.
+- **Plain text, bounded, never truncated.** Titles are a single line, notes may
+  hold line breaks, both refuse control characters, and a value that is too long
+  is refused rather than shortened -- somebody's sentence is not the archive's
+  to cut. Nothing here is markup.
+- **A partial update is partial.** An absent field keeps its value; an explicit
+  `null` clears it. A rename that silently deleted a note is how a `PATCH`
+  endpoint loses data.
+
+## Which periods an archive has
+
+*Implemented as `gpx_view.application.GetAvailableYears`.*
+
+> The calendar an archive offers comes from the archive, not from a clock.
+
+Years are read from the tracks a period may date -- the same
+`supports_actual_calendar_placement` rule the totals and the listing's `year`
+filter apply -- and bucketed in the configured aggregation zone. A browser
+generating "this year and the eleven before it" is a second authority on the
+calendar, and it is wrong in both directions at once: it offers years the
+archive has nothing for, and it hides the years of an archive nobody has added
+to since 2019.
+
+The response reports the unplaced count beside the years and the archive's total
+track count beside both, because "nothing has been imported" and "nothing
+matches this selection" are opposite instructions to whoever is reading.
+
 ## Activity
 
 *Implemented as `gpx_view.domain.Activity`.*
@@ -545,6 +600,21 @@ An underivable metric is absent from the stored set and `null` over HTTP. A
 planned route has no moving time, and `0` would claim it was travelled and nobody
 moved.
 
+### Temporal vocabulary
+
+Four words, and keeping them apart is what the last two ADRs were about:
+
+| Term | Means |
+| --- | --- |
+| timeline time | the instants a track's own positions carry, whatever they are worth |
+| activity calendar time | the claim that the activity happened in a given period |
+| `observed` | the instants came from something that was measuring |
+| `estimated` | the instants came from a route computation: a schedule, not a journey |
+| `unknown` | nothing shows which. Permanent, and never a weaker `observed` |
+
+Timeline time is always reported. Activity calendar time and actual activity
+timing are *claims about* it, and each has its own gate.
+
 ### Temporal evidence
 
 > Timestamp presence is not observed movement.
@@ -784,6 +854,66 @@ once, so it is deliberately outside the equality above.
 
 Durations are summed only over tracks whose instants were shown to be measured,
 which is the temporal-evidence gate applied to an aggregate.
+
+## Offline map packages
+
+*Implemented as `gpx_view.domain.maps`, `gpx_view.application.maps` and
+`gpx_view.infrastructure.maps`.*
+
+> A map package is a replaceable external dataset, not source evidence.
+
+A raw import is the only copy of somebody's afternoon: immutable, never
+overwritten, and a corrupt artifact preserved because it is evidence of a
+problem. A map package came from a public server that still has it. Corruption
+there is a reason to discard and reinstall.
+
+What carries over is the integrity rule, because that one is about honesty:
+
+```
+database row + managed file that hashes to what the row says   ->  INSTALLED
+either one on its own                                          ->  INVALID
+```
+
+Enforced invariants:
+
+- **A public tile service is never an offline-download authority.** Community
+  tile servers exist on donated bandwidth and their usage policies forbid
+  exactly the bulk download an offline archive would need.
+- **Normal map viewing makes no external request.** Reading a track reaches the
+  catalog, the provider and the network not at all. The provider is contacted
+  during three actions a person pressed: refresh, install, update.
+- **A caller supplies a region, never an address.** The provider adapter
+  resolves the URL, redirects are followed only to hosts that adapter declares,
+  and the scheme is `https`. Anything else would be a server-side request
+  forgery primitive wearing a feature's clothes.
+- **A remote package is untrusted input.** It is streamed under a hard byte
+  ceiling, hashed as it arrives, checked against the length the provider
+  declared, and validated as a container, a metadata set and a tile vocabulary
+  before it is used. A downloaded SQLite file is opened read-only, with no
+  extensions and no statement built from its contents.
+- **Nothing a provider sends becomes a path.** A region identity is validated
+  to segments of `[a-z0-9-]`, and the managed directory is a digest of it
+  rather than a transformation of it.
+- **Installation is atomic and a failed update preserves the previous
+  package.** The new package is fetched and validated beside the installed one,
+  the old file is deleted only after the new row has committed, and the
+  free-space preflight asks for room for both. A byte-identical re-download is
+  `ALREADY_CURRENT` and switches nothing.
+- **Attribution is package metadata and survives every projection.** Data
+  owner, provider, licence and the required line are read out of the package
+  and rendered by the map, the manager and the credits page. A package that
+  states no author and no licence is refused rather than installed under an
+  assumption. Credit links are structured `(label, https url)` pairs, never
+  markup.
+- **A tile is addressed by content.** The delivery identity is the package's
+  SHA-256, matched against the database rather than used as a path, which makes
+  a tile URL immutable and an update a different address.
+- **Coverage is decided by geometry *and* hierarchy.** A package supersedes
+  another only when the provider's own region tree says one is inside the
+  other; two neighbouring countries whose rectangles overlap at a border are
+  both kept, and a parent whose child does not cover the whole view wins.
+- **Removing a map touches nothing else.** No track, no title, no correction,
+  no statistic.
 
 ## Vendor and format extensions
 

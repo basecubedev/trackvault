@@ -18,15 +18,20 @@ SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 PACKAGE_ROOT = SRC_ROOT / "gpx_view"
 
 # Which ``gpx_view.*`` modules each layer is allowed to import.
+# `gpx_view.release` is a leaf module holding the build's version string. Every
+# layer but the domain may read it: a User-Agent and a system-info response both
+# legitimately state which release is speaking. The domain may not -- a business
+# rule that behaves differently in one release is not a business rule.
 ALLOWED_INTERNAL_IMPORTS: dict[str, frozenset[str]] = {
     "domain": frozenset({"gpx_view.domain"}),
-    "application": frozenset({"gpx_view.domain", "gpx_view.application"}),
+    "application": frozenset({"gpx_view.domain", "gpx_view.application", "gpx_view.release"}),
     "infrastructure": frozenset(
         {
             "gpx_view.domain",
             "gpx_view.application",
             "gpx_view.infrastructure",
             "gpx_view.config",
+            "gpx_view.release",
         }
     ),
     "api": frozenset(
@@ -35,6 +40,7 @@ ALLOWED_INTERNAL_IMPORTS: dict[str, frozenset[str]] = {
             "gpx_view.application",
             "gpx_view.api",
             "gpx_view.config",
+            "gpx_view.release",
         }
     ),
 }
@@ -131,7 +137,18 @@ SOURCE_AGNOSTIC_LAYERS = ("domain", "application", "api")
 # the repository port.
 PERSISTENCE_MODULES = frozenset({"sqlite3", "sqlalchemy", "alembic", "psycopg", "asyncpg"})
 
-PERSISTENCE_PACKAGE = "gpx_view.infrastructure.database"
+PERSISTENCE_PACKAGES = (
+    "gpx_view.infrastructure.database",
+    "gpx_view.infrastructure.maps.mbtiles",
+)
+"""Which modules may name the SQLite driver, and why there are two.
+
+`infrastructure.database` owns the archive's own database. `maps.mbtiles` reads
+a *foreign* container that happens to be SQLite -- a downloaded map package --
+strictly read-only, through its own connections, and it never touches the
+archive's file. That is a format adapter, and keeping it out of the database
+package is what stops "the store" from meaning two things.
+"""
 
 # Exchange format names must not become type names outside the adapter that owns
 # the format. The *values* of the public error codes deliberately do name a
@@ -413,9 +430,11 @@ def test_storage_technology_stays_inside_the_database_package() -> None:
         for module in _layer_modules(layer)
         for imported in _imported_modules(module)
         if _root_module(imported) in PERSISTENCE_MODULES
-        and not _module_name(module).startswith(PERSISTENCE_PACKAGE)
+        and not _module_name(module).startswith(PERSISTENCE_PACKAGES)
     ]
-    assert not violations, f"only {PERSISTENCE_PACKAGE} may know the storage driver: {violations}"
+    assert not violations, (
+        f"only {list(PERSISTENCE_PACKAGES)} may know the storage driver: {violations}"
+    )
 
 
 @pytest.mark.contract

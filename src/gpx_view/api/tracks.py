@@ -31,16 +31,31 @@ from gpx_view.application.ports import (
     TrackOrder,
     TrackSummary,
 )
-from gpx_view.application.track_queries import DEFAULT_PAGE_SIZE, TrackQueries
+from gpx_view.application.track_profile import (
+    DEFAULT_PROFILE_SAMPLES,
+    MAX_GEOMETRY_POINTS,
+    MAX_PROFILE_SAMPLES,
+    GetTrackGeometry,
+    GetTrackProfile,
+    TrackGeometryReport,
+    TrackProfileReport,
+)
+from gpx_view.application.track_queries import (
+    DEFAULT_PAGE_SIZE,
+    UNCHANGED,
+    TrackQueries,
+    Unchanged,
+)
 from gpx_view.domain import (
+    MAX_NOTE_LENGTH,
+    MAX_TITLE_LENGTH,
     Activity,
     TemporalEvidence,
     TrackKind,
-    TrackSegment,
     supports_actual_calendar_placement,
     supports_actual_timing,
 )
-from gpx_view.domain.analysis import MetricName, MetricValue
+from gpx_view.domain.analysis import AnalysisProfile, MetricName, MetricValue
 
 router = APIRouter(prefix="/api/v1", tags=["tracks"])
 
@@ -67,6 +82,18 @@ AnalysisStatusFilter = Annotated[
     Query(description="Narrow to tracks whose stored metrics are in one availability state"),
 ]
 SortOrder = Annotated[TrackOrder, Query(description="How to order the selection")]
+GeometryPoints = Annotated[
+    int | None,
+    Query(
+        ge=2,
+        le=MAX_GEOMETRY_POINTS,
+        description="Reduce the shape to at most this many positions; omit for the canonical set",
+    ),
+]
+ProfileSamples = Annotated[
+    int,
+    Query(ge=2, le=MAX_PROFILE_SAMPLES, description="How many samples the series may hold"),
+]
 
 
 class ErrorBody(BaseModel):
@@ -169,13 +196,31 @@ class TimelineResponse(BaseModel):
     )
 
 
+class UserMetadataResponse(BaseModel):
+    """What the archive's owner said about a track, beside what its source said.
+
+    ``title`` here is the *correction*, not the title to display: that is the
+    track's own ``title``, which projects this over the source one exactly as
+    ``effective_kind`` projects an override over a detected kind. Both halves
+    are reported so a reader can tell a correction from a document.
+    """
+
+    title: str | None = Field(description="The user's title, or null to let the source stand")
+    note: str | None
+    source_title: str | None = Field(description="What the document called it. Never overwritten")
+    is_overridden: bool
+
+
 class TrackResponse(BaseModel):
     """One stored track without its geometry."""
 
     id: int
     raw_import_sha256: str
     source_index: int
-    title: str | None
+    title: str | None = Field(
+        description="The title to display: the user's correction, else the source's"
+    )
+    metadata: UserMetadataResponse
     activity: Activity
     classification: ClassificationResponse
     timeline: TimelineResponse
@@ -215,11 +260,21 @@ class SegmentResponse(BaseModel):
 
 
 class GeometryResponse(BaseModel):
-    """The geometry of one track, with its segment boundaries preserved."""
+    """The geometry of one track, with its segment boundaries preserved.
+
+    Without ``max_points`` this is the canonical normalized geometry: every
+    position, exactly as stored. With one it is a *projection* of that shape --
+    the positions that carry it, chosen so a map draws the same line with fewer
+    of them -- and ``simplified`` says which of the two a client is holding.
+    Truncating silently would make the canonical projection a lossy one, and
+    nothing downstream could tell.
+    """
 
     track_id: int
     segment_count: int
-    point_count: int
+    point_count: int = Field(description="Positions in this response")
+    total_point_count: int = Field(description="Positions the track holds")
+    simplified: bool = Field(description="Whether the shape was reduced for presentation")
     segments: list[SegmentResponse]
 
 
@@ -237,6 +292,63 @@ class AnalysisProfileResponse(BaseModel):
     elevation_algorithm: str
     elevation_algorithm_version: int
     metric_schema_version: int
+
+
+class ProfileSampleResponse(BaseModel):
+    """One position, with what a map and a chart each read from it.
+
+    ``segment_index`` and ``point_index`` are the sample's identity. A chart
+    cursor and a map marker address a sample by them rather than by looking for
+    a nearby coordinate, which is a second authority on identity and picks the
+    wrong position exactly where a track crosses itself.
+    """
+
+    segment_index: int
+    point_index: int
+    distance_m: float = Field(description="Cumulative distance, summed within segments")
+    latitude: float
+    longitude: float
+    time: datetime | None
+    elevation_m: float | None = Field(description="The altitude as recorded")
+    filtered_elevation_m: float | None = Field(
+        description="The altitude after the filter the ascent figure is accumulated from"
+    )
+    speed_mps: float | None = Field(
+        description="Speed held across the analysis window; null where none could be derived"
+    )
+
+
+class ProfileSegmentResponse(BaseModel):
+    """One uninterrupted run of samples. Never joined to its neighbour."""
+
+    index: int
+    samples: list[ProfileSampleResponse]
+
+
+class TrackProfileResponse(BaseModel):
+    """The series of one track, bounded to what a client can render.
+
+    The series are always derived by the algorithms this build installs, from
+    the geometry a reader currently sees. ``analysis_status`` describes the
+    track's *stored* aggregates, which may have been derived by older ones: when
+    it is not ``current``, the chart and the headline figures beside it were not
+    produced by the same rules, and ``analyze --outdated`` is what makes them
+    agree again.
+    """
+
+    track_id: int
+    sample_count: int = Field(description="Samples in this response")
+    total_sample_count: int = Field(description="Samples the track holds")
+    total_distance_m: float = Field(description="Upper end of the distance axis, in metres")
+    analysis_status: AnalysisAvailability = Field(
+        description="What the track's stored aggregate metrics amount to"
+    )
+    derived_with: AnalysisProfileResponse = Field(
+        description="The algorithms these series were derived by, always the installed ones"
+    )
+    timing_basis: TemporalEvidence
+    is_actual_activity_timing: bool
+    segments: list[ProfileSegmentResponse]
 
 
 class GeometryMetricsResponse(BaseModel):
@@ -306,6 +418,29 @@ class ClassificationOverrideRequest(BaseModel):
     kind: TrackKind = Field(description="recorded, planned or unknown")
 
 
+class TrackMetadataRequest(BaseModel):
+    """A partial update of what the user says about a track.
+
+    A field that is **absent** keeps its stored value; a field that is present
+    and ``null`` -- or blank -- is cleared. Without that distinction a request
+    that only renames a track would delete its note, which is how a partial
+    update quietly loses data.
+
+    Both fields are plain text. Nothing here is markup, nothing is interpreted,
+    and the length bounds exist because an unauthenticated endpoint that accepts
+    text is a storage-growth decision if it accepts unbounded text.
+    """
+
+    title: str | None = Field(
+        default=None,
+        max_length=MAX_TITLE_LENGTH,
+        description="A new title, or null to fall back to the source title",
+    )
+    note: str | None = Field(
+        default=None, max_length=MAX_NOTE_LENGTH, description="A new note, or null to remove it"
+    )
+
+
 NOT_FOUND: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "No such track"}
 }
@@ -319,6 +454,16 @@ def _queries(request: Request) -> TrackQueries:
 def _analysis(request: Request) -> GetTrackAnalysis:
     """Return the analysis query the composition root wired into the app."""
     return cast(GetTrackAnalysis, request.app.state.track_analysis)
+
+
+def _profile(request: Request) -> GetTrackProfile:
+    """Return the profile query the composition root wired into the app."""
+    return cast(GetTrackProfile, request.app.state.track_profile)
+
+
+def _geometry(request: Request) -> GetTrackGeometry:
+    """Return the geometry query the composition root wired into the app."""
+    return cast(GetTrackGeometry, request.app.state.track_geometry)
 
 
 def _not_found(response: Response) -> ErrorResponse:
@@ -337,7 +482,13 @@ def _project(summary: TrackSummary) -> TrackResponse:
         id=summary.track_id,
         raw_import_sha256=summary.raw_import_sha256,
         source_index=summary.source_index,
-        title=summary.title,
+        title=summary.display_title,
+        metadata=UserMetadataResponse(
+            title=summary.user_metadata.title,
+            note=summary.user_metadata.note,
+            source_title=summary.title,
+            is_overridden=summary.user_metadata.title is not None,
+        ),
         activity=summary.activity,
         classification=ClassificationResponse(
             effective_kind=classification.effective_kind,
@@ -377,12 +528,15 @@ def _project(summary: TrackSummary) -> TrackResponse:
     )
 
 
-def _project_geometry(track_id: int, segments: tuple[TrackSegment, ...]) -> GeometryResponse:
+def _project_geometry(report: TrackGeometryReport) -> GeometryResponse:
     """Shape the geometry of one track for HTTP."""
+    segments = report.segments
     return GeometryResponse(
-        track_id=track_id,
+        track_id=report.track_id,
         segment_count=len(segments),
-        point_count=sum(segment.point_count for segment in segments),
+        point_count=report.point_count,
+        total_point_count=report.total_point_count,
+        simplified=report.simplified,
         segments=[
             SegmentResponse(
                 points=[
@@ -397,6 +551,53 @@ def _project_geometry(track_id: int, segments: tuple[TrackSegment, ...]) -> Geom
             )
             for segment in segments
         ],
+    )
+
+
+def _project_profile(report: TrackProfileReport) -> TrackProfileResponse:
+    """Shape one track's series for HTTP."""
+    return TrackProfileResponse(
+        track_id=report.track_id,
+        sample_count=report.sample_count,
+        total_sample_count=report.total_sample_count,
+        total_distance_m=report.total_distance_m,
+        analysis_status=report.analysis_status,
+        derived_with=_project_analysis_profile(report.derived_with),
+        timing_basis=report.timing_basis,
+        is_actual_activity_timing=report.is_actual_activity_timing,
+        segments=[
+            ProfileSegmentResponse(
+                index=segment.index,
+                samples=[
+                    ProfileSampleResponse(
+                        segment_index=sample.segment_index,
+                        point_index=sample.point_index,
+                        distance_m=sample.cumulative_distance_m,
+                        latitude=sample.latitude,
+                        longitude=sample.longitude,
+                        time=sample.instant,
+                        elevation_m=sample.raw_elevation_m,
+                        filtered_elevation_m=sample.filtered_elevation_m,
+                        speed_mps=sample.sustained_speed_mps,
+                    )
+                    for sample in segment.samples
+                ],
+            )
+            for segment in report.profile.segments
+        ],
+    )
+
+
+def _project_analysis_profile(profile: AnalysisProfile) -> AnalysisProfileResponse:
+    """Shape one set of algorithm names and versions for HTTP."""
+    return AnalysisProfileResponse(
+        distance_algorithm=profile.distance_algorithm,
+        distance_algorithm_version=profile.distance_algorithm_version,
+        movement_algorithm=profile.movement_algorithm,
+        movement_algorithm_version=profile.movement_algorithm_version,
+        elevation_algorithm=profile.elevation_algorithm,
+        elevation_algorithm_version=profile.elevation_algorithm_version,
+        metric_schema_version=profile.metric_schema_version,
     )
 
 
@@ -418,17 +619,7 @@ def _project_analysis(report: TrackAnalysisReport) -> TrackAnalysisResponse:
         track_id=report.track_id,
         status=report.status,
         analyzed_at=report.analyzed_at,
-        profile=None
-        if profile is None
-        else AnalysisProfileResponse(
-            distance_algorithm=profile.distance_algorithm,
-            distance_algorithm_version=profile.distance_algorithm_version,
-            movement_algorithm=profile.movement_algorithm,
-            movement_algorithm_version=profile.movement_algorithm_version,
-            elevation_algorithm=profile.elevation_algorithm,
-            elevation_algorithm_version=profile.elevation_algorithm_version,
-            metric_schema_version=profile.metric_schema_version,
-        ),
+        profile=None if profile is None else _project_analysis_profile(profile),
         geometry=GeometryMetricsResponse(
             **{name.value: _metric(metrics, name) for name in MetricName if not name.needs_a_clock}
         ),
@@ -504,11 +695,39 @@ def read_track(
     "/tracks/{track_id}/geometry", summary="Read the geometry of one track", responses=NOT_FOUND
 )
 def read_geometry(
-    request: Request, response: Response, track_id: TrackId
+    request: Request, response: Response, track_id: TrackId, max_points: GeometryPoints = None
 ) -> GeometryResponse | ErrorResponse:
-    """Return the segments and positions of one stored track."""
-    segments = _queries(request).get_geometry(track_id)
-    return _not_found(response) if segments is None else _project_geometry(track_id, segments)
+    """Return the segments and positions of one stored track.
+
+    Without ``max_points`` this is the canonical normalized geometry. With one
+    it is a presentation projection of the same shape, and ``simplified`` says
+    so. Nothing is written either way: the reduction happens on the way out.
+    """
+    report = _geometry(request)(track_id, max_points=max_points)
+    return _not_found(response) if report is None else _project_geometry(report)
+
+
+@router.get(
+    "/tracks/{track_id}/profile",
+    summary="Read the elevation and speed series of one track",
+    responses=NOT_FOUND,
+)
+def read_profile(
+    request: Request,
+    response: Response,
+    track_id: TrackId,
+    max_samples: ProfileSamples = DEFAULT_PROFILE_SAMPLES,
+) -> TrackProfileResponse | ErrorResponse:
+    """Return one track's series against its own distance axis.
+
+    Derived on demand from the current normalized geometry, by the same
+    elevation filter the ascent figure is accumulated from and the same window
+    the maximum sustained speed is read from. A chart drawn from this and a
+    headline computed from those are two views of one analysis rather than two
+    analyses.
+    """
+    report = _profile(request)(track_id, max_samples=max_samples)
+    return _not_found(response) if report is None else _project_profile(report)
 
 
 @router.get(
@@ -557,3 +776,45 @@ def reset_classification(
     """Remove a user correction, handing authority back to the classifier."""
     summary = _queries(request).reset_classification(track_id)
     return _not_found(response) if summary is None else _project(summary)
+
+
+@router.patch(
+    "/tracks/{track_id}/metadata",
+    summary="Correct the title, or keep a note",
+    responses=NOT_FOUND,
+)
+def update_metadata(
+    request: Request, response: Response, track_id: TrackId, update: TrackMetadataRequest
+) -> TrackResponse | ErrorResponse:
+    """Record what the user says about a track, and return it as it now reads.
+
+    Source data is untouched. The correction is stored beside the raw import and
+    the normalized track, so reprocessing replaces both of those and leaves this
+    standing -- the same promise the classification override already makes.
+
+    Which fields were *sent* is the difference between a partial update and a
+    replacement, so the request's own field set decides what to leave alone.
+    """
+    try:
+        summary = _queries(request).set_metadata(
+            track_id,
+            title=_stated(update, "title"),
+            note=_stated(update, "note"),
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
+        ) from error
+    return _not_found(response) if summary is None else _project(summary)
+
+
+def _stated(update: TrackMetadataRequest, field: str) -> str | Unchanged | None:
+    """Return what a request said about one field, or that it said nothing.
+
+    ``None`` is a value here -- "clear this" -- so absence needs its own token,
+    and the only place that distinction is visible is the request's field set.
+    """
+    if field not in update.model_fields_set:
+        return UNCHANGED
+    value: str | None = getattr(update, field)
+    return value

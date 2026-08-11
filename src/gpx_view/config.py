@@ -12,8 +12,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from gpx_view.application.maps import DEFAULT_MAX_DOWNLOAD_BYTES
+
 DATABASE_FILENAME = "gpx-view.sqlite3"
 RAW_STORAGE_DIRECTORY = "raw"
+MAP_STORAGE_DIRECTORY = "maps"
 
 DEFAULT_TIMEZONE = "UTC"
 """Which zone month and year boundaries are drawn in, until one is configured.
@@ -47,6 +50,17 @@ class Settings(BaseSettings):
             example ``Europe/Berlin``. It decides which month a late-evening
             activity counts towards, and nothing else -- instants are stored in
             UTC and stay there.
+        web_dir: Directory holding the built browser application. When it holds
+            no ``index.html`` the server answers the API only, which is what a
+            development run and an API-only deployment both want.
+        map_max_download_bytes: Largest map package this deployment will fetch.
+            A ceiling rather than a preference: an unbounded stream to a file is
+            a way to fill a disk with one request, and the default admits every
+            country package the provider actually publishes.
+        maps_enabled: Whether offline map packages may be installed at all.
+            An operator who never wants an outbound request, not even a
+            deliberate one, turns the whole capability off and the manager says
+            so instead of failing at the provider.
     """
 
     model_config = SettingsConfigDict(
@@ -67,6 +81,11 @@ class Settings(BaseSettings):
     import_max_points: int = 500_000
 
     timezone: str = DEFAULT_TIMEZONE
+
+    web_dir: Path = Path("web/dist")
+
+    map_max_download_bytes: int = DEFAULT_MAX_DOWNLOAD_BYTES
+    maps_enabled: bool = True
 
     @field_validator("timezone")
     @classmethod
@@ -99,6 +118,18 @@ class Settings(BaseSettings):
     def raw_storage_dir(self) -> Path:
         """Return the managed raw import directory, inside the data directory."""
         return self.data_dir / RAW_STORAGE_DIRECTORY
+
+    @property
+    def map_storage_dir(self) -> Path:
+        """Return the managed map package directory, inside the data directory.
+
+        Inside the data directory on purpose. Regional maps are large and
+        replaceable, but they are still deployment state, and a second
+        configurable root would be a second thing to mount, back up and get
+        wrong. What a backup may skip is documented rather than made
+        structural.
+        """
+        return self.data_dir / MAP_STORAGE_DIRECTORY
 
 
 @lru_cache(maxsize=1)

@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from gpx_view.application import ImportLimits
 from gpx_view.application.analysis import InstalledAnalysis
@@ -71,6 +72,7 @@ from gpx_view.infrastructure.gpx.extensions import (
     GARMIN_TRACK_POINT_EXTENSION_V2,
     LOCUS_MAP_EXTENSIONS,
 )
+from gpx_view.main import create_app
 
 pytestmark = [pytest.mark.local_tracks, pytest.mark.integration]
 
@@ -886,3 +888,139 @@ def test_a_kind_override_never_dates_the_planned_reference(archive: TrackService
 
     assert year.totals.track_count == 0, "an override placed an unverified date in a year"
     assert year.unplaced.with_unverified_date.track_count == 1
+
+
+# --- What the product shows for the two real files ---------------------------
+
+
+def _serve(archive: TrackServices, settings: Settings) -> Iterator[TestClient]:
+    """Yield an HTTP client over an archive that already holds the references."""
+    for reference in REFERENCES:
+        _import(archive, _path(reference))
+    with TestClient(create_app(settings)) as client:
+        yield client
+
+
+@pytest.fixture
+def served(tmp_path: Path) -> Iterator[TestClient]:
+    """Serve an archive holding both real reference files."""
+    settings = Settings(data_dir=tmp_path / "data")
+    archive = build_services(settings)
+    archive.prepare_storage()
+    yield from _serve(archive, settings)
+
+
+def test_the_two_references_reach_the_product_surfaces_they_belong_on(
+    served: TestClient,
+) -> None:
+    """What a reader would see, over the two files a developer actually has.
+
+    No coordinate, no filename and no title is asserted: the point is which
+    *statements* the archive makes about real data, not what that data is.
+    """
+    listed = served.get("/api/v1/tracks").json()
+
+    assert listed["total"] == len(REFERENCES)
+    recorded = [
+        track
+        for track in listed["tracks"]
+        if track["classification"]["effective_kind"] == "recorded"
+    ]
+    assert len(recorded) == 1
+    assert recorded[0]["analysis"]["status"] == "current"
+    assert recorded[0]["analysis"]["distance_m"] > 0.0
+    assert recorded[0]["timeline"]["is_actual_calendar_time"] is True
+
+
+def test_the_undecided_reference_is_visible_without_being_dated(served: TestClient) -> None:
+    """The unplaced state, on a real file that produces it.
+
+    The planned reference carries plausible instants and no measurement
+    metadata. Its timeline is reported, its calendar placement is refused, and
+    it contributes nothing to any period -- three separate statements, all of
+    which have to hold at once.
+    """
+    unknown = next(
+        track
+        for track in served.get("/api/v1/tracks").json()["tracks"]
+        if track["classification"]["effective_kind"] != "recorded"
+    )
+
+    years = served.get(
+        "/api/v1/statistics/years", params={"scope": unknown["classification"]["effective_kind"]}
+    ).json()
+
+    assert unknown["timeline"]["started_at"] is not None
+    assert unknown["timeline"]["is_actual_calendar_time"] is False
+    assert unknown["timeline"]["is_actual_activity_timing"] is False
+    assert years["years"] == []
+    assert years["unplaced"]["with_unverified_date"] == 1
+
+
+def test_the_recorded_reference_gives_the_dashboard_a_year_to_open_on(
+    served: TestClient,
+) -> None:
+    """The archive names its own calendar, from a real recording."""
+    years = served.get("/api/v1/statistics/years", params={"scope": "recorded"}).json()
+
+    assert years["years"], "the recorded reference should place itself in a year"
+    newest = years["years"][0]
+    totals = served.get(f"/api/v1/statistics/year/{newest}", params={"scope": "recorded"}).json()
+    assert totals["totals"]["track_count"] == 1
+    assert totals["totals"]["analysed_track_count"] == 1
+
+
+def test_a_real_track_draws_a_bounded_profile_and_a_map(served: TestClient) -> None:
+    """The two series a detail page renders, over a real 831-position recording."""
+    track_id = next(
+        track["id"]
+        for track in served.get("/api/v1/tracks").json()["tracks"]
+        if track["classification"]["effective_kind"] == "recorded"
+    )
+
+    profile = served.get(f"/api/v1/tracks/{track_id}/profile", params={"max_samples": 200}).json()
+    geometry = served.get(f"/api/v1/tracks/{track_id}/geometry", params={"max_points": 100}).json()
+
+    assert profile["sample_count"] <= 200
+    assert profile["total_sample_count"] == RECORDED.points
+    assert geometry["point_count"] <= 100
+    assert geometry["simplified"] is True
+    distances = [
+        sample["distance_m"] for segment in profile["segments"] for sample in segment["samples"]
+    ]
+    assert distances == sorted(distances)
+
+
+def test_renaming_a_real_track_never_writes_near_the_source_file(
+    served: TestClient, tmp_path: Path
+) -> None:
+    """The correction is the archive's data. The file is the developer's.
+
+    Both reference files are hashed before and after, with their modification
+    times, so a rename that reached back to the source would fail here rather
+    than in somebody's directory.
+    """
+    before = {
+        reference.filename: (
+            hashlib.sha256(_path(reference).read_bytes()).hexdigest(),
+            _path(reference).stat().st_mtime_ns,
+        )
+        for reference in REFERENCES
+    }
+    track_id = served.get("/api/v1/tracks").json()["tracks"][0]["id"]
+
+    renamed = served.patch(
+        f"/api/v1/tracks/{track_id}/metadata",
+        json={"title": "A name of my own", "note": "kept beside the file, never in it"},
+    ).json()
+    reset = served.patch(f"/api/v1/tracks/{track_id}/metadata", json={"title": None}).json()
+
+    assert renamed["title"] == "A name of my own"
+    assert reset["title"] == reset["metadata"]["source_title"]
+    assert reset["metadata"]["note"] == "kept beside the file, never in it"
+    for reference in REFERENCES:
+        path = _path(reference)
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == before[reference.filename][0]
+        assert path.stat().st_mtime_ns == before[reference.filename][1]
+    assert not list(LOCAL_TRACKS.glob("*.sqlite3"))
+    assert not list(tmp_path.parent.glob("**/*.gpx"))

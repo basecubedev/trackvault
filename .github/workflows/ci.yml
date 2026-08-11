@@ -10,6 +10,7 @@ permissions:
 
 env:
   UV_VERSION: "0.11.32"
+  NODE_VERSION: "24"
 
 jobs:
   quality:
@@ -49,6 +50,106 @@ jobs:
       - name: Byte-compile
         run: uv run python -m compileall -q src tests
 
+      # An engineering gate, not legal advice: it fails when a dependency
+      # arrives under a licence nobody here has read yet.
+      - name: Python dependency licences
+        run: uv run python scripts/audit_licenses.py
+
+  frontend:
+    name: Browser application
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install exactly what the lock file resolved
+        run: npm ci
+
+      # The backend owns the API. Regenerating the schema and the types here is
+      # what stops a hand-edited `TrackResponse` from drifting away from the
+      # server it claims to describe: if anything moved, the diff is not empty.
+      - name: Regenerate the API types from the backend schema
+        run: |
+          uv sync --locked --dev --project ..
+          npm run generate:api
+
+      - name: Fail if the generated API types are stale
+        run: git diff --exit-code -- openapi.json src/api/schema.ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and component tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Dependency licences
+        run: npm run licenses
+
+  browser:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install the project
+        run: uv sync --locked --dev --project ..
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install exactly what the lock file resolved
+        run: npm ci
+
+      # Chromium only. A browser matrix multiplies the runtime and, for an
+      # application this size, tests the same code four times.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build the page the tests drive
+        run: npm run build
+
+      - name: Playwright
+        run: npm run test:e2e
+
   docker:
     name: Docker image build
     runs-on: ubuntu-latest
@@ -56,5 +157,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The build includes the frontend stage, so a page that does not compile
+      # fails the image rather than shipping in it.
       - name: Build the runtime image
         run: docker build --tag gpx-view:ci .
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install the project
+        run: uv sync --locked --dev
+
+      - name: Container smoke and persistence tests
+        run: uv run pytest -m docker

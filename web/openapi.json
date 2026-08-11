@@ -1,0 +1,3767 @@
+{
+  "components": {
+    "schemas": {
+      "Activity": {
+        "description": "The activity a track belongs to.\n\nActivity is orthogonal to :class:`~gpx_view.domain.track_kind.TrackKind`: a\nplanned cycling route and a recorded cycling ride share this value and differ\nonly in kind.\n\nThe taxonomy is deliberately small and flat -- no sport hierarchy. Values come\nfrom explicit source metadata or from the user; the classifier does not guess\nthem, so ``UNKNOWN`` is a normal and permanently valid outcome. ``WALKING``\nand ``HIKING`` are separate values because the distinction matters for\nstatistics, but nothing may infer one from the other without evidence.",
+        "enum": [
+          "walking",
+          "hiking",
+          "cycling",
+          "running",
+          "scooter",
+          "motorcycle",
+          "other",
+          "unknown"
+        ],
+        "title": "Activity",
+        "type": "string"
+      },
+      "AggregationScope": {
+        "description": "Which set of tracks a total covers.\n\nThere is deliberately no \"everything\" scope. A number that adds routes\nsomebody planned to distances somebody travelled is not a statistic about\neither, and making it the default would make it the one people quote.\n\nAttributes:\n    RECORDED: Tracks whose effective kind is ``RECORDED`` -- what actually\n        happened.\n    PLANNED: Tracks whose effective kind is ``PLANNED``.\n    UNKNOWN: Tracks whose kind could not be decided. Their own category, so\n        that a data-quality view is possible without them contaminating the\n        other two.",
+        "enum": [
+          "recorded",
+          "planned",
+          "unknown"
+        ],
+        "title": "AggregationScope",
+        "type": "string"
+      },
+      "AnalysisAvailability": {
+        "description": "What a track's stored metrics currently amount to.\n\nFour states rather than a boolean, because \"analysed\" answers a question\nnobody is really asking. Two of the four are not failures at all: a track\nthat has never been analysed and a track whose algorithms moved on both have\na perfectly good normalized generation behind them.\n\nEvery read surface -- a listing row, the track's own analysis resource, a\nyearly total -- projects this same value, decided by\n:meth:`~gpx_view.application.analysis.InstalledAnalysis.availability`.\n\nAttributes:\n    CURRENT: The metrics were produced by the installed algorithms from the\n        geometry a reader sees. The only state whose numbers may be\n        presented as what the track *is*.\n    OUTDATED: Metrics exist, but the algorithms or the geometry have moved\n        on since. They are the last thing that was actually derived, which\n        is not the same as being right, and ``analyze --outdated`` replaces\n        them.\n    MISSING: There are no metrics. A normal state for a track that has not\n        been analysed yet, and for one whose analysis failed.\n    INVALID: The archive holds a stored analysis for this track and cannot\n        interpret it -- a profile version that makes no sense, an impossible\n        metric, a flag this build cannot name. Unlike the other three this\n        is not a normal state; it is data damage, reported rather than\n        hidden behind ``MISSING`` because \"nothing has been derived yet\" and\n        \"something is wrong with what was\" call for different reactions from\n        whoever reads it. Deriving the metrics again repairs it: the\n        geometry they come from was never touched.",
+        "enum": [
+          "current",
+          "outdated",
+          "missing",
+          "invalid"
+        ],
+        "title": "AnalysisAvailability",
+        "type": "string"
+      },
+      "AnalysisSummaryResponse": {
+        "description": "The headline metrics of one track, for a listing.\n\nEnough to render a row without a second request per track, and no more. The\nfull metric set, the algorithms that produced it and its quality flags live\nbehind the track's own analysis resource.\n\n``status`` replaced an `analysed: bool`, which was the wrong question with a\nreassuring answer: it was true for a track whose numbers came from\nalgorithms this build no longer runs and true for one whose stored analysis\ncannot be read at all. A metric here is present only while ``status`` is\n``current``; in the other three states it is ``null``, because a headline\nnumber is a claim about what the track *is* rather than about what was once\nderived from it. The last thing that was derived is still readable -- from\nthe track's own analysis resource, which says what it is.\n\nThe two durations travel with the track's ``timeline``, which is where the\nstatement that qualifies them lives: a duration derived from a planner's\ninstants and one derived from a receiver's are the same number and mean\ndifferent things, and a list view is exactly where that difference gets\nlost.",
+        "properties": {
+          "distance_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance M"
+          },
+          "elapsed_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Duration S"
+          },
+          "elevation_gain_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Gain M"
+          },
+          "moving_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moving Duration S"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AnalysisAvailability",
+            "description": "current, outdated, missing or invalid -- the same word the detail view uses"
+          }
+        },
+        "required": [
+          "status",
+          "distance_m",
+          "elevation_gain_m",
+          "elapsed_duration_s",
+          "moving_duration_s"
+        ],
+        "title": "AnalysisSummaryResponse",
+        "type": "object"
+      },
+      "AttributionLinkResponse": {
+        "description": "One credit link, structured so nothing renders provider markup.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "url"
+        ],
+        "title": "AttributionLinkResponse",
+        "type": "object"
+      },
+      "AttributionResponse": {
+        "description": "What has to be shown while a package's data is drawn.",
+        "properties": {
+          "data_owner": {
+            "description": "Who the underlying data belongs to",
+            "title": "Data Owner",
+            "type": "string"
+          },
+          "license_identifier": {
+            "description": "Short, stable licence code",
+            "title": "License Identifier",
+            "type": "string"
+          },
+          "license_name": {
+            "description": "The licence's own name",
+            "title": "License Name",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/AttributionLinkResponse"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "provider": {
+            "description": "Who assembled and published the package",
+            "title": "Provider",
+            "type": "string"
+          },
+          "required_text": {
+            "description": "The line that must stay visible",
+            "title": "Required Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_owner",
+          "provider",
+          "license_identifier",
+          "license_name",
+          "required_text",
+          "links"
+        ],
+        "title": "AttributionResponse",
+        "type": "object"
+      },
+      "AvailableYearsResponse": {
+        "description": "Which years this archive has something to show for.\n\nDeliberately not a range: an interface that offered \"this year and the\neleven before it\" opened an archive of 2019 recordings on an empty 2026,\nand it computed a calendar the archive already owns.",
+        "properties": {
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Activity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "archive_track_count": {
+            "description": "Tracks held in any scope: what tells an empty archive from an empty selection",
+            "title": "Archive Track Count",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AggregationScope"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "unplaced": {
+            "$ref": "#/components/schemas/UnplacedCountsResponse",
+            "description": "Tracks in scope that belong to no year -- reported beside it, never inside"
+          },
+          "years": {
+            "description": "Local years the scope holds tracks in, newest first",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Years",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope",
+          "activity",
+          "timezone",
+          "years",
+          "unplaced",
+          "archive_track_count"
+        ],
+        "title": "AvailableYearsResponse",
+        "type": "object"
+      },
+      "BoundsResponse": {
+        "description": "A west/south/east/north rectangle in WGS 84 degrees.",
+        "properties": {
+          "max_latitude": {
+            "title": "Max Latitude",
+            "type": "number"
+          },
+          "max_longitude": {
+            "title": "Max Longitude",
+            "type": "number"
+          },
+          "min_latitude": {
+            "title": "Min Latitude",
+            "type": "number"
+          },
+          "min_longitude": {
+            "title": "Min Longitude",
+            "type": "number"
+          }
+        },
+        "required": [
+          "min_longitude",
+          "min_latitude",
+          "max_longitude",
+          "max_latitude"
+        ],
+        "title": "BoundsResponse",
+        "type": "object"
+      },
+      "CatalogEntryResponse": {
+        "description": "One catalog row.",
+        "properties": {
+          "availability_known": {
+            "description": "False means the provider could not be asked, not that there is none",
+            "title": "Availability Known",
+            "type": "boolean"
+          },
+          "has_children": {
+            "title": "Has Children",
+            "type": "boolean"
+          },
+          "installable": {
+            "description": "Whether a package exists for this region",
+            "title": "Installable",
+            "type": "boolean"
+          },
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "package": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RemotePackageResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "region_id": {
+            "title": "Region Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region_id",
+          "name",
+          "parent_id",
+          "has_children",
+          "installable",
+          "availability_known",
+          "package",
+          "installed"
+        ],
+        "title": "CatalogEntryResponse",
+        "type": "object"
+      },
+      "CatalogResponse": {
+        "description": "One level of the provider's region tree.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_available": {
+            "description": "False with entries present means these came from the cache",
+            "title": "Provider Available",
+            "type": "boolean"
+          },
+          "provider_name": {
+            "title": "Provider Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "parent_id",
+          "provider",
+          "provider_name",
+          "provider_available",
+          "fetched_at",
+          "entries"
+        ],
+        "title": "CatalogResponse",
+        "type": "object"
+      },
+      "ClassificationOverrideRequest": {
+        "description": "An explicit user correction of a track's kind.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/TrackKind",
+            "description": "recorded, planned or unknown"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ClassificationOverrideRequest",
+        "type": "object"
+      },
+      "ClassificationResponse": {
+        "description": "What was detected, what the user said, and what therefore applies.",
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "detected_kind": {
+            "$ref": "#/components/schemas/TrackKind"
+          },
+          "effective_kind": {
+            "$ref": "#/components/schemas/TrackKind"
+          },
+          "evidence": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "is_overridden": {
+            "title": "Is Overridden",
+            "type": "boolean"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "method_version": {
+            "title": "Method Version",
+            "type": "string"
+          },
+          "override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "effective_kind",
+          "detected_kind",
+          "confidence",
+          "method",
+          "method_version",
+          "evidence",
+          "override",
+          "is_overridden"
+        ],
+        "title": "ClassificationResponse",
+        "type": "object"
+      },
+      "CoverageResponse": {
+        "description": "Which installed maps belong behind a rectangle.",
+        "properties": {
+          "any_installed": {
+            "description": "Whether the archive holds any usable map at all, so the page can tell 'nothing installed' from 'nothing here'",
+            "title": "Any Installed",
+            "type": "boolean"
+          },
+          "glyphs_url": {
+            "description": "Same-origin glyph template the styles use",
+            "title": "Glyphs Url",
+            "type": "string"
+          },
+          "sources": {
+            "description": "Most specific first. Empty means: draw on a neutral background.",
+            "items": {
+              "$ref": "#/components/schemas/MapSourceResponse"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sources",
+          "glyphs_url",
+          "any_installed"
+        ],
+        "title": "CoverageResponse",
+        "type": "object"
+      },
+      "CreditResponse": {
+        "description": "One distinct data source behind the installed maps.",
+        "properties": {
+          "data_owner": {
+            "title": "Data Owner",
+            "type": "string"
+          },
+          "license_identifier": {
+            "title": "License Identifier",
+            "type": "string"
+          },
+          "license_name": {
+            "title": "License Name",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/AttributionLinkResponse"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Regions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data_owner",
+          "provider",
+          "license_identifier",
+          "license_name",
+          "links",
+          "regions"
+        ],
+        "title": "CreditResponse",
+        "type": "object"
+      },
+      "CreditsResponse": {
+        "description": "Who to thank, derived from what is installed rather than hard-coded.",
+        "properties": {
+          "map_data": {
+            "items": {
+              "$ref": "#/components/schemas/CreditResponse"
+            },
+            "title": "Map Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "map_data"
+        ],
+        "title": "CreditsResponse",
+        "type": "object"
+      },
+      "GeometryMetricsResponse": {
+        "description": "What the shape of the track supports, with no reference to a clock.\n\nThese are worth the same whatever a track's instants turn out to be: a route\nsomebody drew has a length and a profile exactly as a walk somebody took\ndoes. Each field carries its unit in its name, and a metric that could not be\nderived is ``null`` -- never ``0``.",
+        "properties": {
+          "distance_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance M"
+          },
+          "elevation_gain_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Gain M"
+          },
+          "elevation_loss_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Loss M"
+          },
+          "elevation_max_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Max M"
+          },
+          "elevation_min_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Min M"
+          }
+        },
+        "required": [
+          "distance_m",
+          "elevation_min_m",
+          "elevation_max_m",
+          "elevation_gain_m",
+          "elevation_loss_m"
+        ],
+        "title": "GeometryMetricsResponse",
+        "type": "object"
+      },
+      "GeometryResponse": {
+        "description": "The geometry of one track, with its segment boundaries preserved.\n\nWithout ``max_points`` this is the canonical normalized geometry: every\nposition, exactly as stored. With one it is a *projection* of that shape --\nthe positions that carry it, chosen so a map draws the same line with fewer\nof them -- and ``simplified`` says which of the two a client is holding.\nTruncating silently would make the canonical projection a lossy one, and\nnothing downstream could tell.",
+        "properties": {
+          "point_count": {
+            "description": "Positions in this response",
+            "title": "Point Count",
+            "type": "integer"
+          },
+          "segment_count": {
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentResponse"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "simplified": {
+            "description": "Whether the shape was reduced for presentation",
+            "title": "Simplified",
+            "type": "boolean"
+          },
+          "total_point_count": {
+            "description": "Positions the track holds",
+            "title": "Total Point Count",
+            "type": "integer"
+          },
+          "track_id": {
+            "title": "Track Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "track_id",
+          "segment_count",
+          "point_count",
+          "total_point_count",
+          "simplified",
+          "segments"
+        ],
+        "title": "GeometryResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Response body of ``GET /healthz``.",
+        "properties": {
+          "status": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ImportErrorCode": {
+        "description": "Why an import or a lookup could not be completed.\n\nAttributes:\n    UNSUPPORTED_FORMAT: No importer recognised the content.\n    INVALID_GPX: The content claims to be GPX but cannot be read as GPX. The\n        format is named on purpose: \"not GPX at all\" and \"broken GPX\" are\n        different problems for whoever has to fix the file.\n    UNSAFE_XML: The document uses a document type definition or entity\n        construct that this application refuses to process.\n    IMPORT_TOO_LARGE: The input exceeds the configured byte limit.\n    TOO_MANY_TRACKS: The document holds more tracks than the limit allows.\n    TOO_MANY_TRACK_SEGMENTS: One track holds more segments than allowed.\n    TOO_MANY_TRACK_POINTS: The document holds more positions than allowed.\n    INVALID_COORDINATE: A position is missing or cannot exist.\n    INVALID_TIMESTAMP: A time value is unreadable or has no timezone, which\n        would make the instant depend on who reads it.\n    RAW_STORAGE_FAILED: The original bytes could not be stored or read, so\n        the import was abandoned rather than continued without its source\n        evidence.\n    RAW_STORAGE_MISSING: The archive knows the raw import but its managed\n        copy is gone. Recoverable: offering the same bytes again restores it,\n        because they hash to the digest the raw import is filed under.\n    RAW_STORAGE_CORRUPT: A managed artifact exists under a digest its bytes\n        do not have. Not recoverable automatically -- it is evidence of disk\n        corruption or tampering, and overwriting it would destroy that\n        evidence.\n    PERSISTENCE_FAILED: The normalized result could not be stored.\n    TRACK_NOT_FOUND: The requested track does not exist.\n    ANALYSIS_FAILED: Metrics could not be derived from a track's geometry.\n        The track itself is unaffected: it keeps its geometry and whatever\n        metrics an earlier run had already produced.",
+        "enum": [
+          "unsupported_format",
+          "invalid_gpx",
+          "unsafe_xml",
+          "import_too_large",
+          "too_many_tracks",
+          "too_many_track_segments",
+          "too_many_track_points",
+          "invalid_coordinate",
+          "invalid_timestamp",
+          "raw_storage_failed",
+          "raw_storage_missing",
+          "raw_storage_corrupt",
+          "persistence_failed",
+          "track_not_found",
+          "analysis_failed"
+        ],
+        "title": "ImportErrorCode",
+        "type": "string"
+      },
+      "InstallRequest": {
+        "description": "What an install asks for: a region, and nothing that could name a host.",
+        "properties": {
+          "region_id": {
+            "description": "A `provider:path` region identity",
+            "maxLength": 256,
+            "minLength": 3,
+            "title": "Region Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region_id"
+        ],
+        "title": "InstallRequest",
+        "type": "object"
+      },
+      "InstalledMapResponse": {
+        "description": "One installed package, with everything a manager row needs.",
+        "properties": {
+          "attribution": {
+            "$ref": "#/components/schemas/AttributionResponse"
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/BoundsResponse"
+          },
+          "dataset_timestamp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the provider last built it",
+            "title": "Dataset Timestamp"
+          },
+          "dataset_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Version"
+          },
+          "delivery_id": {
+            "description": "Content hash; the identity tiles are served under",
+            "title": "Delivery Id",
+            "type": "string"
+          },
+          "downloaded_at": {
+            "description": "When this deployment fetched it",
+            "title": "Downloaded At",
+            "type": "string"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "max_zoom": {
+            "title": "Max Zoom",
+            "type": "integer"
+          },
+          "min_zoom": {
+            "title": "Min Zoom",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "region_id": {
+            "title": "Region Id",
+            "type": "string"
+          },
+          "region_name": {
+            "title": "Region Name",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/MapInstallState",
+            "description": "`installed` only while a managed file backs the row"
+          },
+          "tile_schema": {
+            "title": "Tile Schema",
+            "type": "string"
+          },
+          "tile_schema_version": {
+            "title": "Tile Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region_id",
+          "region_name",
+          "provider",
+          "state",
+          "format",
+          "tile_schema",
+          "tile_schema_version",
+          "delivery_id",
+          "size_bytes",
+          "bounds",
+          "min_zoom",
+          "max_zoom",
+          "dataset_version",
+          "dataset_timestamp",
+          "downloaded_at",
+          "attribution"
+        ],
+        "title": "InstalledMapResponse",
+        "type": "object"
+      },
+      "InstalledMapsResponse": {
+        "description": "Everything installed, plus whether this deployment may install more.",
+        "properties": {
+          "installs_enabled": {
+            "title": "Installs Enabled",
+            "type": "boolean"
+          },
+          "maps": {
+            "items": {
+              "$ref": "#/components/schemas/InstalledMapResponse"
+            },
+            "title": "Maps",
+            "type": "array"
+          },
+          "total_size_bytes": {
+            "title": "Total Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "maps",
+          "installs_enabled",
+          "total_size_bytes"
+        ],
+        "title": "InstalledMapsResponse",
+        "type": "object"
+      },
+      "JobResponse": {
+        "description": "Where one installation has got to.",
+        "properties": {
+          "bytes_downloaded": {
+            "title": "Bytes Downloaded",
+            "type": "integer"
+          },
+          "bytes_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the provider declared no size",
+            "title": "Bytes Total"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "is_update": {
+            "title": "Is Update",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "percentage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the total is unknown; never invented",
+            "title": "Percentage"
+          },
+          "region_id": {
+            "title": "Region Id",
+            "type": "string"
+          },
+          "region_name": {
+            "title": "Region Name",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "region_id",
+          "region_name",
+          "state",
+          "bytes_downloaded",
+          "bytes_total",
+          "percentage",
+          "is_update",
+          "error_code",
+          "started_at",
+          "updated_at"
+        ],
+        "title": "JobResponse",
+        "type": "object"
+      },
+      "JobsResponse": {
+        "description": "The newest installations, finished or not.",
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/JobResponse"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs"
+        ],
+        "title": "JobsResponse",
+        "type": "object"
+      },
+      "MapInstallState": {
+        "description": "What a region's package amounts to right now.\n\n``INVALID`` is a first-class answer rather than a variant of missing: a\npackage whose file vanished and a package that was never installed call for\ndifferent words in front of a reader, and only one of them is a surprise.",
+        "enum": [
+          "not_installed",
+          "installing",
+          "installed",
+          "updating",
+          "invalid",
+          "failed"
+        ],
+        "title": "MapInstallState",
+        "type": "string"
+      },
+      "MapSourceResponse": {
+        "description": "One package as the page needs it to draw a basemap.",
+        "properties": {
+          "attribution": {
+            "$ref": "#/components/schemas/AttributionResponse"
+          },
+          "bounds": {
+            "$ref": "#/components/schemas/BoundsResponse"
+          },
+          "max_zoom": {
+            "title": "Max Zoom",
+            "type": "integer"
+          },
+          "min_zoom": {
+            "title": "Min Zoom",
+            "type": "integer"
+          },
+          "region_id": {
+            "title": "Region Id",
+            "type": "string"
+          },
+          "region_name": {
+            "title": "Region Name",
+            "type": "string"
+          },
+          "source_id": {
+            "description": "Stable identifier for this source in a style",
+            "title": "Source Id",
+            "type": "string"
+          },
+          "tile_schema": {
+            "title": "Tile Schema",
+            "type": "string"
+          },
+          "tile_schema_version": {
+            "title": "Tile Schema Version",
+            "type": "string"
+          },
+          "tiles_url": {
+            "description": "Same-origin tile template",
+            "title": "Tiles Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region_id",
+          "region_name",
+          "source_id",
+          "tiles_url",
+          "tile_schema",
+          "tile_schema_version",
+          "bounds",
+          "min_zoom",
+          "max_zoom",
+          "attribution"
+        ],
+        "title": "MapSourceResponse",
+        "type": "object"
+      },
+      "MonthResponse": {
+        "description": "One month of a year. Present even when nothing happened in it.",
+        "properties": {
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/TotalsResponse"
+          }
+        },
+        "required": [
+          "month",
+          "totals"
+        ],
+        "title": "MonthResponse",
+        "type": "object"
+      },
+      "MonthlyResponse": {
+        "description": "A year broken into its twelve months.",
+        "properties": {
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Activity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/MonthResponse"
+            },
+            "title": "Months",
+            "type": "array"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AggregationScope"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "scope",
+          "activity",
+          "timezone",
+          "months"
+        ],
+        "title": "MonthlyResponse",
+        "type": "object"
+      },
+      "PointResponse": {
+        "description": "One normalized position.",
+        "properties": {
+          "elevation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time"
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude",
+          "elevation",
+          "time"
+        ],
+        "title": "PointResponse",
+        "type": "object"
+      },
+      "ProcessingProfileResponse": {
+        "description": "What one installed adapter turns a source into today.",
+        "properties": {
+          "classifier": {
+            "title": "Classifier",
+            "type": "string"
+          },
+          "classifier_version": {
+            "title": "Classifier Version",
+            "type": "string"
+          },
+          "importer": {
+            "title": "Importer",
+            "type": "string"
+          },
+          "importer_version": {
+            "title": "Importer Version",
+            "type": "string"
+          },
+          "normalization_schema_version": {
+            "title": "Normalization Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "importer",
+          "importer_version",
+          "normalization_schema_version",
+          "classifier",
+          "classifier_version"
+        ],
+        "title": "ProcessingProfileResponse",
+        "type": "object"
+      },
+      "ProfileSampleResponse": {
+        "description": "One position, with what a map and a chart each read from it.\n\n``segment_index`` and ``point_index`` are the sample's identity. A chart\ncursor and a map marker address a sample by them rather than by looking for\na nearby coordinate, which is a second authority on identity and picks the\nwrong position exactly where a track crosses itself.",
+        "properties": {
+          "distance_m": {
+            "description": "Cumulative distance, summed within segments",
+            "title": "Distance M",
+            "type": "number"
+          },
+          "elevation_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The altitude as recorded",
+            "title": "Elevation M"
+          },
+          "filtered_elevation_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The altitude after the filter the ascent figure is accumulated from",
+            "title": "Filtered Elevation M"
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number"
+          },
+          "point_index": {
+            "title": "Point Index",
+            "type": "integer"
+          },
+          "segment_index": {
+            "title": "Segment Index",
+            "type": "integer"
+          },
+          "speed_mps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Speed held across the analysis window; null where none could be derived",
+            "title": "Speed Mps"
+          },
+          "time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time"
+          }
+        },
+        "required": [
+          "segment_index",
+          "point_index",
+          "distance_m",
+          "latitude",
+          "longitude",
+          "time",
+          "elevation_m",
+          "filtered_elevation_m",
+          "speed_mps"
+        ],
+        "title": "ProfileSampleResponse",
+        "type": "object"
+      },
+      "ProfileSegmentResponse": {
+        "description": "One uninterrupted run of samples. Never joined to its neighbour.",
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileSampleResponse"
+            },
+            "title": "Samples",
+            "type": "array"
+          }
+        },
+        "required": [
+          "index",
+          "samples"
+        ],
+        "title": "ProfileSegmentResponse",
+        "type": "object"
+      },
+      "RemotePackageResponse": {
+        "description": "What the provider said about a package, before anything is fetched.",
+        "properties": {
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Declared size, or null when the provider declared none",
+            "title": "Size Bytes"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the provider last built it",
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "size_bytes",
+          "updated_at"
+        ],
+        "title": "RemotePackageResponse",
+        "type": "object"
+      },
+      "SegmentResponse": {
+        "description": "One uninterrupted run of positions.",
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/PointResponse"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "points"
+        ],
+        "title": "SegmentResponse",
+        "type": "object"
+      },
+      "SourceResponse": {
+        "description": "Where a track came from. Evidence, never authority.",
+        "properties": {
+          "creator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Creator"
+          },
+          "exchange_format": {
+            "title": "Exchange Format",
+            "type": "string"
+          },
+          "extension_namespaces": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extension Namespaces",
+            "type": "array"
+          },
+          "format_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format Version"
+          },
+          "links": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "exchange_format",
+          "format_version",
+          "creator",
+          "links",
+          "extension_namespaces"
+        ],
+        "title": "SourceResponse",
+        "type": "object"
+      },
+      "SystemInfoResponse": {
+        "description": "What this deployment is running.",
+        "properties": {
+          "analysis": {
+            "$ref": "#/components/schemas/gpx_view__api__system__AnalysisProfileResponse"
+          },
+          "processing": {
+            "description": "One entry per installed import adapter",
+            "items": {
+              "$ref": "#/components/schemas/ProcessingProfileResponse"
+            },
+            "title": "Processing",
+            "type": "array"
+          },
+          "schema_version": {
+            "description": "Database schema version this build expects",
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "timezone": {
+            "description": "Zone every month and year boundary is drawn in",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "version": {
+            "description": "The GPX-View release, from its distribution metadata",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "schema_version",
+          "timezone",
+          "processing",
+          "analysis"
+        ],
+        "title": "SystemInfoResponse",
+        "type": "object"
+      },
+      "TemporalEvidence": {
+        "description": "What a track's instants have been shown to be.\n\nAttributes:\n    OBSERVED: The instants came from a device that was measuring. Durations\n        and speeds derived from them describe something that happened.\n    ESTIMATED: The instants came from a planner or a routing engine. They\n        are a schedule: real, useful, and not a record of a journey.\n    UNKNOWN: Nothing shows which of the two this is, or there are no\n        instants at all. The permanent, honest answer -- not a placeholder\n        for one of the others.",
+        "enum": [
+          "observed",
+          "estimated",
+          "unknown"
+        ],
+        "title": "TemporalEvidence",
+        "type": "string"
+      },
+      "TimedPathMetricsResponse": {
+        "description": "What the track's instants support, and what those instants are worth.\n\nDeliberately not called \"activity\": these are properties of a path through\ntime, and whether that path is anybody's afternoon is what ``basis`` and\n``is_actual_activity_timing`` answer. The numbers are never withheld -- a\nplanned route really does have a derived route speed -- but they are never\nhanded over without the statement that qualifies them either.",
+        "properties": {
+          "average_speed_mps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Speed Mps"
+          },
+          "basis": {
+            "$ref": "#/components/schemas/TemporalEvidence",
+            "description": "What the instants behind these numbers were shown to be"
+          },
+          "elapsed_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Duration S"
+          },
+          "is_actual_activity_timing": {
+            "description": "Whether these may be presented as time somebody actually spent",
+            "title": "Is Actual Activity Timing",
+            "type": "boolean"
+          },
+          "maximum_sustained_speed_mps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Highest speed held across the analysis window, not an instantaneous peak",
+            "title": "Maximum Sustained Speed Mps"
+          },
+          "moving_average_speed_mps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moving Average Speed Mps"
+          },
+          "moving_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Moving Duration S"
+          },
+          "stopped_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped Duration S"
+          },
+          "unattributed_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unattributed Duration S"
+          },
+          "unobserved_gap_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unobserved Gap Duration S"
+          }
+        },
+        "required": [
+          "basis",
+          "is_actual_activity_timing",
+          "elapsed_duration_s",
+          "moving_duration_s",
+          "stopped_duration_s",
+          "unobserved_gap_duration_s",
+          "unattributed_duration_s",
+          "average_speed_mps",
+          "moving_average_speed_mps",
+          "maximum_sustained_speed_mps"
+        ],
+        "title": "TimedPathMetricsResponse",
+        "type": "object"
+      },
+      "TimelineResponse": {
+        "description": "When the track's own positions say it happened, and what that is worth.\n\nTwo questions that look like one until a planner writes plausible instants\nonto a route nobody travelled:\n\n```\ntimeline time            the instants the positions carry\nactivity calendar time   the claim that this happened then\n```\n\nThe instants are never withheld -- they are real data about the file -- but\nthey never travel without ``basis`` either. ``is_actual_calendar_time`` is\nwhat a period total asks and depends on the basis alone;\n``is_actual_activity_timing`` additionally needs the track to be a\nrecording, because a route's duration is not somebody's afternoon whatever\nits clock was.",
+        "properties": {
+          "basis": {
+            "$ref": "#/components/schemas/TemporalEvidence",
+            "description": "What the instants behind this timeline were shown to be"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "is_actual_activity_timing": {
+            "description": "Whether durations from it may be presented as time somebody spent",
+            "title": "Is Actual Activity Timing",
+            "type": "boolean"
+          },
+          "is_actual_calendar_time": {
+            "description": "Whether this timeline may place the activity in a calendar period",
+            "title": "Is Actual Calendar Time",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "started_at",
+          "ended_at",
+          "basis",
+          "is_actual_calendar_time",
+          "is_actual_activity_timing"
+        ],
+        "title": "TimelineResponse",
+        "type": "object"
+      },
+      "TotalsResponse": {
+        "description": "What one period adds up to, and how much of it the total covers.\n\nA total is ``null`` when the period holds tracks but none of them carried a\nusable value for that metric. An empty period totals ``0`` instead, and\n``track_count`` says which of the two it is.\n\nOnly tracks whose analysis is current contribute. ``analysed_track_count``\nbeside ``track_count`` is what makes a partial total legible as one: eight\nof ten is a different statement from ten, and the three counters underneath\nsay why the other two are missing and what to do about them.",
+        "properties": {
+          "analysed_track_count": {
+            "description": "Tracks that actually contributed, having a current analysis",
+            "title": "Analysed Track Count",
+            "type": "integer"
+          },
+          "distance_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance M"
+          },
+          "elapsed_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Summed over tracks with observed instants only",
+            "title": "Elapsed Duration S"
+          },
+          "elevation_gain_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Gain M"
+          },
+          "moving_duration_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Summed over tracks with observed instants only",
+            "title": "Moving Duration S"
+          },
+          "track_count": {
+            "title": "Track Count",
+            "type": "integer"
+          },
+          "tracks_with_failed_analysis": {
+            "description": "Tracks whose newest analysis attempt failed, whatever it left behind",
+            "title": "Tracks With Failed Analysis",
+            "type": "integer"
+          },
+          "tracks_with_invalid_analysis": {
+            "description": "Tracks holding a stored analysis the archive cannot interpret",
+            "title": "Tracks With Invalid Analysis",
+            "type": "integer"
+          },
+          "tracks_with_outdated_analysis": {
+            "description": "Tracks analysed by algorithms or from geometry that have since moved on",
+            "title": "Tracks With Outdated Analysis",
+            "type": "integer"
+          },
+          "tracks_without_analysis": {
+            "description": "Tracks whose metrics have never been derived",
+            "title": "Tracks Without Analysis",
+            "type": "integer"
+          },
+          "tracks_without_observed_timing": {
+            "description": "Contributing tracks whose instants were not shown to be measured",
+            "title": "Tracks Without Observed Timing",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "track_count",
+          "analysed_track_count",
+          "tracks_without_analysis",
+          "tracks_with_outdated_analysis",
+          "tracks_with_invalid_analysis",
+          "tracks_with_failed_analysis",
+          "tracks_without_observed_timing",
+          "distance_m",
+          "elapsed_duration_s",
+          "moving_duration_s",
+          "elevation_gain_m"
+        ],
+        "title": "TotalsResponse",
+        "type": "object"
+      },
+      "TrackAnalysisResponse": {
+        "description": "The derived metrics of one track, and what produced them.",
+        "properties": {
+          "analyzed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzed At"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the newest analysis attempt failed, when it did",
+            "title": "Error Code"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeometryMetricsResponse"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/gpx_view__api__tracks__AnalysisProfileResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quality": {
+            "description": "What was wrong with the data the metrics were derived from",
+            "items": {
+              "type": "string"
+            },
+            "title": "Quality",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AnalysisAvailability"
+          },
+          "timed_path": {
+            "$ref": "#/components/schemas/TimedPathMetricsResponse"
+          },
+          "track_id": {
+            "title": "Track Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "track_id",
+          "status",
+          "analyzed_at",
+          "profile",
+          "geometry",
+          "timed_path",
+          "quality",
+          "error_code"
+        ],
+        "title": "TrackAnalysisResponse",
+        "type": "object"
+      },
+      "TrackKind": {
+        "description": "How a track came into existence.\n\nThe value is independent of the exchange format a track arrived in. A GPX\n``<trk>`` element does not prove ``RECORDED``, a ``<rte>`` element does not\nprove ``PLANNED``, present timestamps prove neither, and the exporting\napplication proves neither on its own.\n\n``UNKNOWN`` is a first-class, permanently valid outcome. The application must\nnever force a track into ``RECORDED`` or ``PLANNED`` when the available\nevidence is insufficient.",
+        "enum": [
+          "recorded",
+          "planned",
+          "unknown"
+        ],
+        "title": "TrackKind",
+        "type": "string"
+      },
+      "TrackListResponse": {
+        "description": "One page of stored tracks.\n\n``total`` counts what the filter selected, not what this page holds. Without\nit a client cannot tell a last page from a full one, and every pager built\non the response would be guessing.",
+        "properties": {
+          "limit": {
+            "description": "Page size actually applied, which may be smaller than asked",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Tracks the filter selected, across all pages",
+            "title": "Total",
+            "type": "integer"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/TrackResponse"
+            },
+            "title": "Tracks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "total",
+          "limit",
+          "offset",
+          "tracks"
+        ],
+        "title": "TrackListResponse",
+        "type": "object"
+      },
+      "TrackMetadataRequest": {
+        "description": "A partial update of what the user says about a track.\n\nA field that is **absent** keeps its stored value; a field that is present\nand ``null`` -- or blank -- is cleared. Without that distinction a request\nthat only renames a track would delete its note, which is how a partial\nupdate quietly loses data.\n\nBoth fields are plain text. Nothing here is markup, nothing is interpreted,\nand the length bounds exist because an unauthenticated endpoint that accepts\ntext is a storage-growth decision if it accepts unbounded text.",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A new note, or null to remove it",
+            "title": "Note"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A new title, or null to fall back to the source title",
+            "title": "Title"
+          }
+        },
+        "title": "TrackMetadataRequest",
+        "type": "object"
+      },
+      "TrackOrder": {
+        "description": "How a listing is sorted.\n\nA closed set rather than a column name from the query string: an ordering is\npart of the contract, and every one of these ends in a unique tie-breaker.\nTwo rows that compare equal on the sort key would otherwise come back in\nwhatever order the database felt like, and a row that moves between page one\nand page two is a row the reader sees twice or not at all.\n\nAttributes:\n    IMPORTED_NEWEST_FIRST: Newest source first. The default, because it\n        answers \"what did I just add\".\n    ACTIVITY_NEWEST_FIRST: Most recent activity first -- what a dashboard\n        wants.\n    ACTIVITY_OLDEST_FIRST: The same axis, read the other way.\n    LONGEST_FIRST: Greatest distance first, where \"distance\" means the one a\n        *current* analysis derived. A stale number is the length the track\n        had under algorithms this build no longer runs, and ordering by it\n        would answer a question nobody asked.",
+        "enum": [
+          "imported_newest_first",
+          "activity_newest_first",
+          "activity_oldest_first",
+          "longest_first"
+        ],
+        "title": "TrackOrder",
+        "type": "string"
+      },
+      "TrackProfileResponse": {
+        "description": "The series of one track, bounded to what a client can render.\n\nThe series are always derived by the algorithms this build installs, from\nthe geometry a reader currently sees. ``analysis_status`` describes the\ntrack's *stored* aggregates, which may have been derived by older ones: when\nit is not ``current``, the chart and the headline figures beside it were not\nproduced by the same rules, and ``analyze --outdated`` is what makes them\nagree again.",
+        "properties": {
+          "analysis_status": {
+            "$ref": "#/components/schemas/AnalysisAvailability",
+            "description": "What the track's stored aggregate metrics amount to"
+          },
+          "derived_with": {
+            "$ref": "#/components/schemas/gpx_view__api__tracks__AnalysisProfileResponse",
+            "description": "The algorithms these series were derived by, always the installed ones"
+          },
+          "is_actual_activity_timing": {
+            "title": "Is Actual Activity Timing",
+            "type": "boolean"
+          },
+          "sample_count": {
+            "description": "Samples in this response",
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileSegmentResponse"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "timing_basis": {
+            "$ref": "#/components/schemas/TemporalEvidence"
+          },
+          "total_distance_m": {
+            "description": "Upper end of the distance axis, in metres",
+            "title": "Total Distance M",
+            "type": "number"
+          },
+          "total_sample_count": {
+            "description": "Samples the track holds",
+            "title": "Total Sample Count",
+            "type": "integer"
+          },
+          "track_id": {
+            "title": "Track Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "track_id",
+          "sample_count",
+          "total_sample_count",
+          "total_distance_m",
+          "analysis_status",
+          "derived_with",
+          "timing_basis",
+          "is_actual_activity_timing",
+          "segments"
+        ],
+        "title": "TrackProfileResponse",
+        "type": "object"
+      },
+      "TrackResponse": {
+        "description": "One stored track without its geometry.",
+        "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/Activity"
+          },
+          "analysis": {
+            "$ref": "#/components/schemas/AnalysisSummaryResponse"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/ClassificationResponse"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/UserMetadataResponse"
+          },
+          "point_count": {
+            "title": "Point Count",
+            "type": "integer"
+          },
+          "raw_import_sha256": {
+            "title": "Raw Import Sha256",
+            "type": "string"
+          },
+          "segment_count": {
+            "title": "Segment Count",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SourceResponse"
+          },
+          "source_index": {
+            "title": "Source Index",
+            "type": "integer"
+          },
+          "timeline": {
+            "$ref": "#/components/schemas/TimelineResponse"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The title to display: the user's correction, else the source's",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "raw_import_sha256",
+          "source_index",
+          "title",
+          "metadata",
+          "activity",
+          "classification",
+          "timeline",
+          "analysis",
+          "point_count",
+          "segment_count",
+          "source"
+        ],
+        "title": "TrackResponse",
+        "type": "object"
+      },
+      "UnplacedCountsResponse": {
+        "description": "How many tracks belong to no calendar period, split by why.\n\nThe two halves are different facts and the second is the one that looks\nanswered: no instants at all, against instants nothing showed to be\nmeasured.",
+        "properties": {
+          "with_unverified_date": {
+            "title": "With Unverified Date",
+            "type": "integer"
+          },
+          "without_date": {
+            "title": "Without Date",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "without_date",
+          "with_unverified_date"
+        ],
+        "title": "UnplacedCountsResponse",
+        "type": "object"
+      },
+      "UnplacedResponse": {
+        "description": "What a scope holds that belongs to no calendar period.\n\nReported beside a year rather than inside it, and split by *why* a track has\nno period. A route with no instants and a route whose instants nothing\nvouches for are different facts about the archive, and only the second one\nlooks like a date until somebody checks.",
+        "properties": {
+          "with_unverified_date": {
+            "$ref": "#/components/schemas/TotalsResponse",
+            "description": "Tracks whose instants were not shown to have been measured"
+          },
+          "without_date": {
+            "$ref": "#/components/schemas/TotalsResponse",
+            "description": "Tracks carrying no instants at all"
+          }
+        },
+        "required": [
+          "without_date",
+          "with_unverified_date"
+        ],
+        "title": "UnplacedResponse",
+        "type": "object"
+      },
+      "UserMetadataResponse": {
+        "description": "What the archive's owner said about a track, beside what its source said.\n\n``title`` here is the *correction*, not the title to display: that is the\ntrack's own ``title``, which projects this over the source one exactly as\n``effective_kind`` projects an override over a detected kind. Both halves\nare reported so a reader can tell a correction from a document.",
+        "properties": {
+          "is_overridden": {
+            "title": "Is Overridden",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "source_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the document called it. Never overwritten",
+            "title": "Source Title"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The user's title, or null to let the source stand",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "title",
+          "note",
+          "source_title",
+          "is_overridden"
+        ],
+        "title": "UserMetadataResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "YearResponse": {
+        "description": "One year's totals, in one scope.",
+        "properties": {
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Activity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AggregationScope"
+          },
+          "timezone": {
+            "description": "IANA zone the year's boundaries were drawn in",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/TotalsResponse",
+            "description": "Summed over the tracks whose activity date the archive can vouch for"
+          },
+          "unplaced": {
+            "$ref": "#/components/schemas/UnplacedResponse",
+            "description": "Tracks in scope that belong to no calendar period, and why"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "scope",
+          "activity",
+          "timezone",
+          "totals",
+          "unplaced"
+        ],
+        "title": "YearResponse",
+        "type": "object"
+      },
+      "gpx_view__api__maps__ErrorBody": {
+        "description": "The one error envelope this API answers with.",
+        "properties": {
+          "code": {
+            "description": "Stable error code",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Short, structural detail. Never a path or a URL.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "gpx_view__api__maps__ErrorResponse": {
+        "description": "The error envelope, wrapped as every other endpoint wraps it.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/gpx_view__api__maps__ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "gpx_view__api__system__AnalysisProfileResponse": {
+        "description": "The algorithms this build derives metrics with.",
+        "properties": {
+          "distance_algorithm": {
+            "title": "Distance Algorithm",
+            "type": "string"
+          },
+          "distance_algorithm_version": {
+            "title": "Distance Algorithm Version",
+            "type": "integer"
+          },
+          "elevation_algorithm": {
+            "title": "Elevation Algorithm",
+            "type": "string"
+          },
+          "elevation_algorithm_version": {
+            "title": "Elevation Algorithm Version",
+            "type": "integer"
+          },
+          "metric_schema_version": {
+            "title": "Metric Schema Version",
+            "type": "integer"
+          },
+          "movement_algorithm": {
+            "title": "Movement Algorithm",
+            "type": "string"
+          },
+          "movement_algorithm_version": {
+            "title": "Movement Algorithm Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "distance_algorithm",
+          "distance_algorithm_version",
+          "movement_algorithm",
+          "movement_algorithm_version",
+          "elevation_algorithm",
+          "elevation_algorithm_version",
+          "metric_schema_version"
+        ],
+        "title": "AnalysisProfileResponse",
+        "type": "object"
+      },
+      "gpx_view__api__tracks__AnalysisProfileResponse": {
+        "description": "The algorithms that produced a set of metrics.\n\nReported so that \"why did my elevation gain change?\" is answerable from the\ndata rather than from a changelog.",
+        "properties": {
+          "distance_algorithm": {
+            "title": "Distance Algorithm",
+            "type": "string"
+          },
+          "distance_algorithm_version": {
+            "title": "Distance Algorithm Version",
+            "type": "integer"
+          },
+          "elevation_algorithm": {
+            "title": "Elevation Algorithm",
+            "type": "string"
+          },
+          "elevation_algorithm_version": {
+            "title": "Elevation Algorithm Version",
+            "type": "integer"
+          },
+          "metric_schema_version": {
+            "title": "Metric Schema Version",
+            "type": "integer"
+          },
+          "movement_algorithm": {
+            "title": "Movement Algorithm",
+            "type": "string"
+          },
+          "movement_algorithm_version": {
+            "title": "Movement Algorithm Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "distance_algorithm",
+          "distance_algorithm_version",
+          "movement_algorithm",
+          "movement_algorithm_version",
+          "elevation_algorithm",
+          "elevation_algorithm_version",
+          "metric_schema_version"
+        ],
+        "title": "AnalysisProfileResponse",
+        "type": "object"
+      },
+      "gpx_view__api__tracks__ErrorBody": {
+        "description": "The stable shape of an error, without internals.",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ImportErrorCode"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "gpx_view__api__tracks__ErrorResponse": {
+        "description": "An error response. Never carries a stack trace, a path or a coordinate.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "summary": "Manage, analyse and visualise planned and recorded GPS tracks.",
+    "title": "GPX-View",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/maps": {
+      "get": {
+        "description": "Return the installed packages and what the archive currently thinks of them.",
+        "operationId": "list_installed_maps_api_v1_maps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstalledMapsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Every installed map package",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/catalog": {
+      "get": {
+        "description": "Return one node's children, with what each would cost to install.",
+        "operationId": "read_catalog_api_v1_maps_catalog_get",
+        "parameters": [
+          {
+            "description": "Region to open; omit for the top level",
+            "in": "query",
+            "name": "parent",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Region to open; omit for the top level",
+              "title": "Parent"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "One level of the provider's region tree",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/catalog/refresh": {
+      "post": {
+        "description": "Fetch the provider's index again and return the top level.\n\nThe one endpoint that always reaches the provider. Everything else answers\nfrom the cache, which is what makes \"installed maps keep working while the\nprovider is down\" true rather than aspirational.",
+        "operationId": "refresh_catalog_api_v1_maps_catalog_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Re-read the provider's index",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/coverage": {
+      "get": {
+        "description": "Return the packages to draw behind a rectangle, most specific first.\n\nReaches no provider and reads no track. It is the only map endpoint a track\npage calls, which is what makes viewing a track send nothing anywhere.",
+        "operationId": "read_coverage_api_v1_maps_coverage_get",
+        "parameters": [
+          {
+            "description": "`min_lon,min_lat,max_lon,max_lat` in WGS 84 degrees",
+            "in": "query",
+            "name": "bbox",
+            "required": true,
+            "schema": {
+              "description": "`min_lon,min_lat,max_lon,max_lat` in WGS 84 degrees",
+              "maxLength": 100,
+              "minLength": 7,
+              "title": "Bbox",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Which installed maps belong behind a rectangle",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/credits": {
+      "get": {
+        "description": "Return the distinct data sources behind the installed maps.\n\nDerived from package metadata, deduplicated by owner and licence, so a\nsecond provider appears here the day somebody installs one of its packages\nand no code changes.",
+        "operationId": "read_credits_api_v1_maps_credits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Who to thank",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/install": {
+      "post": {
+        "description": "Queue an installation and answer immediately with its job.\n\n`202`, because nothing has been installed yet. A package is hundreds of\nmegabytes and the transfer outlives any sensible request timeout, so the\nhonest answer is \"accepted, here is where to watch it\".",
+        "operationId": "install_map_api_v1_maps_install_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstallRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Queue an install or an update for one region",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/jobs": {
+      "get": {
+        "description": "Return recent installation jobs, finished or not.",
+        "operationId": "list_jobs_api_v1_maps_jobs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "The newest installations",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/jobs/{job_id}": {
+      "get": {
+        "description": "Return one job.",
+        "operationId": "read_job_api_v1_maps_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Where one installation has got to",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/jobs/{job_id}/cancel": {
+      "post": {
+        "description": "Ask a job to stop at the next chunk boundary.\n\nCooperative, and the response says so by returning the job's *current*\nstate rather than claiming it is cancelled. A job already publishing runs to\ncompletion, because interrupting an atomic switch to save a moment would\ntrade the guarantee that matters for the one that does not.",
+        "operationId": "cancel_job_api_v1_maps_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask a running installation to stop",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/regions/{region_id}": {
+      "delete": {
+        "description": "Delete a region's package. Track data is untouched.",
+        "operationId": "remove_map_api_v1_maps_regions__region_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "region_id",
+            "required": true,
+            "schema": {
+              "title": "Region Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove one installed map package",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/maps/tiles/{delivery_id}/{zoom}/{column}/{row}.mvt": {
+      "get": {
+        "description": "Return one tile's stored bytes.\n\nStored bytes, not re-encoded ones. Shortbread packages hold gzipped vector\ntiles, so the blob is handed over with `Content-Encoding: gzip` and the\nbrowser does the one decompression there is. Unpacking and repacking on the\nway through would spend CPU per tile to produce the same bytes.\n\nA missing tile answers `204`. A hole in coverage is not an error, and a 404\nbody would make every edge of every region print a stack of red lines in a\nbrowser console.",
+        "operationId": "read_tile_api_v1_maps_tiles__delivery_id___zoom___column___row__mvt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "delivery_id",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[0-9a-f]{64}$",
+              "title": "Delivery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "zoom",
+            "required": true,
+            "schema": {
+              "maximum": 24,
+              "minimum": 0,
+              "title": "Zoom",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "column",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "Column",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "row",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "Row",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.mapbox-vector-tile": {}
+            },
+            "description": "Successful Response"
+          },
+          "204": {
+            "description": "No tile here. A normal answer at the edge of coverage."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__maps__ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "One vector tile from an installed package",
+        "tags": [
+          "maps"
+        ]
+      }
+    },
+    "/api/v1/statistics/year/{year}": {
+      "get": {
+        "description": "Return one year's totals.\n\nThe default scope is ``recorded``, because the unqualified question is what\nactually happened rather than what everything adds up to.",
+        "operationId": "read_year_api_v1_statistics_year__year__get",
+        "parameters": [
+          {
+            "description": "Year in the configured zone",
+            "in": "path",
+            "name": "year",
+            "required": true,
+            "schema": {
+              "description": "Year in the configured zone",
+              "maximum": 9999,
+              "minimum": 1970,
+              "title": "Year",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Which set of tracks to total: recorded, planned or unknown",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AggregationScope",
+              "default": "recorded",
+              "description": "Which set of tracks to total: recorded, planned or unknown"
+            }
+          },
+          {
+            "description": "Narrow the totals to one activity",
+            "in": "query",
+            "name": "activity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Activity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Narrow the totals to one activity",
+              "title": "Activity"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/YearResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Total one year",
+        "tags": [
+          "statistics"
+        ]
+      }
+    },
+    "/api/v1/statistics/year/{year}/monthly": {
+      "get": {
+        "description": "Return twelve monthly totals, including the months with no activity.",
+        "operationId": "read_monthly_api_v1_statistics_year__year__monthly_get",
+        "parameters": [
+          {
+            "description": "Year in the configured zone",
+            "in": "path",
+            "name": "year",
+            "required": true,
+            "schema": {
+              "description": "Year in the configured zone",
+              "maximum": 9999,
+              "minimum": 1970,
+              "title": "Year",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Which set of tracks to total: recorded, planned or unknown",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AggregationScope",
+              "default": "recorded",
+              "description": "Which set of tracks to total: recorded, planned or unknown"
+            }
+          },
+          {
+            "description": "Narrow the totals to one activity",
+            "in": "query",
+            "name": "activity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Activity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Narrow the totals to one activity",
+              "title": "Activity"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Total each month of one year",
+        "tags": [
+          "statistics"
+        ]
+      }
+    },
+    "/api/v1/statistics/years": {
+      "get": {
+        "description": "Return the years one scope holds, newest first.\n\nRegistered before ``/year/{year}`` so that the literal path wins over the\nparameterised one whatever the router's matching order turns out to be.",
+        "operationId": "read_available_years_api_v1_statistics_years_get",
+        "parameters": [
+          {
+            "description": "Which set of tracks to total: recorded, planned or unknown",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AggregationScope",
+              "default": "recorded",
+              "description": "Which set of tracks to total: recorded, planned or unknown"
+            }
+          },
+          {
+            "description": "Narrow the totals to one activity",
+            "in": "query",
+            "name": "activity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Activity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Narrow the totals to one activity",
+              "title": "Activity"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailableYearsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List the years this archive holds tracks in",
+        "tags": [
+          "statistics"
+        ]
+      }
+    },
+    "/api/v1/system/info": {
+      "get": {
+        "description": "Return the release, the schema and the algorithms this build applies.\n\nThe version comes from the installed distribution metadata, so it is the\nsame string ``pyproject.toml`` declares and the image label carries. A\nsecond constant here would be the one nobody bumps.",
+        "operationId": "read_system_info_api_v1_system_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "What this deployment is running",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/tracks": {
+      "get": {
+        "description": "Return one page of stored tracks, without geometry.\n\nThe page size is bounded by the server whatever is asked for: an archive\ngrows without anybody deciding to, and an unbounded listing is a page that\nworks until it does not.",
+        "operationId": "list_tracks_api_v1_tracks_get",
+        "parameters": [
+          {
+            "description": "How many tracks to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "How many tracks to return",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many tracks to skip",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "How many tracks to skip",
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Narrow to one effective kind, honouring a correction",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TrackKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Narrow to one effective kind, honouring a correction",
+              "title": "Kind"
+            }
+          },
+          {
+            "description": "Narrow to one activity",
+            "in": "query",
+            "name": "activity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Activity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Narrow to one activity",
+              "title": "Activity"
+            }
+          },
+          {
+            "description": "Year in the configured zone",
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9999,
+                  "minimum": 1970,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Year in the configured zone",
+              "title": "Year"
+            }
+          },
+          {
+            "description": "Month of that year; needs a year",
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 12,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Month of that year; needs a year",
+              "title": "Month"
+            }
+          },
+          {
+            "description": "Narrow to tracks whose stored metrics are in one availability state",
+            "in": "query",
+            "name": "analysis_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AnalysisAvailability"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Narrow to tracks whose stored metrics are in one availability state",
+              "title": "Analysis Status"
+            }
+          },
+          {
+            "description": "How to order the selection",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TrackOrder",
+              "default": "imported_newest_first",
+              "description": "How to order the selection"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List stored tracks",
+        "tags": [
+          "tracks"
+        ]
+      }
+    },
+    "/api/v1/tracks/{track_id}": {
+      "get": {
+        "description": "Return one stored track, without geometry.",
+        "operationId": "read_track_api_v1_tracks__track_id__get",
+        "parameters": [
+          {
+            "description": "Identity of a stored track",
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "description": "Identity of a stored track",
+              "minimum": 1,
+              "title": "Track Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TrackResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                    }
+                  ],
+                  "title": "Response Read Track Api V1 Tracks  Track Id  Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read one track",
+        "tags": [
+          "tracks"
+        ]
+      }
+    },
+    "/api/v1/tracks/{track_id}/analysis": {
+      "get": {
+        "description": "Return the metrics of one track, and whether they are still current.\n\nA separate resource rather than another field on the track. Metrics have\ntheir own lifecycle -- they can be missing, outdated or freshly derived\nwhile the track itself never changed -- and folding a status of their own\ninto the track would make \"this track exists\" mean two things again.",
+        "operationId": "read_analysis_api_v1_tracks__track_id__analysis_get",
+        "parameters": [
+          {
+            "description": "Identity of a stored track",
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "description": "Identity of a stored track",
+              "minimum": 1,
+              "title": "Track Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TrackAnalysisResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                    }
+                  ],
+                  "title": "Response Read Analysis Api V1 Tracks  Track Id  Analysis Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read the derived metrics of one track",
+        "tags": [
+          "tracks"
+        ]
+      }
+    },
+    "/api/v1/tracks/{track_id}/classification": {
+      "delete": {
+        "description": "Remove a user correction, handing authority back to the classifier.",
+        "operationId": "reset_classification_api_v1_tracks__track_id__classification_delete",
+        "parameters": [
+          {
+            "description": "Identity of a stored track",
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "description": "Identity of a stored track",
+              "minimum": 1,
+              "title": "Track Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TrackResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                    }
+                  ],
+                  "title": "Response Reset Classification Api V1 Tracks  Track Id  Classification Delete"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw the explicit correction",
+        "tags": [
+          "tracks"
+        ]
+      },
+      "put": {
+        "description": "Record a user correction, which outranks the classifier from now on.",
+        "operationId": "override_classification_api_v1_tracks__track_id__classification_put",
+        "parameters": [
+          {
+            "description": "Identity of a stored track",
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "description": "Identity of a stored track",
+              "minimum": 1,
+              "title": "Track Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassificationOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TrackResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                    }
+                  ],
+                  "title": "Response Override Classification Api V1 Tracks  Track Id  Classification Put"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Correct the track kind explicitly",
+        "tags": [
+          "tracks"
+        ]
+      }
+    },
+    "/api/v1/tracks/{track_id}/geometry": {
+      "get": {
+        "description": "Return the segments and positions of one stored track.\n\nWithout ``max_points`` this is the canonical normalized geometry. With one\nit is a presentation projection of the same shape, and ``simplified`` says\nso. Nothing is written either way: the reduction happens on the way out.",
+        "operationId": "read_geometry_api_v1_tracks__track_id__geometry_get",
+        "parameters": [
+          {
+            "description": "Identity of a stored track",
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "description": "Identity of a stored track",
+              "minimum": 1,
+              "title": "Track Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Reduce the shape to at most this many positions; omit for the canonical set",
+            "in": "query",
+            "name": "max_points",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 50000,
+                  "minimum": 2,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Reduce the shape to at most this many positions; omit for the canonical set",
+              "title": "Max Points"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/GeometryResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                    }
+                  ],
+                  "title": "Response Read Geometry Api V1 Tracks  Track Id  Geometry Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read the geometry of one track",
+        "tags": [
+          "tracks"
+        ]
+      }
+    },
+    "/api/v1/tracks/{track_id}/metadata": {
+      "patch": {
+        "description": "Record what the user says about a track, and return it as it now reads.\n\nSource data is untouched. The correction is stored beside the raw import and\nthe normalized track, so reprocessing replaces both of those and leaves this\nstanding -- the same promise the classification override already makes.\n\nWhich fields were *sent* is the difference between a partial update and a\nreplacement, so the request's own field set decides what to leave alone.",
+        "operationId": "update_metadata_api_v1_tracks__track_id__metadata_patch",
+        "parameters": [
+          {
+            "description": "Identity of a stored track",
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "description": "Identity of a stored track",
+              "minimum": 1,
+              "title": "Track Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackMetadataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TrackResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                    }
+                  ],
+                  "title": "Response Update Metadata Api V1 Tracks  Track Id  Metadata Patch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Correct the title, or keep a note",
+        "tags": [
+          "tracks"
+        ]
+      }
+    },
+    "/api/v1/tracks/{track_id}/profile": {
+      "get": {
+        "description": "Return one track's series against its own distance axis.\n\nDerived on demand from the current normalized geometry, by the same\nelevation filter the ascent figure is accumulated from and the same window\nthe maximum sustained speed is read from. A chart drawn from this and a\nheadline computed from those are two views of one analysis rather than two\nanalyses.",
+        "operationId": "read_profile_api_v1_tracks__track_id__profile_get",
+        "parameters": [
+          {
+            "description": "Identity of a stored track",
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "description": "Identity of a stored track",
+              "minimum": 1,
+              "title": "Track Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many samples the series may hold",
+            "in": "query",
+            "name": "max_samples",
+            "required": false,
+            "schema": {
+              "default": 2000,
+              "description": "How many samples the series may hold",
+              "maximum": 20000,
+              "minimum": 2,
+              "title": "Max Samples",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/TrackProfileResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                    }
+                  ],
+                  "title": "Response Read Profile Api V1 Tracks  Track Id  Profile Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "No such track"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read the elevation and speed series of one track",
+        "tags": [
+          "tracks"
+        ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "description": "Report that the application process is able to serve requests.",
+        "operationId": "read_health_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}

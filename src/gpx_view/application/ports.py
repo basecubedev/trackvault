@@ -11,6 +11,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from gpx_view.domain import (
+    EMPTY_USER_METADATA,
     Activity,
     NormalizedTrack,
     ProcessingRun,
@@ -20,6 +21,8 @@ from gpx_view.domain import (
     TrackClassification,
     TrackKind,
     TrackSegment,
+    UserTrackMetadata,
+    effective_title,
     temporal_evidence_of,
 )
 from gpx_view.domain.analysis import (
@@ -86,7 +89,12 @@ class TrackSummary:
         source_key: Which candidate of its source this track is. The identity a
             user correction is attached to, opaque outside the importer that
             produced it.
-        title: The name the source gave the track.
+        title: The name the source gave the track. Source evidence, never
+            overwritten -- what to *display* is ``display_title``.
+        user_metadata: What the track's owner said about it: a title correction
+            and a note, either of which may be absent. Stored beside the source
+            rather than over it, so reprocessing replaces the normalized data
+            and leaves the correction standing.
         activity: The activity, from explicit source metadata or the user.
         classification: Detected result and any user override. The single
             authority for ``effective_kind`` -- no kind is stored separately.
@@ -122,6 +130,18 @@ class TrackSummary:
     source: SourceMetadata
     analysis: AnalysisAvailability = AnalysisAvailability.MISSING
     metrics: Mapping[MetricName, MetricValue] = field(default_factory=dict)
+    user_metadata: UserTrackMetadata = EMPTY_USER_METADATA
+
+    @property
+    def display_title(self) -> str | None:
+        """Return the title to show, honouring an explicit user correction.
+
+        A projection of the source title and the user's, never a third stored
+        value -- the same shape as ``effective_kind``. ``None`` stays a real
+        answer: a document that names nothing is not renamed here, because a
+        presentation layer can say something honest about that and this cannot.
+        """
+        return effective_title(self.title, self.user_metadata)
 
     @property
     def effective_kind(self) -> TrackKind:
@@ -417,6 +437,28 @@ class TrackAggregationRow:
     metrics: Mapping[MetricName, MetricValue]
 
 
+@dataclass(frozen=True, slots=True)
+class DatedTrackRow:
+    """One current track that a calendar period may date, and nothing else.
+
+    Deliberately much smaller than :class:`TrackAggregationRow`: answering
+    "which years does this archive hold?" needs an instant, a kind and an
+    activity, and loading a metric set per track to compute a list of a dozen
+    integers would be paying a total's price for a dropdown.
+
+    Attributes:
+        effective_kind: What the track counts as now, honouring a correction.
+        activity: What the track was.
+        started_at: The first measured instant its positions carry, in UTC.
+            Never ``None`` -- a row that has no trustworthy instant is not a row
+            a period can date, and it never reaches this type.
+    """
+
+    effective_kind: TrackKind
+    activity: Activity
+    started_at: datetime
+
+
 class Clock(Protocol):
     """The source of "now", injected so that tests stay deterministic."""
 
@@ -616,6 +658,19 @@ class TrackRepository(Protocol):
         """Withdraw a user correction. Returns whether the track exists."""
         ...
 
+    def set_user_metadata(self, track_id: int, metadata: UserTrackMetadata, at: datetime) -> bool:
+        """Store what the user says about a track. Returns whether it exists.
+
+        Empty metadata removes the record rather than storing two nulls: "the
+        user has said nothing" is the absence of a row, so it has one
+        representation instead of two.
+
+        Nothing here touches the raw import, the normalized track or the
+        detected classification. That is the whole point -- the correction has
+        to survive a reprocess that replaces all three.
+        """
+        ...
+
     def record_analysis(self, run: AnalysisRun, analysis: TrackAnalysis | None) -> int:
         """Store one analysis attempt in a single transaction.
 
@@ -692,6 +747,25 @@ class TrackRepository(Protocol):
         the results into local months is the caller's job too: an offset is not
         a constant, and doing that arithmetic in SQL is where a daylight-saving
         transition quietly moves a track into the wrong month.
+        """
+        ...
+
+    def dated_track_rows(self) -> tuple[DatedTrackRow, ...]:
+        """Return every current track a calendar period may date.
+
+        The same selection ``placed_aggregation_rows`` makes, without the
+        window and without the metrics: this answers which periods exist rather
+        than what they add up to, and it must not cost what a total costs.
+        """
+        ...
+
+    def current_track_count(self) -> int:
+        """Return how many tracks the archive currently holds, in any scope.
+
+        One number, and it exists to tell an empty archive apart from an empty
+        selection. Those call for opposite reactions -- "import something" and
+        "you are looking at the wrong filter" -- and a caller that cannot tell
+        them apart will state one of them wrongly.
         """
         ...
 
