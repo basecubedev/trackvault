@@ -57,8 +57,15 @@ COPY src ./src
 ARG TRACKVAULT_VERSION
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${TRACKVAULT_VERSION}
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable
+# Deliberately without the cache mount the layers above use, and with uv's cache
+# switched off. uv keys a wheel it built on the source tree, and the version is
+# not in the source tree -- it arrives through the environment variable above.
+# A second build of the same sources under a different version would therefore
+# be handed the first build's wheel, and the image would carry a distribution
+# stating a release it is not while the label stated the right one. That is what
+# `tests/integration/test_docker_smoke.py` caught. One wheel is built here;
+# paying for it every time is cheaper than shipping a mislabelled archive.
+RUN uv sync --locked --no-dev --no-editable --no-cache
 
 
 FROM python:3.13-slim-bookworm AS runtime

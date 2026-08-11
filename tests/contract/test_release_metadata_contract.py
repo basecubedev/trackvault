@@ -118,6 +118,33 @@ def test_the_image_build_is_told_the_version_it_cannot_look_up() -> None:
     assert "SETUPTOOLS_SCM_PRETEND_VERSION=${TRACKVAULT_VERSION}" in recipe
 
 
+def test_the_distribution_is_built_rather_than_taken_from_a_cache() -> None:
+    """A wheel is cached under the sources it was built from, version excluded.
+
+    uv keys a wheel it built on the source tree, and the version is not in the
+    source tree -- it arrives through the environment. So a second build of the
+    same sources under a different version is handed the first build's wheel,
+    and the image ships a distribution stating a release it is not while the
+    label above states the right one. The two surfaces this file exists to keep
+    identical would be describing different releases again, one layer deeper.
+
+    It is not hypothetical: the argument-less `docker build` the CI job runs
+    before the container tests filled that cache with an `0.0.0+unknown` wheel,
+    and the tests then got it back instead of the build they asked for.
+    """
+    recipe = DOCKERFILE.read_text(encoding="utf-8")
+
+    installs = [
+        line
+        for line in recipe.splitlines()
+        if "uv sync" in line and "--no-install-project" not in line
+    ]
+
+    assert installs, "no layer installs the project"
+    for line in installs:
+        assert "--no-cache" in line, line
+
+
 def test_the_image_label_states_the_version_the_build_was_given() -> None:
     """A container label that describes another release is a label that misleads."""
     recipe = DOCKERFILE.read_text(encoding="utf-8")
