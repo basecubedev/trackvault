@@ -88,3 +88,74 @@ test('a deep link survives a refresh', async ({ page }) => {
   await expect(page.getByTestId('track-title')).toHaveText('Talaia ridge walk')
   expect(page.url()).toBe(url)
 })
+
+/**
+ * The offer a track makes when nothing covers it.
+ *
+ * The seeded archive has a map for every track it holds, which is the state
+ * worth having and the wrong state for this. So the archive's answer about
+ * coverage is replaced for one test, and the install it would start is
+ * intercepted -- the suite must pass with no internet, and a real install would
+ * reach a real provider.
+ *
+ * What this proves is the browser half: that the offer is rendered, that
+ * pressing it sends a region and nothing else, and that the reader is told
+ * where the download can be watched. That the archive picks the right regions
+ * is a statement about the API and is tested there.
+ */
+test('a track with no map behind it is offered the regions that would cover it', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/maps/coverage*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sources: [],
+        glyphs_url: '/fonts/{fontstack}/{range}.pbf',
+        any_installed: false,
+        catalog_known: true,
+        suggestions: [
+          {
+            region_id: 'geofabrik:europe/spain/islas-baleares',
+            name: 'Islas Baleares',
+            ancestry: ['Europe', 'Spain'],
+            size_bytes: 96_000_000,
+            availability_known: true,
+          },
+        ],
+      }),
+    })
+  })
+  const asked: (string | null)[] = []
+  await page.route('**/api/v1/maps/install', async (route) => {
+    asked.push(route.request().postData())
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        job_id: 'job-1',
+        region_id: 'geofabrik:europe/spain/islas-baleares',
+        region_name: 'Islas Baleares',
+        state: 'queued',
+        bytes_downloaded: 0,
+        bytes_total: 96_000_000,
+        percentage: 0,
+        is_update: false,
+        error_code: null,
+        started_at: '2026-08-10T12:00:00+00:00',
+        updated_at: '2026-08-10T12:00:00+00:00',
+      }),
+    })
+  })
+
+  await openTrack(page, 'Talaia ridge walk')
+
+  const offered = page.getByTestId('offered-region')
+  await expect(offered).toContainText('Islas Baleares')
+  await expect(offered).toContainText('Europe / Spain')
+  await offered.getByRole('button', { name: 'Download' }).click()
+
+  await expect(page.getByTestId('offer-started')).toContainText('Islas Baleares')
+  expect(asked).toEqual([JSON.stringify({ region_id: 'geofabrik:europe/spain/islas-baleares' })])
+})

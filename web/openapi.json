@@ -16,6 +16,23 @@
         "title": "Activity",
         "type": "string"
       },
+      "ActivityTotalsResponse": {
+        "description": "What one activity did inside one period.",
+        "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/Activity"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/TotalsResponse"
+          }
+        },
+        "required": [
+          "activity",
+          "totals"
+        ],
+        "title": "ActivityTotalsResponse",
+        "type": "object"
+      },
       "AggregationScope": {
         "description": "Which set of tracks a total covers.\n\nThere is deliberately no \"everything\" scope. A number that adds routes\nsomebody planned to distances somebody travelled is not a statistic about\neither, and making it the default would make it the one people quote.\n\nAttributes:\n    RECORDED: Tracks whose effective kind is ``RECORDED`` -- what actually\n        happened.\n    PLANNED: Tracks whose effective kind is ``PLANNED``.\n    UNKNOWN: Tracks whose kind could not be decided. Their own category, so\n        that a data-quality view is possible without them contaminating the\n        other two.",
         "enum": [
@@ -97,6 +114,33 @@
           "moving_duration_s"
         ],
         "title": "AnalysisSummaryResponse",
+        "type": "object"
+      },
+      "ApproximateLocationResponse": {
+        "description": "Roughly where a track was, and the word \"roughly\" is in the name.\n\nWhat is compared is rectangles: the box around the track against the box\naround a region's outline. Inside a country that is right; near a border it\nis not, and it is confidently not -- a walk in Aachen falls inside the\nrectangle around the Dutch province of Limburg, and this says so. An\ninterface showing it has to say it is approximate; the field name is the\nreminder that it cannot be anything else.\n\n``null`` where nothing can answer: a track with no positions, or an archive\nthat has never read a region catalog. Locating reaches no provider.",
+        "properties": {
+          "countries": {
+            "description": "The countries those regions belong to. The country is the named region's own ancestor, so the two can be wrong together but never contradict.",
+            "items": {
+              "$ref": "#/components/schemas/LocatedCountryResponse"
+            },
+            "title": "Countries",
+            "type": "array"
+          },
+          "regions": {
+            "description": "Named regions, most specific first. More than one only when no single region's rectangle holds the whole track.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Regions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "regions",
+          "countries"
+        ],
+        "title": "ApproximateLocationResponse",
         "type": "object"
       },
       "AttributionLinkResponse": {
@@ -435,11 +479,16 @@
         "type": "object"
       },
       "CoverageResponse": {
-        "description": "Which installed maps belong behind a rectangle.",
+        "description": "Which installed maps belong behind a rectangle, and what would fill it.",
         "properties": {
           "any_installed": {
             "description": "Whether the archive holds any usable map at all, so the page can tell 'nothing installed' from 'nothing here'",
             "title": "Any Installed",
+            "type": "boolean"
+          },
+          "catalog_known": {
+            "description": "Whether a catalog has ever been read here. False with no suggestions means 'nobody has looked', which is a different sentence from 'there is nothing'.",
+            "title": "Catalog Known",
             "type": "boolean"
           },
           "glyphs_url": {
@@ -454,12 +503,22 @@
             },
             "title": "Sources",
             "type": "array"
+          },
+          "suggestions": {
+            "description": "Regions that could be installed for this rectangle, most specific first. Empty whenever something is already drawn here, whenever this deployment refuses installs, and whenever no catalog has been read.",
+            "items": {
+              "$ref": "#/components/schemas/SuggestedRegionResponse"
+            },
+            "title": "Suggestions",
+            "type": "array"
           }
         },
         "required": [
           "sources",
           "glyphs_url",
-          "any_installed"
+          "any_installed",
+          "suggestions",
+          "catalog_known"
         ],
         "title": "CoverageResponse",
         "type": "object"
@@ -686,6 +745,59 @@
           "analysis_failed"
         ],
         "title": "ImportErrorCode",
+        "type": "string"
+      },
+      "ImportOutcomeResponse": {
+        "description": "What one offered file produced.\n\nEvery completed attempt answers ``200`` and says in ``status`` which of the\nfour outcomes it was -- including ``failed``. A file the archive could not\nread is not a failed *request*: the server did exactly what was asked, read\nthe bytes, and concluded something about them. Encoding that conclusion in\nan HTTP status as well would be a second vocabulary for one answer, and the\ntwo would drift the first time a fifth outcome existed.",
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why a failed attempt failed",
+            "title": "Error Code"
+          },
+          "sha256": {
+            "description": "Content hash of the offered bytes, and their identity",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ImportStatus",
+            "description": "imported, duplicate, repaired or failed"
+          },
+          "track_ids": {
+            "description": "The tracks this produced, or the tracks a duplicate already had",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Track Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "sha256",
+          "track_ids",
+          "error_code"
+        ],
+        "title": "ImportOutcomeResponse",
+        "type": "object"
+      },
+      "ImportStatus": {
+        "description": "How one import attempt ended.\n\nFour outcomes, because an operator has to be able to tell three different\nthings apart: nothing was needed, something was repaired, and something is\nwrong. Hiding a repair inside ``DUPLICATE`` would make the archive silently\nfix itself, and hiding an integrity failure there would make it silently not.\n\nAttributes:\n    IMPORTED: New bytes were stored and normalized.\n    DUPLICATE: The archive already holds these bytes, and holds them\n        correctly. Nothing to do.\n    REPAIRED: The archive knew these bytes but had lost its managed copy, and\n        the copy was restored from the bytes offered again. The normalized\n        data was never in question and is unchanged.\n    FAILED: The attempt did not complete. ``error_code`` says why.",
+        "enum": [
+          "imported",
+          "duplicate",
+          "repaired",
+          "failed"
+        ],
+        "title": "ImportStatus",
         "type": "string"
       },
       "InstallRequest": {
@@ -940,6 +1052,33 @@
         "title": "JobsResponse",
         "type": "object"
       },
+      "LocatedCountryResponse": {
+        "description": "One country a track was approximately in.",
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 3166-1 alpha-2, where the provider states one",
+            "title": "Code"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "code"
+        ],
+        "title": "LocatedCountryResponse",
+        "type": "object"
+      },
       "MapInstallState": {
         "description": "What a region's package amounts to right now.\n\n``INVALID`` is a first-class answer rather than a variant of missing: a\npackage whose file vanished and a package that was never installed call for\ndifferent words in front of a reader, and only one of them is a surprise.",
         "enum": [
@@ -1015,17 +1154,27 @@
       "MonthResponse": {
         "description": "One month of a year. Present even when nothing happened in it.",
         "properties": {
+          "by_activity": {
+            "description": "The same tracks grouped by activity, in the taxonomy's order. A partition: the parts add up to `totals`. An activity with no track in this month is absent rather than reported as zero.",
+            "items": {
+              "$ref": "#/components/schemas/ActivityTotalsResponse"
+            },
+            "title": "By Activity",
+            "type": "array"
+          },
           "month": {
             "title": "Month",
             "type": "integer"
           },
           "totals": {
-            "$ref": "#/components/schemas/TotalsResponse"
+            "$ref": "#/components/schemas/TotalsResponse",
+            "description": "The authority for this month"
           }
         },
         "required": [
           "month",
-          "totals"
+          "totals",
+          "by_activity"
         ],
         "title": "MonthResponse",
         "type": "object"
@@ -1033,6 +1182,14 @@
       "MonthlyResponse": {
         "description": "A year broken into its twelve months.",
         "properties": {
+          "activities": {
+            "description": "The activities this year holds, in the taxonomy's order -- not the whole vocabulary, and never ordered by size. A client may rely on an activity keeping its place, and therefore its colour, across requests.",
+            "items": {
+              "$ref": "#/components/schemas/Activity"
+            },
+            "title": "Activities",
+            "type": "array"
+          },
           "activity": {
             "anyOf": [
               {
@@ -1067,9 +1224,67 @@
           "scope",
           "activity",
           "timezone",
-          "months"
+          "months",
+          "activities"
         ],
         "title": "MonthlyResponse",
+        "type": "object"
+      },
+      "OverallResponse": {
+        "description": "Everything one scope holds, and each year inside it.\n\nA year is reported as twelve months because a calendar has twelve. This is\nreported as the years the archive has something for: padding out to the\nsupported calendar would draw a century of empty buckets to say nothing.",
+        "properties": {
+          "activities": {
+            "description": "The activities this scope holds, in the taxonomy's order",
+            "items": {
+              "$ref": "#/components/schemas/Activity"
+            },
+            "title": "Activities",
+            "type": "array"
+          },
+          "activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Activity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/AggregationScope"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/TotalsResponse",
+            "description": "What the whole scope adds up to. The years add up to exactly this."
+          },
+          "unplaced": {
+            "$ref": "#/components/schemas/UnplacedResponse",
+            "description": "Tracks in scope that belong to no year -- beside the total, never inside"
+          },
+          "years": {
+            "description": "One bucket per year the archive holds something for, oldest first",
+            "items": {
+              "$ref": "#/components/schemas/YearBucketResponse"
+            },
+            "title": "Years",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scope",
+          "activity",
+          "timezone",
+          "totals",
+          "unplaced",
+          "years",
+          "activities"
+        ],
+        "title": "OverallResponse",
         "type": "object"
       },
       "PointResponse": {
@@ -1153,6 +1368,18 @@
       "ProfileSampleResponse": {
         "description": "One position, with what a map and a chart each read from it.\n\n``segment_index`` and ``point_index`` are the sample's identity. A chart\ncursor and a map marker address a sample by them rather than by looking for\na nearby coordinate, which is a second authority on identity and picks the\nwrong position exactly where a track crosses itself.",
         "properties": {
+          "cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a cadence sensor measured here. Zero is a reading, not an absence.",
+            "title": "Cadence Rpm"
+          },
           "distance_m": {
             "description": "Cumulative distance, summed within segments",
             "title": "Distance M",
@@ -1181,6 +1408,18 @@
             ],
             "description": "The altitude after the filter the ascent figure is accumulated from",
             "title": "Filtered Elevation M"
+          },
+          "heart_rate_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a monitor measured here. A measurement, passed through untouched.",
+            "title": "Heart Rate Bpm"
           },
           "latitude": {
             "title": "Latitude",
@@ -1232,7 +1471,9 @@
           "time",
           "elevation_m",
           "filtered_elevation_m",
-          "speed_mps"
+          "speed_mps",
+          "heart_rate_bpm",
+          "cadence_rpm"
         ],
         "title": "ProfileSampleResponse",
         "type": "object"
@@ -1365,6 +1606,54 @@
         "title": "SourceResponse",
         "type": "object"
       },
+      "SuggestedRegionResponse": {
+        "description": "One region that could be installed for a rectangle nothing covers.\n\nA candidate, never a verdict. The provider's index says what rectangle a\nregion occupies, and a rectangle around the Netherlands contains Aachen --\nso several are offered, most specific first, and the reader picks. What\ntravels is an identity: there is no field here that could name a host.",
+        "properties": {
+          "ancestry": {
+            "description": "The regions above it, outermost first, so a name is not ambiguous",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ancestry",
+            "type": "array"
+          },
+          "availability_known": {
+            "description": "False means the package question has not been asked, not that there is none",
+            "title": "Availability Known",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "region_id": {
+            "description": "What an install would name. Never an address.",
+            "title": "Region Id",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a download would cost, or null when nobody has asked the provider yet",
+            "title": "Size Bytes"
+          }
+        },
+        "required": [
+          "region_id",
+          "name",
+          "ancestry",
+          "size_bytes",
+          "availability_known"
+        ],
+        "title": "SuggestedRegionResponse",
+        "type": "object"
+      },
       "SystemInfoResponse": {
         "description": "What this deployment is running.",
         "properties": {
@@ -1389,6 +1678,11 @@
             "title": "Timezone",
             "type": "string"
           },
+          "upload_enabled": {
+            "description": "Whether this deployment accepts files over HTTP. A page that offered the control anyway would be a page that lies about what the server will do.",
+            "title": "Upload Enabled",
+            "type": "boolean"
+          },
           "version": {
             "description": "The GPX-View release, from its distribution metadata",
             "title": "Version",
@@ -1400,7 +1694,8 @@
           "schema_version",
           "timezone",
           "processing",
-          "analysis"
+          "analysis",
+          "upload_enabled"
         ],
         "title": "SystemInfoResponse",
         "type": "object"
@@ -1912,6 +2207,17 @@
           "analysis": {
             "$ref": "#/components/schemas/AnalysisSummaryResponse"
           },
+          "approximate_location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApproximateLocationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Roughly where the track was, from region rectangles. Never exact."
+          },
           "classification": {
             "$ref": "#/components/schemas/ClassificationResponse"
           },
@@ -1929,6 +2235,14 @@
           "raw_import_sha256": {
             "title": "Raw Import Sha256",
             "type": "string"
+          },
+          "same_recording_ids": {
+            "description": "Other tracks whose normalized positions and instants are identical to this one's -- one ride exported more than once. An equality, not a similarity: it never claims two rides are one because they look alike, and it does not find the same loop ridden on two days. Empty also means 'nothing matched', never 'nothing was compared'.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Same Recording Ids",
+            "type": "array"
           },
           "segment_count": {
             "title": "Segment Count",
@@ -1969,7 +2283,9 @@
           "analysis",
           "point_count",
           "segment_count",
-          "source"
+          "source",
+          "approximate_location",
+          "same_recording_ids"
         ],
         "title": "TrackResponse",
         "type": "object"
@@ -2102,6 +2418,33 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "YearBucketResponse": {
+        "description": "One year of the whole archive.",
+        "properties": {
+          "by_activity": {
+            "description": "The same partition a month reports, one level up",
+            "items": {
+              "$ref": "#/components/schemas/ActivityTotalsResponse"
+            },
+            "title": "By Activity",
+            "type": "array"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/TotalsResponse"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "totals",
+          "by_activity"
+        ],
+        "title": "YearBucketResponse",
         "type": "object"
       },
       "YearResponse": {
@@ -2429,7 +2772,7 @@
     },
     "/api/v1/maps/coverage": {
       "get": {
-        "description": "Return the packages to draw behind a rectangle, most specific first.\n\nReaches no provider and reads no track. It is the only map endpoint a track\npage calls, which is what makes viewing a track send nothing anywhere.",
+        "description": "Return the packages to draw behind a rectangle, most specific first.\n\nReaches no provider and reads no track. It is the only map endpoint a track\npage calls, which is what makes viewing a track send nothing anywhere.\n\nWhen nothing is installed for the rectangle, the answer also names the\nregions that *could* be -- read out of the cached catalog, so this stays a\nread that contacts nobody. It is one question with one complete answer:\n\"what is behind this track, and if nothing, what would be\".",
         "operationId": "read_coverage_api_v1_maps_coverage_get",
         "parameters": [
           {
@@ -2838,6 +3181,69 @@
         ]
       }
     },
+    "/api/v1/statistics/overall": {
+      "get": {
+        "description": "Return what a whole scope adds up to, and what each of its years did.\n\nRegistered before ``/year/{year}`` for the same reason ``/years`` is: a\nliteral path must win over a parameterised one whatever the router's\nmatching order turns out to be.",
+        "operationId": "read_overall_api_v1_statistics_overall_get",
+        "parameters": [
+          {
+            "description": "Which set of tracks to total: recorded, planned or unknown",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AggregationScope",
+              "default": "recorded",
+              "description": "Which set of tracks to total: recorded, planned or unknown"
+            }
+          },
+          {
+            "description": "Narrow the totals to one activity",
+            "in": "query",
+            "name": "activity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Activity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Narrow the totals to one activity",
+              "title": "Activity"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverallResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Total every year at once",
+        "tags": [
+          "statistics"
+        ]
+      }
+    },
     "/api/v1/statistics/year/{year}": {
       "get": {
         "description": "Return one year's totals.\n\nThe default scope is ``recorded``, because the unqualified question is what\nactually happened rather than what everything adds up to.",
@@ -3236,6 +3642,101 @@
           }
         },
         "summary": "List stored tracks",
+        "tags": [
+          "tracks"
+        ]
+      }
+    },
+    "/api/v1/tracks/imports": {
+      "post": {
+        "description": "Import one offered file and report what it produced.\n\nThe body is the file. One file per request, deliberately: a reader watching\ntwenty files arrive wants to know which of them the archive could not read,\nand a single response for a batch either hides that or reinvents this\nresponse inside a list.\n\nNothing about the request decides anything. The bytes go to the same\n``ImportTracks`` use case the command line and the scanned directory use, so\nthe duplicate rule, the storage layout, the classification and the analysis\nare the archive's, not this route's.",
+        "operationId": "import_file_api_v1_tracks_imports_post",
+        "parameters": [
+          {
+            "description": "What to remember the file as. Display metadata; never a location.",
+            "in": "query",
+            "name": "filename",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What to remember the file as. Display metadata; never a location.",
+              "title": "Filename"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "The file itself. One per request.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOutcomeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "Nothing was offered"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "This deployment refuses uploads"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpx_view__api__tracks__ErrorResponse"
+                }
+              }
+            },
+            "description": "Larger than this archive accepts"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Offer one file to the archive",
         "tags": [
           "tracks"
         ]

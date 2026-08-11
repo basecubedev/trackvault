@@ -9,6 +9,7 @@ That pattern looks like a migration layer until the first column has to change,
 and then there is no way to tell which shape a deployed database is in.
 """
 
+import hashlib
 import sqlite3
 from collections.abc import Callable
 
@@ -454,6 +455,87 @@ def _migrate_to_7(connection: sqlite3.Connection) -> None:
     _execute_all(connection, _SCHEMA_7)
 
 
+def _migrate_to_8(connection: sqlite3.Connection) -> None:
+    """Give a position room for what a sensor measured beside it.
+
+    Two nullable columns rather than a table of readings. A reading belongs to
+    exactly one position, arrives with it and is read with it, so a join would
+    buy nothing and cost every geometry read a second query.
+
+    Nullable because most positions have neither, and because every position
+    already stored has neither: this migration adds room, not data. The stored
+    geometry is not rewritten -- the readings were never parsed, so they are not
+    in the archive to recover. Reprocessing is what puts them there, from the
+    byte-identical raw copy, and the normalization schema version is bumped in
+    the same change so every affected track reports itself outdated and says so.
+    """
+    connection.execute("ALTER TABLE track_points ADD COLUMN heart_rate INTEGER")
+    connection.execute("ALTER TABLE track_points ADD COLUMN cadence INTEGER")
+
+
+def _migrate_to_9(connection: sqlite3.Connection) -> None:
+    """Give every track the identity of the *recording* it describes.
+
+    One ride exported as GPX 1.1, as GPX 1.0 and as a route is three raw
+    imports -- correctly, because the bytes are different evidence and only one
+    of them carries a heart rate. It is one afternoon, and until now nothing
+    said so.
+
+    Backfilled here rather than left for reprocessing. The value is derived from
+    geometry the archive already holds, so it can be computed for every existing
+    track in one pass; bumping the normalization version instead would claim the
+    *normalized data* changed, which it did not, and would outdate every track
+    to add a column that could be filled without touching one.
+    """
+    connection.execute("ALTER TABLE tracks ADD COLUMN geometry_sha256 TEXT")
+    rows = connection.execute(
+        "SELECT s.track_id AS track_id, p.latitude, p.longitude, p.recorded_at "
+        "FROM track_segments s JOIN track_points p ON p.segment_id = s.id "
+        "ORDER BY s.track_id, s.position, p.position"
+    ).fetchall()
+    lines: dict[int, list[bytes]] = {}
+    for row in rows:
+        instant = row["recorded_at"] or ""
+        lines.setdefault(int(row["track_id"]), []).append(
+            f"{float(row['latitude'])!r},{float(row['longitude'])!r},{instant}\n".encode()
+        )
+    connection.executemany(
+        "UPDATE tracks SET geometry_sha256 = ? WHERE id = ?",
+        [
+            (hashlib.sha256(b"".join(parts)).hexdigest(), track_id)
+            for track_id, parts in lines.items()
+        ],
+    )
+    connection.execute("CREATE INDEX idx_tracks_geometry ON tracks(geometry_sha256)")
+
+
+def _migrate_to_10(connection: sqlite3.Connection) -> None:
+    """Give every track the rectangle it occupies.
+
+    A fact about the geometry, stored beside the other facts a listing already
+    reads without touching a position -- the point count, the first and last
+    instant. Where that rectangle *is* stays a question answered at read time,
+    because the answer comes from a catalog that changes and a stored name would
+    be the copy nobody updates.
+
+    Backfilled here for the same reason the recording fingerprint was: it is
+    derived from geometry the archive already holds.
+    """
+    for column in ("min_longitude", "min_latitude", "max_longitude", "max_latitude"):
+        connection.execute(f"ALTER TABLE tracks ADD COLUMN {column} REAL")
+    connection.execute(
+        "UPDATE tracks SET "
+        "min_longitude = (SELECT MIN(p.longitude) FROM track_segments s "
+        "  JOIN track_points p ON p.segment_id = s.id WHERE s.track_id = tracks.id), "
+        "min_latitude = (SELECT MIN(p.latitude) FROM track_segments s "
+        "  JOIN track_points p ON p.segment_id = s.id WHERE s.track_id = tracks.id), "
+        "max_longitude = (SELECT MAX(p.longitude) FROM track_segments s "
+        "  JOIN track_points p ON p.segment_id = s.id WHERE s.track_id = tracks.id), "
+        "max_latitude = (SELECT MAX(p.latitude) FROM track_segments s "
+        "  JOIN track_points p ON p.segment_id = s.id WHERE s.track_id = tracks.id)"
+    )
+
+
 MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_to_1,
     _migrate_to_2,
@@ -462,6 +544,9 @@ MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_to_5,
     _migrate_to_6,
     _migrate_to_7,
+    _migrate_to_8,
+    _migrate_to_9,
+    _migrate_to_10,
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

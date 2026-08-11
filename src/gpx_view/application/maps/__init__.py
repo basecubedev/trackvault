@@ -7,6 +7,7 @@ RemoveMapPackage     deleting one, and nothing else
 RecoverMapStorage    what has to be true again after a crash
 ListInstalledMaps    what is installed, and whether it can still be proved
 SelectMapCoverage    which installed maps belong behind a rectangle
+SuggestMapRegions    which regions could be installed for one nothing covers
 GetMapInstallJob     where an installation has got to
 ```
 
@@ -44,16 +45,24 @@ from gpx_view.application.maps.ports import (
 )
 from gpx_view.application.maps.queries import (
     COVERAGE_PADDING_DEGREES,
+    MAX_SUGGESTIONS,
+    ApproximateLocation,
     GetMapInstallJob,
     ListInstalledMaps,
+    LocatedCountry,
+    LocateTracks,
     MapCoverage,
     MapSource,
     SelectMapCoverage,
+    SuggestedRegion,
+    SuggestMapRegions,
 )
 
 __all__ = [
     "COVERAGE_PADDING_DEGREES",
     "DEFAULT_MAX_DOWNLOAD_BYTES",
+    "MAX_SUGGESTIONS",
+    "ApproximateLocation",
     "CachedCatalog",
     "CatalogEntry",
     "CatalogPage",
@@ -66,6 +75,8 @@ __all__ = [
     "InstallResult",
     "InstalledMap",
     "ListInstalledMaps",
+    "LocateTracks",
+    "LocatedCountry",
     "MapCatalogCache",
     "MapCoverage",
     "MapDownloadSlot",
@@ -83,6 +94,8 @@ __all__ = [
     "RemotePackage",
     "RemoveMapPackage",
     "SelectMapCoverage",
+    "SuggestMapRegions",
+    "SuggestedRegion",
     "TransferOutcome",
     "queued_job",
 ]

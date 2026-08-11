@@ -28,6 +28,7 @@ class InputChannel(StrEnum):
 
     LOCAL_FILE = "local_file"
     IMPORT_DIRECTORY = "import_directory"
+    WEB_UPLOAD = "web_upload"
 
 
 @dataclass(frozen=True, slots=True)

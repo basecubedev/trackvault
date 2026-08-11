@@ -50,6 +50,7 @@ from gpx_view.domain import (
     TrackPoint,
     TrackSegment,
     UserTrackMetadata,
+    recording_fingerprint,
     temporal_evidence_of,
 )
 from gpx_view.domain.analysis import (
@@ -60,6 +61,7 @@ from gpx_view.domain.analysis import (
     MetricValue,
     TrackAnalysis,
 )
+from gpx_view.domain.maps import MapBounds
 from gpx_view.infrastructure.database.migrations import (
     LEGACY_SOURCE_KEY_PREFIX,
     SCHEMA_VERSION,
@@ -308,14 +310,19 @@ class SqliteTrackStore:
         connection.execute(
             "INSERT INTO tracks (raw_import_sha256, source_key, source_index, processing_run_id, "
             "title, activity, exchange_format, format_version, creator, started_at, ended_at, "
-            "point_count, segment_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "point_count, segment_count, geometry_sha256, "
+            "min_longitude, min_latitude, max_longitude, max_latitude) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (raw_import_sha256, source_key) DO UPDATE SET "
             "source_index = excluded.source_index, "
             "processing_run_id = excluded.processing_run_id, title = excluded.title, "
             "activity = excluded.activity, exchange_format = excluded.exchange_format, "
             "format_version = excluded.format_version, creator = excluded.creator, "
             "started_at = excluded.started_at, ended_at = excluded.ended_at, "
-            "point_count = excluded.point_count, segment_count = excluded.segment_count",
+            "point_count = excluded.point_count, segment_count = excluded.segment_count, "
+            "geometry_sha256 = excluded.geometry_sha256, "
+            "min_longitude = excluded.min_longitude, min_latitude = excluded.min_latitude, "
+            "max_longitude = excluded.max_longitude, max_latitude = excluded.max_latitude",
             (
                 sha256,
                 track.source_key,
@@ -330,6 +337,12 @@ class SqliteTrackStore:
                 _as_text(track.ended_at),
                 track.point_count,
                 track.segment_count,
+                # Derived here rather than carried on the normalized track: it
+                # is a projection of geometry the track already is, and a field
+                # every construction site had to supply would be one more place
+                # to get it wrong.
+                recording_fingerprint(track.segments),
+                *_extent_of(track.segments),
             ),
         )
         track_id = int(
@@ -386,8 +399,9 @@ class SqliteTrackStore:
             segment_id = int(cursor.lastrowid or 0)
             connection.executemany(
                 "INSERT INTO track_points "
-                "(segment_id, position, latitude, longitude, elevation, recorded_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(segment_id, position, latitude, longitude, elevation, recorded_at, "
+                "heart_rate, cadence) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         segment_id,
@@ -396,6 +410,8 @@ class SqliteTrackStore:
                         point.longitude,
                         point.elevation,
                         _as_text(point.time),
+                        point.heart_rate_bpm,
+                        point.cadence_rpm,
                     )
                     for point_position, point in enumerate(segment.points)
                 ],
@@ -506,7 +522,10 @@ class SqliteTrackStore:
                 and row["analysis_availability"] == AnalysisAvailability.CURRENT.value
             ],
         )
-        return tuple(_summary_from(row, evidence, links, namespaces, metrics) for row in rows)
+        siblings = _same_recording(connection, rows)
+        return tuple(
+            _summary_from(row, evidence, links, namespaces, metrics, siblings) for row in rows
+        )
 
     def get_geometry(self, track_id: int) -> tuple[TrackSegment, ...] | None:
         """Return the segments of one stored track, in source order."""
@@ -515,7 +534,8 @@ class SqliteTrackStore:
                 return None
             rows = connection.execute(
                 "SELECT s.position AS segment_position, p.latitude, p.longitude, p.elevation, "
-                "p.recorded_at FROM track_segments s JOIN track_points p ON p.segment_id = s.id "
+                "p.recorded_at, p.heart_rate, p.cadence "
+                "FROM track_segments s JOIN track_points p ON p.segment_id = s.id "
                 "WHERE s.track_id = ? ORDER BY s.position, p.position",
                 (track_id,),
             ).fetchall()
@@ -528,6 +548,8 @@ class SqliteTrackStore:
                     longitude=float(row["longitude"]),
                     elevation=None if row["elevation"] is None else float(row["elevation"]),
                     time=_as_instant(row["recorded_at"]),
+                    heart_rate_bpm=None if row["heart_rate"] is None else int(row["heart_rate"]),
+                    cadence_rpm=None if row["cadence"] is None else int(row["cadence"]),
                 )
             )
         return tuple(TrackSegment(points=tuple(points[key])) for key in sorted(points))
@@ -882,7 +904,9 @@ _CURRENT_GENERATION = """
 _SUMMARY_COLUMNS = """
 SELECT t.id, t.raw_import_sha256, t.source_index, t.source_key, t.title, t.activity,
        t.exchange_format, t.format_version, t.creator, t.started_at, t.ended_at,
-       t.point_count, t.segment_count, i.received_at AS raw_received_at,
+       t.point_count, t.segment_count, t.geometry_sha256,
+       t.min_longitude, t.min_latitude, t.max_longitude, t.max_latitude,
+       i.received_at AS raw_received_at,
        c.detected_kind, c.confidence, c.method, c.method_version,
        o.override_kind, t.current_analysis_run_id,
        u.title AS user_title, u.note AS user_note
@@ -1628,12 +1652,66 @@ def _run_from(row: sqlite3.Row) -> ProcessingRun:
     )
 
 
+def _extent_of(
+    segments: Sequence[TrackSegment],
+) -> tuple[float | None, float | None, float | None, float | None]:
+    """Return the rectangle a track occupies, or four nulls for no positions."""
+    positions = [
+        (point.longitude, point.latitude) for segment in segments for point in segment.points
+    ]
+    if not positions:
+        return (None, None, None, None)
+    longitudes = [longitude for longitude, _ in positions]
+    latitudes = [latitude for _, latitude in positions]
+    return (min(longitudes), min(latitudes), max(longitudes), max(latitudes))
+
+
+def _same_recording(
+    connection: sqlite3.Connection, rows: Sequence[sqlite3.Row]
+) -> dict[int, tuple[int, ...]]:
+    """Return, per track on this page, the other tracks that are the same recording.
+
+    One batched query for the page, like every other side table here. A track
+    whose fingerprint is not known -- written by a build before the column
+    existed and never persisted since -- reports nothing, which says "not
+    known" rather than "unique". Claiming the second from the first is how a
+    missing value becomes a false statement.
+    """
+    fingerprints = {row["geometry_sha256"] for row in rows if row["geometry_sha256"]}
+    if not fingerprints:
+        return {}
+    placeholders = ",".join("?" for _ in fingerprints)
+    found = connection.execute(
+        # Current generations only, by the same join every other read uses: a
+        # superseded track is not a second import of anything, it is an older
+        # normalization of one.
+        f"SELECT t.id AS id, t.geometry_sha256 AS geometry_sha256 FROM tracks t "  # noqa: S608 - placeholders only
+        "JOIN raw_imports i ON i.sha256 = t.raw_import_sha256 "
+        "AND i.active_processing_run_id = t.processing_run_id "
+        f"WHERE t.geometry_sha256 IN ({placeholders}) ORDER BY t.id",
+        tuple(fingerprints),
+    ).fetchall()
+    by_fingerprint: dict[str, list[int]] = {}
+    for row in found:
+        by_fingerprint.setdefault(str(row["geometry_sha256"]), []).append(int(row["id"]))
+    return {
+        int(row["id"]): tuple(
+            other
+            for other in by_fingerprint.get(str(row["geometry_sha256"]), ())
+            if other != int(row["id"])
+        )
+        for row in rows
+        if row["geometry_sha256"]
+    }
+
+
 def _summary_from(
     row: sqlite3.Row,
     evidence: dict[int, tuple[str, ...]],
     links: dict[int, tuple[str, ...]],
     namespaces: dict[int, tuple[str, ...]],
     metrics: dict[int, dict[MetricName, MetricValue]],
+    siblings: dict[int, tuple[int, ...]],
 ) -> TrackSummary:
     """Rebuild a track summary from its row and its side tables.
 
@@ -1680,7 +1758,28 @@ def _summary_from(
             else {}
         ),
         user_metadata=UserTrackMetadata(title=row["user_title"], note=row["user_note"]),
+        same_recording_ids=siblings.get(track_id, ()),
+        bounds=_bounds_of_row(row),
     )
+
+
+def _bounds_of_row(row: sqlite3.Row) -> MapBounds | None:
+    """Return the rectangle a stored track occupies, or ``None`` if it has none."""
+    values = [
+        row["min_longitude"],
+        row["min_latitude"],
+        row["max_longitude"],
+        row["max_latitude"],
+    ]
+    if any(value is None for value in values):
+        return None
+    west, south, east, north = (float(value) for value in values)
+    try:
+        return MapBounds(
+            min_longitude=west, min_latitude=south, max_longitude=east, max_latitude=north
+        )
+    except ValueError:  # pragma: no cover - stored positions are range-checked
+        return None
 
 
 __all__ = ["SCHEMA_VERSION", "SqliteTrackStore"]

@@ -60,14 +60,68 @@ test('the activity filter narrows the totals', async ({ page }) => {
 
 test('opening a month lists exactly the tracks that month counted', async ({ page }) => {
   await page.goto('/?year=2025')
-  const october = page.getByTestId('monthly-table').locator('tbody tr').nth(9)
-  await expect(october.locator('td').nth(1)).toHaveText('1')
+  // By name rather than by column index: the table grows a column per activity
+  // when a year holds more than one, and an index would silently move.
+  await expect(page.getByTestId('month-10-tracks')).toHaveText('1')
 
   await page.getByTestId('open-month-10').click()
 
   await expect(page).toHaveURL(/\/tracks\?year=2025&month=10/)
   await expect(page.getByTestId('result-count')).toContainText('1 track')
   await expect(page.getByText('Talaia ridge walk')).toBeVisible()
+})
+
+test('the monthly table names every activity the year holds', async ({ page }) => {
+  await page.goto('/?year=2025')
+
+  // The seeded recordings are one walk and one ride. The chart draws a bar
+  // each; the table carries the same split as text, which is what makes the
+  // numbers readable to somebody the colours do not reach.
+  const headers = page.getByTestId('monthly-table').locator('thead th')
+  await expect(headers.nth(1)).toHaveText('walking')
+  await expect(headers.nth(2)).toHaveText('cycling')
+  await expect(headers.nth(3)).toHaveText('All')
+
+  const october = page.getByTestId('monthly-table').locator('tbody tr').nth(9)
+  await expect(october.locator('td').nth(0)).toHaveText('9.2')
+  // Nobody cycled in October. A dash, not a zero.
+  await expect(october.locator('td').nth(1)).toHaveText('—')
+})
+
+test('narrowing to one activity leaves one bar and the plain table', async ({ page }) => {
+  await page.goto('/?year=2025')
+  await expect(page.getByTestId('monthly-table').locator('thead th').nth(1)).toHaveText('walking')
+
+  await page.locator('#activity').selectOption('cycling')
+
+  // One activity needs no legend and no column of its own: the heading above
+  // the chart already says what is being shown.
+  await expect(page.getByTestId('monthly-table').locator('thead th').nth(1)).toHaveText('Distance')
+})
+
+test('all years can be shown at once, as one bar per year', async ({ page }) => {
+  await page.goto('/')
+
+  await page.locator('#year').selectOption('all')
+
+  await expect(page.getByRole('heading', { name: /Yearly/ })).toBeVisible()
+  const table = page.getByTestId('monthly-table')
+  await expect(table.locator('thead th').first()).toHaveText('Year')
+  // The seeded archive holds one year, so one bucket -- not twelve months of
+  // it, and not a century of empty ones either.
+  await expect(table.locator('tbody tr')).toHaveCount(1)
+  await expect(table.locator('tbody tr th').first()).toHaveText('2025')
+  await expect(page.getByTestId('metric-tracks')).toContainText('2')
+})
+
+test('opening a year from the whole archive lists that year', async ({ page }) => {
+  await page.goto('/?year=all')
+  await expect(page.getByTestId('open-month-2025')).toBeVisible()
+
+  await page.getByTestId('open-month-2025').click()
+
+  await expect(page).toHaveURL(/\/tracks\?year=2025&kind=recorded/)
+  await expect(page).not.toHaveURL(/month=/)
 })
 
 test('a track with an unverified date is not in the month it claims', async ({ page }) => {

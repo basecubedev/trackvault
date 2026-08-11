@@ -74,6 +74,13 @@ class ProfileSample:
             position, or ``None`` where none could be derived. Never ``0.0`` as
             a filler: a gap, an implausible interval and a missing instant are
             absences, and a zero would draw them as a stop.
+        heart_rate_bpm: What a monitor reported here, or ``None``. Carried
+            through untouched: it is a *measurement*, and the archive has
+            nothing to add to it. The elevation beside it exists twice --
+            recorded and filtered -- because the ascent figure is accumulated
+            from one of them; nothing is accumulated from this.
+        cadence_rpm: What a cadence sensor reported here, or ``None``. Zero is a
+            reading and stays one.
     """
 
     segment_index: int
@@ -85,6 +92,8 @@ class ProfileSample:
     raw_elevation_m: float | None
     filtered_elevation_m: float | None
     sustained_speed_mps: float | None
+    heart_rate_bpm: int | None = None
+    cadence_rpm: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +169,8 @@ def derive_profile(segments: Sequence[TrackSegment]) -> TrackProfile:
                     raw_elevation_m=point.elevation,
                     filtered_elevation_m=filtered[point_index],
                     sustained_speed_mps=speeds.get((segment_index, point_index)),
+                    heart_rate_bpm=point.heart_rate_bpm,
+                    cadence_rpm=point.cadence_rpm,
                 )
             )
         profile.append(ProfileSegment(index=segment_index, samples=tuple(samples)))

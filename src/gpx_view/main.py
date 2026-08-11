@@ -21,6 +21,7 @@ from gpx_view.application.analysis import GetTrackAnalysis
 from gpx_view.application.statistics import (
     GetAvailableYears,
     GetMonthlyStatistics,
+    GetOverallStatistics,
     GetYearStatistics,
 )
 from gpx_view.application.system import GetSystemInfo
@@ -86,6 +87,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             timezone=services.settings.timezone,
             analysis=services.analyze.installed,
         )
+        # The one query that is not about a period: what the archive holds, and
+        # what each of its years did. Same zone, same currency rule.
+        app.state.overall_statistics = GetOverallStatistics(
+            repository=services.store,
+            timezone=services.settings.timezone,
+            analysis=services.analyze.installed,
+        )
         # Which years exist is drawn in the same zone as the totals that fill
         # them, so a year the interface offers is a year the archive agrees it
         # has something for.
@@ -105,12 +113,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # The map capability is wired service by service rather than as one
         # object: the API layer may not name an infrastructure type, and a bag
         # holding several of them would be exactly that.
+        # The one endpoint that lets a caller make this server write, and the
+        # switch that turns it off. Read from settings here so a route never
+        # has to know where configuration lives.
+        app.state.upload_enabled = services.settings.upload_enabled
+        app.state.import_tracks = services.import_tracks
         app.state.maps_enabled = services.maps.enabled
         app.state.map_catalog = services.maps.catalog
         app.state.map_installed = services.maps.installed
         # One coverage authority. The track page asks this and nothing else,
         # which is what makes viewing a track reach no network.
         app.state.map_coverage = services.maps.coverage
+        app.state.map_suggestions = services.maps.suggestions
+        app.state.locate_tracks = services.maps.locate
         app.state.map_installer = services.maps.jobs
         app.state.map_job_query = services.maps.job_query
         app.state.map_remove = services.maps.remove

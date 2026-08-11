@@ -18,8 +18,16 @@ services:
       # installed maps keep working.
       # GPX_VIEW_MAPS_ENABLED: "false"
       #
-      # Set GPX_VIEW_IMPORT_DIR and mount a read-only directory below to enable
-      # `gpx-view scan`. Unset, the feature is off.
+      # Where `gpx-view scan` looks for new files. The directory below is
+      # mounted read-only, which is the mount enforcing what the application
+      # already promises: nothing in it is written, renamed, moved or deleted.
+      GPX_VIEW_IMPORT_DIR: /import
+      #
+      # Uploading through the web interface writes into the managed archive
+      # under /data, never into /import. Set GPX_VIEW_UPLOAD_ENABLED=false to
+      # refuse uploads outright -- see README.md, because on a network you do
+      # not fully trust this is the setting to think about.
+      # GPX_VIEW_UPLOAD_ENABLED: "false"
     volumes:
       # A managed volume, not a host bind mount. Docker initialises a named
       # volume from the image, so /data arrives owned by the non-root runtime
@@ -30,7 +38,13 @@ services:
       # Installed offline maps live here too, so they survive a recreate and
       # never enter the image. They can be hundreds of megabytes each.
       - gpx-view-data:/data
-      # - ./import:/import:ro
+      # Drop files here and run `docker compose exec gpx-view gpx-view scan`.
+      # A host directory rather than a volume, because the whole point is that
+      # you can put files into it from outside the container. It ships with the
+      # repository as an empty folder so that this mount never has to create it:
+      # a source Docker creates is owned by root, and you would need sudo to
+      # write into the folder that exists for you to write into.
+      - ./import:/import:ro
     restart: unless-stopped
 
 volumes:

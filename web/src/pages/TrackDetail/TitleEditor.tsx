@@ -20,9 +20,12 @@ const MAX_NOTE = 4000
 export function TitleEditor({
   track,
   onSaved,
+  headingLevel = 1,
 }: {
   track: Track
   onSaved: (updated: Track) => void
+  /** 1 where the track is the page, 2 where it sits under a heading of its own. */
+  headingLevel?: 1 | 2
 }) {
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(track.metadata.title ?? '')
@@ -58,9 +61,10 @@ export function TitleEditor({
   }
 
   if (!editing) {
+    const Title = headingLevel === 1 ? 'h1' : 'h2'
     return (
       <div className="title-row">
-        <h1 data-testid="track-title">{displayTitle(track)}</h1>
+        <Title data-testid="track-title">{displayTitle(track)}</Title>
         <button type="button" onClick={open} data-testid="edit-title">
           Edit title
         </button>

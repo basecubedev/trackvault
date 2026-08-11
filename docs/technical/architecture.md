@@ -226,7 +226,7 @@ No path, query, coordinate or stack trace ever appears in a response body.
 **There is no authentication.** The read and override endpoints assume a trusted
 network: a self-hosted deployment reachable only from the owner's own machines, or
 one placed behind a reverse proxy that authenticates. That assumption is also why
-there is no upload endpoint -- see "Input paths" below.
+the upload endpoint is bounded and switchable -- see "Input paths" below.
 
 Track endpoints project the **current generation only**. What happened across
 processing runs is a separate question with a separate answer, and it is answered
@@ -347,8 +347,18 @@ not a guess:
 
 Coordinates are range-checked and NaN and infinity are refused. Instants are
 stored in UTC; which timezone they are *displayed* or bucketed in is a separate,
-later decision. Nothing carries a heart rate, cadence, power or temperature field:
-no contract needs one yet, and the model has to stay small to stay extensible.
+later decision.
+
+A position also carries what a sensor measured beside it: a heart rate and a
+cadence, both optional, both *measurements* passed through untouched. They were
+kept out while no contract needed them; a recording that carries two thousand of
+them and an interface that shows none is the contract. Power and temperature
+stay out on the same rule as before -- nothing in this project has evidence for
+them yet, and a field nothing fills is a field that lies about being supported.
+
+A reading of zero is a reading. A cadence sensor on a coasting bike reports zero,
+and folding that into "absent" would be the conflation this model refuses
+everywhere else.
 
 ## Raw import authority
 
@@ -1293,7 +1303,7 @@ CLI           → parser C → DB
 | `gpx-view analyze <track_id>` | implemented |
 | `gpx-view analyze --outdated` | implemented |
 | `gpx-view analyze --all` | implemented |
-| HTTP upload | **not implemented** -- deliberately, see below |
+| `POST /api/v1/tracks/imports` | implemented -- see below |
 | Future API import | not implemented |
 
 The pipeline, once, for all of them:
@@ -1314,10 +1324,23 @@ naming the reason, so a file can be reprocessed once an importer learns to read
 it. The one exception is an oversized file: it is refused before anything is
 stored.
 
-There is **no upload endpoint**. Without authentication, an unauthenticated
-endpoint that accepts files and writes them to disk is not something to add
-casually. Importing is therefore an operator action on the machine that holds the
-data, and it stays that way until authentication exists.
+**The upload endpoint, and what bounds it.** There was none for a long time,
+because an unauthenticated endpoint that accepts files and writes them to disk
+is a bigger thing than an unauthenticated one that reads. It exists now because
+the archive's owner asked for it, and the reasoning that kept it out is what
+shapes it now rather than what is missing from it:
+
+* it is a caller of `ImportTracks`, not a second path -- the duplicate rule, the
+  storage layout and the classification are decided where they always were,
+* the read is bounded *while* reading, so an oversized body is refused before it
+  has been paid for, and a declared length over the ceiling before a chunk,
+* one file per request, so twenty files produce twenty verdicts,
+* the filename is display metadata and never a location,
+* `GPX_VIEW_UPLOAD_ENABLED=false` refuses the whole capability, which is how a
+  deployment that cannot assume a trusted network says so.
+
+It is not authentication and does not reduce the need for it. See
+`docs/adr/0011-web-upload.md`.
 
 ### Known is not current
 
@@ -1486,11 +1509,27 @@ Open on purpose, and not to be pre-empted by "preparation" code:
 - week-based or custom statistics periods, and a per-request timezone override
 - FIT, TCX, KML and GeoJSON adapters -- the boundary is proven, the adapters are
   not written, and no dummy adapter stands in for them
-- semantic duplicate detection
-- authentication, and with it any file upload endpoint
+- semantic duplicate detection: the same loop ridden twice, a trimmed export,
+  a file whose coordinates were rounded on the way out. Those need a
+  heuristic that can be wrong, and a wrong one hides a real track.
+  *Recording identity* -- byte-identical normalized positions and instants --
+  is implemented instead and is not the same thing: it is an equality with
+  nothing to tune, and it catches exactly one ride exported more than once detection
+- authentication. The archive is unauthenticated on purpose and is meant for a
+  trusted network; every endpoint, including the one that accepts a file,
+  assumes that. A deployment that cannot make the assumption refuses uploads
+  with `GPX_VIEW_UPLOAD_ENABLED=false` and is still readable by anyone who
+  can reach the port.
 - a file system watcher, as opposed to the explicit scan
 - Android client or companion app
-- sensor schemas: heart rate, cadence, power, temperature, FIT developer fields
+- sensor schemas beyond heart rate and cadence: power, temperature, FIT
+  developer fields. The two that are implemented are read from the Garmin
+  track-point schema v2 and from nothing else; a document carrying the v1
+  spelling is unknown data rather than a guess.
+- aggregate sensor metrics: an average or maximum heart rate. Those are
+  *derived* values and would be a new `AnalysisProfile` version, which
+  outdates every stored analysis in an archive. Worth doing deliberately
+  rather than as a side effect of reading the series.
 
 See `docs/adr/0001-project-foundation.md`,
 `docs/adr/0002-source-agnostic-track-model.md`,

@@ -16,6 +16,7 @@ MapPackage      one installed regional map and everything explaining it
 MapInstallState what a region amounts to right now
 MapJobState     where an installation has got to
 select_coverage which installed packages belong behind a rectangle
+suggest_regions which catalog regions could hold a track nothing covers
 ```
 """
 
@@ -30,6 +31,7 @@ from gpx_view.domain.maps.package import (
     MapPackageFormat,
     MapTileSchema,
 )
+from gpx_view.domain.maps.suggestion import RegionExtent, suggest_regions
 
 __all__ = [
     "AttributionLink",
@@ -41,5 +43,7 @@ __all__ = [
     "MapPackageFormat",
     "MapRegionId",
     "MapTileSchema",
+    "RegionExtent",
     "select_coverage",
+    "suggest_regions",
 ]

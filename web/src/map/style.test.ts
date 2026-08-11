@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { coverage, mapAttribution, mapSource } from '../test-fixtures'
-import { basemapStyle, requiredAttribution } from './style'
+import { basemapStyle, mergeAttribution, requiredAttribution } from './style'
 
 /**
  * What the style composed from installed coverage must and must not contain.
@@ -144,5 +144,37 @@ describe('the attribution a set of sources requires', () => {
     const lines = requiredAttribution(coverage({ sources: [mapSource(), other] }))
 
     expect(lines).toHaveLength(2)
+  })
+})
+
+describe('the attribution a page of many small maps owes', () => {
+  it('credits a provider once however many maps it drew', () => {
+    const merged = mergeAttribution(['Map data © OpenStreetMap contributors'], [
+      'Map data © OpenStreetMap contributors',
+    ])
+
+    expect(merged).toEqual(['Map data © OpenStreetMap contributors'])
+  })
+
+  it('credits a second provider as soon as one map used it', () => {
+    const merged = mergeAttribution(
+      ['Map data © OpenStreetMap contributors'],
+      ['Map data © Somebody else'],
+    )
+
+    expect(merged).toEqual([
+      'Map data © OpenStreetMap contributors',
+      'Map data © Somebody else',
+    ])
+  })
+
+  it('is the same list, not an equal one, when nothing was added', () => {
+    // Referential stability, because the caller keeps this in React state: a
+    // fresh array per report would re-render the page once per drawn map, and
+    // with a state update inside the report it would not stop.
+    const seen = ['Map data © OpenStreetMap contributors']
+
+    expect(mergeAttribution(seen, seen)).toBe(seen)
+    expect(mergeAttribution(seen, [])).toBe(seen)
   })
 })

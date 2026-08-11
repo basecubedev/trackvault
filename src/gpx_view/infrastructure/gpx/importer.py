@@ -42,7 +42,9 @@ from gpx_view.domain import (
 from gpx_view.infrastructure.gpx.activities import normalize_activity, states_an_activity
 from gpx_view.infrastructure.gpx.extensions import (
     ACTIVITY_ELEMENTS,
+    CADENCE_ELEMENTS,
     COURSE_ELEMENTS,
+    HEART_RATE_ELEMENTS,
     NAVIGATION_ELEMENTS,
     RECEIVER_QUALITY_ELEMENTS,
 )
@@ -349,6 +351,8 @@ class _DocumentReader:
                 longitude=_parse_coordinate(node.get("lon"), "lon"),
                 elevation=elevation,
                 time=time,
+                heart_rate_bpm=_reading(node, HEART_RATE_ELEMENTS),
+                cadence_rpm=_reading(node, CADENCE_ELEMENTS),
             )
         except ValueError as error:
             raise TrackImportError(
@@ -379,6 +383,27 @@ class _Measurements:
             )
         if not self.course:
             self.course = _states(node, COURSE_ELEMENTS)
+
+
+def _reading(node: Element, names: frozenset[tuple[str, str]]) -> int | None:
+    """Return one whole-number sensor reading from a schema that defines it.
+
+    Unreadable is absent. A sensor writing something this adapter cannot parse
+    has said nothing about the body it was strapped to, and inventing a zero
+    would put a measurement in the archive that nobody made -- the one thing an
+    absent value must never become. The position itself is unaffected: a
+    coordinate is what makes a point, and a heart rate is not.
+    """
+    for found in descendants_in(node, names):
+        text = (found.text or "").strip()
+        if not text:
+            continue
+        try:
+            value = int(float(text))
+        except ValueError:
+            return None
+        return value if value >= 0 else None
+    return None
 
 
 def _claims_to_be_gpx(content: bytes) -> bool:

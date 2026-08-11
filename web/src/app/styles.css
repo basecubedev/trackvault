@@ -179,6 +179,31 @@ h3 { font-size: 0.95rem; margin: 0 0 0.35rem; }
   border-radius: var(--radius);
   padding: 0.7rem 0.9rem;
 }
+.track-row__minimap {
+  flex: 0 0 auto;
+  /* Out of the row's baseline alignment: a picture has no baseline, and left in
+     it every line of text beside it would sit at the bottom of the box. */
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #dfe6ec;
+}
+@media (prefers-color-scheme: dark) { .track-row__minimap { background: #232a30; } }
+.track-row__minimap img { display: block; width: 100%; height: 100%; }
+
+.track-row__disclosure {
+  margin-left: auto;
+  align-self: center;
+  min-height: 2rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+/* Full width, so the report opens under the row rather than beside it. */
+.track-row__details { flex: 1 0 100%; border-top: 1px solid var(--border); margin-top: 0.4rem; padding-top: 0.8rem; }
+.track-row__details .detail-grid { margin-top: 0.6rem; }
+
 .track-row__title { font-weight: 600; flex: 1 1 14rem; }
 .track-row__meta { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; color: var(--muted); font-size: 0.85rem; }
 .track-row__metric { font-variant-numeric: tabular-nums; color: var(--text); }
@@ -418,3 +443,16 @@ button.link {
     flex-basis: 100%;
   }
 }
+
+.map-offer__regions { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.35rem; }
+.map-offer__regions > li { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline; }
+.map-offer__regions button { margin-left: auto; }
+.map-offer__name { font-weight: 600; }
+
+
+.track-import { display: grid; gap: 0.5rem; margin-bottom: 0.6rem; }
+.track-import label { font-size: 0.8rem; color: var(--muted); }
+.track-import__results { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.2rem; font-size: 0.9rem; }
+.track-import__name { font-weight: 600; }
+
+.track-place { white-space: nowrap; }

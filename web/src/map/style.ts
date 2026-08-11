@@ -357,3 +357,21 @@ export function requiredAttribution(coverage: MapCoverage | null): string[] {
   }
   return [...seen]
 }
+
+/**
+ * Add what one more map owes to what a page already credits.
+ *
+ * A page that draws many small maps learns what it has to credit one map at a
+ * time, and the same package is usually behind most of them. Adding a line that
+ * is already there must therefore be free -- so this returns the list it was
+ * given, unchanged and by identity, whenever nothing is new. The caller keeps
+ * this in browser state, and an equal-but-new array there is a re-render per
+ * drawn map for a credit line that did not change.
+ */
+export function mergeAttribution(
+  credited: readonly string[],
+  lines: readonly string[],
+): readonly string[] {
+  const fresh = [...new Set(lines)].filter((line) => !credited.includes(line))
+  return fresh.length === 0 ? credited : [...credited, ...fresh]
+}

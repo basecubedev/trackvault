@@ -94,6 +94,10 @@ test('the dashboard and the track list survive the same blockade', async ({ page
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   await page.goto('/tracks')
   await expect(page.getByTestId('pager-position')).toBeVisible()
+  // The list draws a small map per row from the same installed packages, so it
+  // is a second place a stray host could enter the page. It does not.
+  await expect(page.getByTestId('track-minimap').first()).toHaveAttribute('data-state', 'drawn')
+  await expect(page.getByTestId('list-map-attribution')).toBeVisible()
 
   expect(escaped).toEqual([])
 })

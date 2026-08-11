@@ -29,8 +29,10 @@ from gpx_view.application.statistics import (
     AggregationScope,
     GetAvailableYears,
     GetMonthlyStatistics,
+    GetOverallStatistics,
     GetYearStatistics,
     MonthlyStatistics,
+    OverallStatistics,
     PeriodTotals,
     YearStatistics,
 )
@@ -108,11 +110,23 @@ class UnplacedResponse(BaseModel):
     )
 
 
+class ActivityTotalsResponse(BaseModel):
+    """What one activity did inside one period."""
+
+    activity: Activity
+    totals: TotalsResponse
+
+
 class MonthResponse(BaseModel):
     """One month of a year. Present even when nothing happened in it."""
 
     month: int
-    totals: TotalsResponse
+    totals: TotalsResponse = Field(description="The authority for this month")
+    by_activity: list[ActivityTotalsResponse] = Field(
+        description="The same tracks grouped by activity, in the taxonomy's order. "
+        "A partition: the parts add up to `totals`. An activity with no track in "
+        "this month is absent rather than reported as zero."
+    )
 
 
 class YearResponse(BaseModel):
@@ -138,6 +152,46 @@ class MonthlyResponse(BaseModel):
     activity: Activity | None
     timezone: str
     months: list[MonthResponse]
+    activities: list[Activity] = Field(
+        description="The activities this year holds, in the taxonomy's order -- not the "
+        "whole vocabulary, and never ordered by size. A client may rely on an "
+        "activity keeping its place, and therefore its colour, across requests."
+    )
+
+
+class YearBucketResponse(BaseModel):
+    """One year of the whole archive."""
+
+    year: int
+    totals: TotalsResponse
+    by_activity: list[ActivityTotalsResponse] = Field(
+        description="The same partition a month reports, one level up"
+    )
+
+
+class OverallResponse(BaseModel):
+    """Everything one scope holds, and each year inside it.
+
+    A year is reported as twelve months because a calendar has twelve. This is
+    reported as the years the archive has something for: padding out to the
+    supported calendar would draw a century of empty buckets to say nothing.
+    """
+
+    scope: AggregationScope
+    activity: Activity | None
+    timezone: str
+    totals: TotalsResponse = Field(
+        description="What the whole scope adds up to. The years add up to exactly this."
+    )
+    unplaced: UnplacedResponse = Field(
+        description="Tracks in scope that belong to no year -- beside the total, never inside"
+    )
+    years: list[YearBucketResponse] = Field(
+        description="One bucket per year the archive holds something for, oldest first"
+    )
+    activities: list[Activity] = Field(
+        description="The activities this scope holds, in the taxonomy's order"
+    )
 
 
 class UnplacedCountsResponse(BaseModel):
@@ -189,6 +243,11 @@ def _monthly_query(request: Request) -> GetMonthlyStatistics:
     return cast(GetMonthlyStatistics, request.app.state.monthly_statistics)
 
 
+def _overall_query(request: Request) -> GetOverallStatistics:
+    """Return the whole-archive query the composition root wired into the app."""
+    return cast(GetOverallStatistics, request.app.state.overall_statistics)
+
+
 def _totals(totals: PeriodTotals) -> TotalsResponse:
     """Shape one period's totals for HTTP.
 
@@ -234,10 +293,59 @@ def _project_monthly(statistics: MonthlyStatistics) -> MonthlyResponse:
         activity=statistics.activity,
         timezone=statistics.timezone,
         months=[
-            MonthResponse(month=bucket.month, totals=_totals(bucket.totals))
+            MonthResponse(
+                month=bucket.month,
+                totals=_totals(bucket.totals),
+                by_activity=[
+                    ActivityTotalsResponse(activity=entry.activity, totals=_totals(entry.totals))
+                    for entry in bucket.by_activity
+                ],
+            )
             for bucket in statistics.months
         ],
+        activities=list(statistics.activities),
     )
+
+
+def _project_overall(statistics: OverallStatistics) -> OverallResponse:
+    """Shape the whole archive for HTTP."""
+    return OverallResponse(
+        scope=statistics.scope,
+        activity=statistics.activity,
+        timezone=statistics.timezone,
+        totals=_totals(statistics.totals),
+        unplaced=UnplacedResponse(
+            without_date=_totals(statistics.unplaced.without_date),
+            with_unverified_date=_totals(statistics.unplaced.with_unverified_date),
+        ),
+        years=[
+            YearBucketResponse(
+                year=bucket.year,
+                totals=_totals(bucket.totals),
+                by_activity=[
+                    ActivityTotalsResponse(activity=entry.activity, totals=_totals(entry.totals))
+                    for entry in bucket.by_activity
+                ],
+            )
+            for bucket in statistics.years
+        ],
+        activities=list(statistics.activities),
+    )
+
+
+@router.get("/overall", summary="Total every year at once")
+def read_overall(
+    request: Request,
+    scope: Scope = AggregationScope.RECORDED,
+    activity: ActivityFilter = None,
+) -> OverallResponse:
+    """Return what a whole scope adds up to, and what each of its years did.
+
+    Registered before ``/year/{year}`` for the same reason ``/years`` is: a
+    literal path must win over a parameterised one whatever the router's
+    matching order turns out to be.
+    """
+    return _project_overall(_overall_query(request)(scope=scope, activity=activity))
 
 
 @router.get("/years", summary="List the years this archive holds tracks in")

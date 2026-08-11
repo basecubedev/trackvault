@@ -7,10 +7,19 @@ makes "an API caller cannot choose the host this server contacts" structural
 rather than a promise.
 
 **Where the region hierarchy comes from.** Geofabrik publishes a machine-readable
-index, `index-v1-nogeom.json`, holding every region with its display name, its
-parent and its download URLs. That index is the source of the tree -- an HTML
-page is a document for people, and parsing one as an API means a redesign breaks
-this application.
+index, `index-v1.json`, holding every region with its display name, its parent,
+its download URLs and its outline. That index is the source of the tree -- an
+HTML page is a document for people, and parsing one as an API means a redesign
+breaks this application.
+
+**Why the index with geometry.** There is a smaller `-nogeom` variant, and this
+adapter used it until the archive needed to answer "which map does this track
+need?". Without knowing where a region *is*, that question has no answer at all
+and a reader is left browsing 555 regions to find their own. The outlines are
+read, reduced to one rectangle per region, and thrown away: four floats are
+what a suggestion needs, and keeping polygons would mean carrying a spatial
+index around for a question a bounding box answers well enough to *offer*. It
+costs about 3 MB more on a catalog refresh, which is an action somebody pressed.
 
 **Where the package URL comes from, honestly.** The index lists `.osm.pbf`,
 `.shp.zip` and history URLs. It does **not** list the vector tile package, which
@@ -35,6 +44,7 @@ as a path, only as an identity that is then hashed.
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any, BinaryIO
 from urllib.parse import urlsplit
 
@@ -45,7 +55,7 @@ from gpx_view.application.maps import (
     RemotePackage,
     TransferOutcome,
 )
-from gpx_view.domain.maps import MapRegionId
+from gpx_view.domain.maps import MapBounds, MapRegionId
 from gpx_view.infrastructure.maps.transfer import HttpTransfer, user_agent
 
 logger = logging.getLogger(__name__)
@@ -55,15 +65,29 @@ PROVIDER_DISPLAY_NAME = "Geofabrik GmbH"
 
 DOWNLOAD_HOST = "download.geofabrik.de"
 DOWNLOAD_BASE = f"https://{DOWNLOAD_HOST}/"
-INDEX_URL = f"{DOWNLOAD_BASE}index-v1-nogeom.json"
+INDEX_URL = f"{DOWNLOAD_BASE}index-v1.json"
 ALLOWED_HOSTS = frozenset({DOWNLOAD_HOST})
 
 PBF_SUFFIX = "-latest.osm.pbf"
 PACKAGE_SUFFIX = "-shortbread-1.0.mbtiles"
 
-MAX_INDEX_BYTES = 8 * 1024 * 1024
+MAX_INDEX_BYTES = 24 * 1024 * 1024
+"""The most an index may be, whatever it declares.
+
+The index with outlines is around 4 MB and grows as the world is mapped. The
+ceiling is generous rather than snug because the failure it prevents is a
+provider serving something unbounded, not a provider serving a bigger world.
+"""
+
 MAX_REGIONS = 5000
 MAX_NAME_LENGTH = 120
+MAX_COORDINATE_DEPTH = 8
+"""How deep a nested coordinate array may be before it is refused.
+
+A `MultiPolygon` nests four levels. The index is untrusted input and walking it
+is recursive, so the depth is bounded rather than trusted -- an array nested ten
+thousand deep is a stack overflow, not a region.
+"""
 
 
 class GeofabrikMapProvider:
@@ -103,8 +127,7 @@ class GeofabrikMapProvider:
 
     def regions(self) -> tuple[CatalogRegion, ...]:
         """Fetch and validate the provider's region hierarchy."""
-        body = self._transfer.fetch(self._index_url, limit_bytes=MAX_INDEX_BYTES)
-        return self._parse_index(body)
+        return parse_index(self._transfer.fetch(self._index_url, limit_bytes=MAX_INDEX_BYTES))
 
     def resolve(self, region_id: MapRegionId) -> RemotePackage | None:
         """Ask whether a package exists for a region, and how big it is."""
@@ -149,73 +172,161 @@ class GeofabrikMapProvider:
             raise MapOperationError(MapErrorCode.MAP_REGION_UNKNOWN, "wrong provider")
         return f"{self._base}{region_id.path}{PACKAGE_SUFFIX}"
 
-    def _parse_index(self, body: bytes) -> tuple[CatalogRegion, ...]:
-        """Turn the provider's index into validated catalog regions."""
-        try:
-            document: Any = json.loads(body)
-        except ValueError as error:
-            raise MapOperationError(MapErrorCode.MAP_CATALOG_INVALID, "unreadable index") from error
-        if not isinstance(document, dict) or not isinstance(document.get("features"), list):
-            raise MapOperationError(MapErrorCode.MAP_CATALOG_INVALID, "unexpected index shape")
 
-        features = document["features"][:MAX_REGIONS]
-        found: dict[str, tuple[MapRegionId, str, str | None]] = {}
-        for feature in features:
-            parsed = self._region_of(feature)
-            if parsed is not None:
-                found[parsed[0].path] = parsed
-        if not found:
-            raise MapOperationError(MapErrorCode.MAP_CATALOG_INVALID, "index holds no regions")
+def parse_index(body: bytes) -> tuple[CatalogRegion, ...]:
+    """Turn the provider's index into validated catalog regions.
 
-        return tuple(
-            CatalogRegion(
-                region_id=region_id,
-                name=name,
-                parent_id=_parent_within(region_id, found),
-                country_code=country,
-            )
-            for region_id, name, country in found.values()
+    A module-level function rather than a method, because it depends on nothing
+    the adapter holds. Parsing is a boundary against untrusted bytes and can be
+    checked as one, without a socket and without a way to point this build at a
+    host somebody chose -- which stays impossible.
+
+    Raises:
+        MapOperationError: ``map_catalog_invalid`` when the body is not an index
+            this build can read.
+    """
+    try:
+        document: Any = json.loads(body)
+    except ValueError as error:
+        raise MapOperationError(MapErrorCode.MAP_CATALOG_INVALID, "unreadable index") from error
+    if not isinstance(document, dict) or not isinstance(document.get("features"), list):
+        raise MapOperationError(MapErrorCode.MAP_CATALOG_INVALID, "unexpected index shape")
+
+    features = document["features"][:MAX_REGIONS]
+    found: dict[str, CatalogRegion] = {}
+    for feature in features:
+        parsed = _region_of(feature)
+        if parsed is not None:
+            found[parsed.region_id.path] = parsed
+    if not found:
+        raise MapOperationError(MapErrorCode.MAP_CATALOG_INVALID, "index holds no regions")
+
+    return tuple(
+        replace(region, parent_id=_parent_within(region.region_id, found))
+        for region in found.values()
+    )
+
+
+def _region_of(feature: object) -> CatalogRegion | None:
+    """Return one validated region, or ``None`` for an entry to skip.
+
+    The parent is filled in afterwards, from the paths the whole index
+    turned out to hold.
+    """
+    if not isinstance(feature, dict):
+        return None
+    properties = feature.get("properties")
+    if not isinstance(properties, dict):
+        return None
+    urls = properties.get("urls")
+    name = properties.get("name")
+    if not isinstance(urls, dict) or not isinstance(name, str) or not name.strip():
+        return None
+    path = _path_of(urls.get("pbf"))
+    if path is None:
+        return None
+    try:
+        region_id = MapRegionId(provider=PROVIDER_SLUG, segments=tuple(path.split("/")))
+    except ValueError:
+        # A region whose path this build cannot express as an identity is
+        # dropped rather than sanitised. Repairing remote input into
+        # something that "looks fine" is how a validation boundary stops
+        # being one.
+        logger.debug("map_catalog.region_skipped")
+        return None
+    return CatalogRegion(
+        region_id=region_id,
+        name=name.strip()[:MAX_NAME_LENGTH],
+        country_code=_country_code(properties),
+        # An outline this build cannot read costs the region its extent and
+        # nothing else: it stays browsable and installable, it just cannot
+        # be suggested for a track.
+        bounds=_bounds_of(feature.get("geometry")),
+    )
+
+
+def _path_of(url: object) -> str | None:
+    """Return the region path a download URL names, if it names one safely."""
+    if not isinstance(url, str) or not url.endswith(PBF_SUFFIX):
+        return None
+    parts = urlsplit(url)
+    if parts.scheme != "https" or (parts.hostname or "").lower() != DOWNLOAD_HOST:
+        return None
+    path = parts.path.lstrip("/").removesuffix(PBF_SUFFIX)
+    return path or None
+
+
+def _bounds_of(geometry: object) -> MapBounds | None:
+    """Return the rectangle around a region's outline, or ``None``.
+
+    The outline itself is discarded. A polygon would let this build say whether
+    a track is *inside* a region rather than inside its bounding box, which is a
+    better answer -- and a spatial index, a point-in-polygon rule and a much
+    larger cache to hold it. A rectangle is enough to offer a region, which is
+    all this feature does; see `gpx_view.domain.maps.suggestion`.
+    """
+    if not isinstance(geometry, dict):
+        return None
+    corners = _extremes(geometry.get("coordinates"), MAX_COORDINATE_DEPTH)
+    if corners is None:
+        return None
+    west, south, east, north = corners
+    try:
+        return MapBounds(
+            min_longitude=west, min_latitude=south, max_longitude=east, max_latitude=north
         )
-
-    def _region_of(self, feature: object) -> tuple[MapRegionId, str, str | None] | None:
-        """Return one validated region, or ``None`` for an entry to skip."""
-        if not isinstance(feature, dict):
-            return None
-        properties = feature.get("properties")
-        if not isinstance(properties, dict):
-            return None
-        urls = properties.get("urls")
-        name = properties.get("name")
-        if not isinstance(urls, dict) or not isinstance(name, str) or not name.strip():
-            return None
-        path = self._path_of(urls.get("pbf"))
-        if path is None:
-            return None
-        try:
-            region_id = MapRegionId(provider=PROVIDER_SLUG, segments=tuple(path.split("/")))
-        except ValueError:
-            # A region whose path this build cannot express as an identity is
-            # dropped rather than sanitised. Repairing remote input into
-            # something that "looks fine" is how a validation boundary stops
-            # being one.
-            logger.debug("map_catalog.region_skipped")
-            return None
-        return region_id, name.strip()[:MAX_NAME_LENGTH], _country_code(properties)
-
-    def _path_of(self, url: object) -> str | None:
-        """Return the region path a download URL names, if it names one safely."""
-        if not isinstance(url, str) or not url.endswith(PBF_SUFFIX):
-            return None
-        parts = urlsplit(url)
-        if parts.scheme != "https" or (parts.hostname or "").lower() != DOWNLOAD_HOST:
-            return None
-        path = parts.path.lstrip("/").removesuffix(PBF_SUFFIX)
-        return path or None
+    except ValueError:
+        # An outline that leaves the globe is a defect in somebody's index, not
+        # a rectangle this build repairs into looking plausible.
+        logger.debug("map_catalog.outline_skipped")
+        return None
 
 
-def _parent_within(
-    region_id: MapRegionId, known: dict[str, tuple[MapRegionId, str, str | None]]
-) -> MapRegionId | None:
+def _extremes(coordinates: object, depth: int) -> tuple[float, float, float, float] | None:
+    """Return west, south, east, north over a nested coordinate array.
+
+    Walked rather than collected: the index holds a few million coordinates and
+    every one of them is needed exactly once, to widen four numbers.
+    """
+    if depth < 0 or not isinstance(coordinates, list) or not coordinates:
+        return None
+    if _is_number(coordinates[0]):
+        if len(coordinates) < 2 or not _is_number(coordinates[1]):
+            return None
+        longitude = float(coordinates[0])
+        latitude = float(coordinates[1])
+        return (longitude, latitude, longitude, latitude)
+    widest: tuple[float, float, float, float] | None = None
+    for entry in coordinates:
+        nested = _extremes(entry, depth - 1)
+        if nested is None:
+            continue
+        widest = nested if widest is None else _widened(widest, nested)
+    return widest
+
+
+def _widened(
+    one: tuple[float, float, float, float], other: tuple[float, float, float, float]
+) -> tuple[float, float, float, float]:
+    """Return the rectangle containing both."""
+    return (
+        min(one[0], other[0]),
+        min(one[1], other[1]),
+        max(one[2], other[2]),
+        max(one[3], other[3]),
+    )
+
+
+def _is_number(value: object) -> bool:
+    """Report whether a JSON value is a coordinate rather than something else.
+
+    ``bool`` is excluded deliberately: it is an ``int`` in Python, and a `true`
+    in a coordinate array is malformed input rather than a longitude of one.
+    """
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _parent_within(region_id: MapRegionId, known: dict[str, CatalogRegion]) -> MapRegionId | None:
     """Return the nearest ancestor the index also holds.
 
     Walked upwards rather than read from the index's own `parent` property,

@@ -33,7 +33,7 @@ from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 from gpx_view.application.analysis import InstalledAnalysis
-from gpx_view.application.calendar import MONTHS_IN_YEAR, period_window
+from gpx_view.application.calendar import MIN_QUERY_YEAR, MONTHS_IN_YEAR, period_window
 from gpx_view.application.ports import (
     AnalysisAvailability,
     DatedTrackRow,
@@ -154,11 +154,39 @@ class UnplacedTotals:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivityTotals:
+    """What one activity did inside one period.
+
+    Attributes:
+        activity: Which activity, from the domain's own flat taxonomy.
+        totals: What its tracks add up to, under exactly the rules the period's
+            own total follows -- only current analyses contribute, and a metric
+            nothing could derive stays absent.
+    """
+
+    activity: Activity
+    totals: PeriodTotals
+
+
+@dataclass(frozen=True, slots=True)
 class MonthTotals:
-    """One month of a year, and what it holds."""
+    """One month of a year, and what it holds.
+
+    Attributes:
+        month: The calendar month, 1-12.
+        totals: What the month adds up to. The authority for the month.
+        by_activity: The same tracks grouped a second way, in the taxonomy's
+            order. A track has exactly one activity, so this is a partition:
+            nothing is counted twice and nothing is left out, and the parts add
+            up to ``totals``.
+
+            An activity with no track in this month is **absent** rather than
+            reported as zero. It did not do nothing here; it was not here.
+    """
 
     month: int
     totals: PeriodTotals
+    by_activity: tuple[ActivityTotals, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +224,11 @@ class MonthlyStatistics:
         timezone: The zone the month boundaries were drawn in.
         months: Twelve buckets, always, in calendar order. A month with no
             activity is present and empty.
+        activities: The activities this year actually holds, in the taxonomy's
+            own order. Not the whole vocabulary: naming eight for an archive
+            that holds two is a claim about the archive. Not by size either --
+            an order that depended on the totals would rearrange a chart, and
+            repaint it, whenever somebody imported a file.
     """
 
     year: int
@@ -203,6 +236,57 @@ class MonthlyStatistics:
     activity: Activity | None
     timezone: str
     months: tuple[MonthTotals, ...]
+    activities: tuple[Activity, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class YearTotals:
+    """One year of the whole archive, and what it holds.
+
+    Attributes:
+        year: The year, in the aggregation timezone.
+        totals: What it adds up to.
+        by_activity: The same tracks grouped by activity, exactly as a month
+            reports it -- one implementation, so the two levels cannot disagree
+            about what the grouping means.
+    """
+
+    year: int
+    totals: PeriodTotals
+    by_activity: tuple[ActivityTotals, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class OverallStatistics:
+    """Everything one scope holds, and each year inside it.
+
+    A year is a period; "everything" is not one, and the shape says so. A year
+    is reported as twelve months because a calendar has twelve and an empty one
+    is a fact about that year. Everything is reported as the years the archive
+    actually has something for: padding the axis out to the supported calendar
+    would draw a century of empty bars to say nothing.
+
+    Attributes:
+        scope: Which set of tracks the totals cover.
+        activity: The activity the totals were narrowed to, if any.
+        timezone: The zone every boundary here was drawn in.
+        totals: What the whole scope adds up to, over the tracks whose activity
+            date the archive can vouch for. The years add up to exactly this.
+        unplaced: Tracks in scope that belong to no year at all. Beside the
+            total rather than inside it -- widening the period does not make a
+            clock nobody measured into a date.
+        years: One bucket per year the archive holds something for, **oldest
+            first**, because that is the order a time axis reads in.
+        activities: The activities this scope holds, in the taxonomy's order.
+    """
+
+    scope: AggregationScope
+    activity: Activity | None
+    timezone: str
+    totals: PeriodTotals
+    unplaced: UnplacedTotals
+    years: tuple[YearTotals, ...]
+    activities: tuple[Activity, ...]
 
 
 class _Aggregator:
@@ -242,6 +326,26 @@ class _Aggregator:
         """
         start, end = period_window(year, None, self._zone)
         return _selected(self._repository.placed_aggregation_rows(start, end), scope, activity)
+
+    def every_row(
+        self, scope: AggregationScope, activity: Activity | None
+    ) -> tuple[TrackAggregationRow, ...]:
+        """Return every placed track a scope and filter select, in any year.
+
+        The window is the supported calendar itself, drawn by the same authority
+        one year's is. "Everything" is therefore the same question with a wider
+        window rather than a second way of selecting rows, and a track it counts
+        is a track some year's total counts too.
+        """
+        start, _ = period_window(MIN_QUERY_YEAR, None, self._zone)
+        return _selected(self._repository.placed_aggregation_rows(start, None), scope, activity)
+
+    def year_of(self, row: TrackAggregationRow) -> int:
+        """Return the local year a track's activity started in."""
+        started = row.started_at
+        if started is None:  # pragma: no cover - dated rows always carry one
+            raise ValueError("a dated aggregation row must carry a start instant")
+        return started.astimezone(self._zone).year
 
     def unplaced(self, scope: AggregationScope, activity: Activity | None) -> UnplacedTotals:
         """Return what a scope holds that belongs to no period, split by why.
@@ -394,6 +498,54 @@ class GetYearStatistics:
         )
 
 
+class GetOverallStatistics:
+    """Answers what a whole archive adds up to, and what each of its years did.
+
+    The one query that is not about a period. Everything else here answers "what
+    happened in this window"; this answers "what is there", which is the
+    question somebody with five years of tracks actually starts from.
+
+    It is still a scope question. There is no total that adds planned routes to
+    travelled distance, and widening the period does not create one.
+    """
+
+    def __init__(
+        self, *, repository: TrackRepository, timezone: str, analysis: InstalledAnalysis
+    ) -> None:
+        """Wire the query to its repository, its zone and the currency authority."""
+        self._aggregator = _Aggregator(repository, timezone, analysis)
+        self._analysis = analysis
+
+    def __call__(
+        self,
+        *,
+        scope: AggregationScope = AggregationScope.RECORDED,
+        activity: Activity | None = None,
+    ) -> OverallStatistics:
+        """Return the whole scope's totals and one bucket per year it holds."""
+        rows = self._aggregator.every_row(scope, activity)
+        buckets: dict[int, list[TrackAggregationRow]] = {}
+        for row in rows:
+            buckets.setdefault(self._aggregator.year_of(row), []).append(row)
+
+        return OverallStatistics(
+            scope=scope,
+            activity=activity,
+            timezone=self._aggregator.timezone,
+            totals=_totals(rows, self._analysis),
+            unplaced=self._aggregator.unplaced(scope, activity),
+            years=tuple(
+                YearTotals(
+                    year=year,
+                    totals=_totals(buckets[year], self._analysis),
+                    by_activity=_by_activity(buckets[year], self._analysis),
+                )
+                for year in sorted(buckets)
+            ),
+            activities=_present_activities(rows),
+        )
+
+
 class GetMonthlyStatistics:
     """Answers what each month of one year adds up to, in one scope."""
 
@@ -429,10 +581,35 @@ class GetMonthlyStatistics:
             activity=activity,
             timezone=self._aggregator.timezone,
             months=tuple(
-                MonthTotals(month=month, totals=_totals(rows, self._analysis))
+                MonthTotals(
+                    month=month,
+                    totals=_totals(rows, self._analysis),
+                    by_activity=_by_activity(rows, self._analysis),
+                )
                 for month, rows in buckets.items()
             ),
+            activities=_present_activities(row for rows in buckets.values() for row in rows),
         )
+
+
+def _by_activity(
+    rows: Sequence[TrackAggregationRow], analysis: InstalledAnalysis
+) -> tuple[ActivityTotals, ...]:
+    """Group one period's rows by activity, in the taxonomy's order.
+
+    The same summation the period's own total uses, over subsets of the same
+    rows. A second rule here -- a different currency check, a different
+    treatment of an absent metric -- would make the parts and the whole two
+    answers to one question. One implementation, so a month and a year cannot
+    come to disagree about what "grouped by activity" means either.
+    """
+    grouped: dict[Activity, list[TrackAggregationRow]] = {}
+    for row in rows:
+        grouped.setdefault(row.activity, []).append(row)
+    return tuple(
+        ActivityTotals(activity=activity, totals=_totals(grouped[activity], analysis))
+        for activity in _present_activities(rows)
+    )
 
 
 def _selected(
@@ -453,6 +630,18 @@ def _selected(
 
 
 _CURRENT = AnalysisAvailability.CURRENT
+
+
+def _present_activities(rows: Iterable[TrackAggregationRow]) -> tuple[Activity, ...]:
+    """Return the activities a set of rows holds, in the taxonomy's own order.
+
+    The order is `Activity`'s declaration order and never the data's. A chart
+    drawn from this gives an activity the same place -- and so the same colour
+    -- whatever the archive currently holds, which is what stops a filter or an
+    import from repainting the series that survive it.
+    """
+    present = {row.activity for row in rows}
+    return tuple(activity for activity in Activity if activity in present)
 
 
 def _totals(rows: Sequence[TrackAggregationRow], analysis: InstalledAnalysis) -> PeriodTotals:

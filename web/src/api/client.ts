@@ -20,8 +20,10 @@ export type TrackAnalysis = components['schemas']['TrackAnalysisResponse']
 export type TrackProfile = components['schemas']['TrackProfileResponse']
 export type ProfileSample = components['schemas']['ProfileSampleResponse']
 export type Geometry = components['schemas']['GeometryResponse']
+export type ImportOutcome = components['schemas']['ImportOutcomeResponse']
 export type YearStatistics = components['schemas']['YearResponse']
 export type MonthlyStatistics = components['schemas']['MonthlyResponse']
+export type OverallStatistics = components['schemas']['OverallResponse']
 export type Totals = components['schemas']['TotalsResponse']
 export type Activity = components['schemas']['Activity']
 export type TrackKind = components['schemas']['TrackKind']
@@ -133,7 +135,32 @@ export const api = {
   // an empty current year.
   readYears: (query: Query, signal?: AbortSignal) =>
     get<AvailableYears>('/statistics/years', query, signal),
+  // Every year at once. Not twelve months of a wider period: the archive
+  // answers one bucket per year it holds, which is what a chart of everything
+  // plots.
+  readOverall: (query: Query, signal?: AbortSignal) =>
+    get<OverallStatistics>('/statistics/overall', query, signal),
   readSystemInfo: (signal?: AbortSignal) => get<SystemInfo>('/system/info', {}, signal),
+
+  /**
+   * Offer one file to the archive.
+   *
+   * The body is the file and nothing else -- no form, no envelope. One request
+   * per file, so a reader watching twenty arrive is told which of them the
+   * archive could not read rather than being handed one verdict for all of
+   * them. The name travels as a query parameter because it is display
+   * metadata: the archive files bytes under their content hash.
+   */
+  async importFile(file: File, signal?: AbortSignal): Promise<ImportOutcome> {
+    const response = await fetch(`/api/v1/tracks/imports${search({ filename: file.name })}`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/octet-stream' },
+      body: file,
+      ...(signal ? { signal } : {}),
+    })
+    if (!response.ok) throw await apiError(response)
+    return (await response.json()) as ImportOutcome
+  },
 
   // --- Offline maps ---------------------------------------------------------
   //

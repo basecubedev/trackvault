@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic. A recording carrying the sensor readings a chest strap and a
+  cadence sensor write into the Garmin track-point schema, in the shape a real
+  exporter produces: the extension block sits on the position, and not every
+  position carries every reading.
+
+  Point 3 has no heart rate, which is what a strap losing contact looks like.
+  Point 4 reports a cadence of zero, which is a coasting bike rather than a
+  missing sensor. The normalized model keeps that distinction.
+-->
+<gpx version="1.1" creator="synthetic"
+     xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
+  <trk>
+    <name>Synthetic ride with sensors</name>
+    <type>cycling</type>
+    <trkseg>
+      <trkpt lat="51.00000000" lon="7.00000000">
+        <ele>100.0</ele>
+        <time>2026-05-04T08:00:00Z</time>
+        <hdop>1.1</hdop>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>112</gpxtpx:hr>
+            <gpxtpx:cad>78</gpxtpx:cad>
+            <gpxtpx:course>90.0</gpxtpx:course>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="51.00100000" lon="7.00100000">
+        <ele>104.0</ele>
+        <time>2026-05-04T08:00:30Z</time>
+        <hdop>1.1</hdop>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>128</gpxtpx:hr>
+            <gpxtpx:cad>82</gpxtpx:cad>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="51.00200000" lon="7.00200000">
+        <ele>108.0</ele>
+        <time>2026-05-04T08:01:00Z</time>
+        <hdop>1.1</hdop>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:cad>85</gpxtpx:cad>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="51.00300000" lon="7.00300000">
+        <ele>112.0</ele>
+        <time>2026-05-04T08:01:30Z</time>
+        <hdop>1.1</hdop>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>141</gpxtpx:hr>
+            <gpxtpx:cad>0</gpxtpx:cad>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

@@ -41,12 +41,17 @@ class CatalogRegion:
         name: The provider's display name.
         parent_id: The region one level up, or ``None`` at the catalog root.
         country_code: The ISO 3166-1 alpha-2 code, where the region is a country.
+        bounds: What the provider says the region occupies, or ``None`` when it
+            said nothing. It is what lets the archive answer "which map does
+            this track need" without asking anybody -- and it is a rectangle
+            around an outline, so it can suggest a region and never prove one.
     """
 
     region_id: MapRegionId
     name: str
     parent_id: MapRegionId | None = None
     country_code: str | None = None
+    bounds: MapBounds | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -120,5 +120,14 @@ def test_processing_status_values_are_stable_wire_strings() -> None:
 
 @pytest.mark.unit
 def test_input_channel_values_are_stable_wire_strings() -> None:
-    """Input channels are recorded metadata, so their names are part of the schema."""
-    assert [channel.value for channel in InputChannel] == ["local_file", "import_directory"]
+    """Input channels are recorded metadata, so their names are part of the schema.
+
+    The set may grow -- a channel is added when an input path is -- and the
+    strings already written into the database may not change. That is what this
+    pins: every value below is in somebody's `raw_imports` table.
+    """
+    assert [channel.value for channel in InputChannel] == [
+        "local_file",
+        "import_directory",
+        "web_upload",
+    ]

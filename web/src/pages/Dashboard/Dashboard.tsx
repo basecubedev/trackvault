@@ -9,7 +9,18 @@ import { Notice } from '../../components/Notice'
 import { RequestState } from '../../components/RequestState'
 import { ACTIVITIES, SCOPES } from '../../api/vocabulary'
 import { coverageSummary, coverageWarnings } from './coverage'
-import { MONTHLY_METRICS, type MonthlyMetric, monthlyOption, monthlySeries } from './monthly'
+import { usePrefersDark } from '../../charts/theme'
+import {
+  activityBars,
+  monthBuckets,
+  MONTHLY_METRICS,
+  type MonthlyMetric,
+  monthlyOption,
+  yearBuckets,
+} from './monthly'
+
+/** Nothing to draw yet. One object, so a render with no data is not a new one. */
+const EMPTY_CHART = { labels: [], points: [], bars: [] }
 
 /**
  * The first thing somebody sees.
@@ -111,18 +122,32 @@ export function Dashboard() {
 }
 
 /**
- * Which year to show: the one asked for, if the archive has it.
+ * What the dashboard is showing: one year, every year, or nothing.
+ *
+ * `'all'` is not a year and is deliberately not modelled as one. It selects a
+ * different question -- what the archive holds rather than what a period did --
+ * and the archive answers it with years inside it rather than months.
+ */
+export type PeriodSelection = number | 'all' | null
+
+/**
+ * Which period to show: the one asked for, if the archive has it.
  *
  * A year in the address bar that the archive has nothing for is a stale link or
  * a scope change, and honouring it would show an empty page that looks like a
  * defect. The newest available year is the answer instead, and `null` means the
- * archive has no dated tracks in this scope at all.
+ * archive has no dated tracks in this scope at all -- in which case `all` is
+ * refused too, because there is nothing for it to be all of.
  */
-export function selectedYear(requested: string | null, years: readonly number[]): number | null {
+export function selectedYear(requested: string | null, years: readonly number[]): PeriodSelection {
+  if (years.length === 0) return null
+  if (requested === ALL_YEARS) return ALL_YEARS
   const asked = requested === null ? null : Number(requested)
   if (asked !== null && !Number.isNaN(asked) && years.includes(asked)) return asked
   return years[0] ?? null
 }
+
+export const ALL_YEARS = 'all'
 
 function Period({
   scope,
@@ -138,7 +163,7 @@ function Period({
   years: readonly number[]
   unplaced: AvailableYears['unplaced']
   archiveTrackCount: number
-  selected: number | null
+  selected: PeriodSelection
   onSelectYear: (year: string) => void
 }) {
   const navigate = useNavigate()
@@ -148,39 +173,66 @@ function Period({
     [scope, activity],
   )
 
+  // One year is two questions -- what it added up to, and what its months did.
+  // Every year is one: the archive answers the total and the years inside it
+  // together, because the buckets *are* the answer rather than a breakdown of
+  // it.
+  const everything = selected === ALL_YEARS
+  const year = typeof selected === 'number' ? selected : null
+
   const yearly = useRequest(
-    (signal) => (selected === null ? Promise.resolve(null) : api.readYear(selected, query, signal)),
-    [selected, scope, activity],
+    (signal) => (year === null ? Promise.resolve(null) : api.readYear(year, query, signal)),
+    [year, scope, activity],
   )
   const monthly = useRequest(
-    (signal) =>
-      selected === null ? Promise.resolve(null) : api.readMonthly(selected, query, signal),
-    [selected, scope, activity],
+    (signal) => (year === null ? Promise.resolve(null) : api.readMonthly(year, query, signal)),
+    [year, scope, activity],
+  )
+  const overall = useRequest(
+    (signal) => (everything ? api.readOverall(query, signal) : Promise.resolve(null)),
+    [everything, scope, activity],
   )
 
-  const points = useMemo(
-    () => (monthly.data ? monthlySeries(monthly.data, metric) : []),
-    [monthly.data, metric],
-  )
-  const option = useMemo(() => monthlyOption(points, metric), [points, metric])
+  // The palette is handed to the chart rather than inherited: a canvas is
+  // outside the stylesheet's reach, and the two modes are separately chosen.
+  const dark = usePrefersDark()
+  const chart = useMemo(() => {
+    if (everything) {
+      return overall.data
+        ? activityBars(yearBuckets(overall.data), overall.data.activities, metric)
+        : EMPTY_CHART
+    }
+    return monthly.data
+      ? activityBars(monthBuckets(monthly.data), monthly.data.activities, metric)
+      : EMPTY_CHART
+  }, [everything, overall.data, monthly.data, metric])
+  const points = chart.points
+  // A column per activity only where there is more than one: with a single
+  // activity the column and the total would be the same number twice.
+  const split = chart.bars.length > 1 ? chart.bars : []
+  const option = useMemo(() => monthlyOption(chart, metric, { dark }), [chart, metric, dark])
 
-  const openMonth = useCallback(
-    (month: number) => {
+  const openPeriod = useCallback(
+    (key: number) => {
       // The backend owns the period. The interface hands over the same filters
-      // the chart was drawn with and never recomputes a month boundary.
-      const next = new URLSearchParams({ year: String(selected), month: String(month) })
+      // the chart was drawn with and never recomputes a boundary. A bucket of
+      // the whole archive is a year; a bucket of a year is a month.
+      const next = everything
+        ? new URLSearchParams({ year: String(key) })
+        : new URLSearchParams({ year: String(year), month: String(key) })
       if (activity) next.set('activity', activity)
       next.set('kind', scope)
       void navigate(`/tracks?${next.toString()}`)
     },
-    [navigate, selected, scope, activity],
+    [navigate, everything, year, scope, activity],
   )
 
   if (archiveTrackCount === 0) return <EmptyArchive />
   if (selected === null) return <NothingDated scope={scope} unplaced={unplaced} />
 
-  const totals = yearly.data?.totals
-  const unplacedTotals = yearly.data?.unplaced
+  const period = everything ? overall : monthly
+  const totals = everything ? overall.data?.totals : yearly.data?.totals
+  const unplacedTotals = everything ? overall.data?.unplaced : yearly.data?.unplaced
   const warnings = totals ? coverageWarnings(totals) : []
   const coverage = totals ? coverageSummary(totals) : null
   const timed = scope === 'recorded'
@@ -197,6 +249,12 @@ function Period({
               onSelectYear(event.target.value)
             }}
           >
+            {/*
+              Every year at once, offered beside the years rather than instead
+              of them: "what have I done" and "what did I do in 2025" are two
+              questions, and the archive answers them with different shapes.
+            */}
+            <option value={ALL_YEARS}>All years</option>
             {years.map((value) => (
               <option key={value} value={value}>
                 {value}
@@ -206,7 +264,9 @@ function Period({
         </div>
       </div>
 
-      {yearly.error !== null && <Notice tone="error">{yearly.error}</Notice>}
+      {(everything ? overall.error : yearly.error) !== null && (
+        <Notice tone="error">{everything ? overall.error : yearly.error}</Notice>
+      )}
 
       <div className="cards">
         <Metric
@@ -291,7 +351,9 @@ function Period({
           </Notice>
         )}
 
-      <h2 id="monthly-heading">Monthly {metricLabel(metric)}</h2>
+      <h2 id="monthly-heading">
+        {everything ? 'Yearly' : 'Monthly'} {metricLabel(metric)}
+      </h2>
       <div className="filters">
         <div className="field">
           <label htmlFor="metric">Show</label>
@@ -314,20 +376,42 @@ function Period({
       </div>
 
       <div className="panel">
-        {monthly.data === null ? (
-          <p className="chart-fallback">{monthly.error ?? 'Loading…'}</p>
+        {period.data === null ? (
+          <p className="chart-fallback">{period.error ?? 'Loading…'}</p>
         ) : (
-          <LazyChart option={option} label={`Monthly ${metricLabel(metric)} for ${selected}`} />
+          <LazyChart
+            option={option}
+            label={
+              everything
+                ? `${metricLabel(metric)} per year`
+                : `Monthly ${metricLabel(metric)} for ${String(selected)}`
+            }
+          />
         )}
 
+        {/*
+          The same numbers the chart draws, as text. Not a courtesy: three of
+          the eight series colours sit below 3:1 against a white surface, and a
+          readable table is the relief that permits them. It also carries the
+          per-activity split for anyone the colours do not reach at all.
+        */}
         <table className="chart-table" data-testid="monthly-table">
           <caption className="visually-hidden">
-            Monthly {metricLabel(metric)} for {selected}. Select a month to list its tracks.
+            {everything
+              ? `${metricLabel(metric)} per year`
+              : `Monthly ${metricLabel(metric)} for ${String(selected)}`}
+            {split.length > 0 && ', per activity'}. Select a {everything ? 'year' : 'month'} to list
+            its tracks.
           </caption>
           <thead>
             <tr>
-              <th scope="col">Month</th>
-              <th scope="col">{metricLabel(metric)}</th>
+              <th scope="col">{everything ? 'Year' : 'Month'}</th>
+              {split.map((bar) => (
+                <th scope="col" key={bar.activity}>
+                  {bar.activity}
+                </th>
+              ))}
+              <th scope="col">{split.length > 0 ? 'All' : metricLabel(metric)}</th>
               <th scope="col">Tracks</th>
               <th scope="col">Current</th>
               <th scope="col">
@@ -336,19 +420,22 @@ function Period({
             </tr>
           </thead>
           <tbody>
-            {points.map((point) => (
-              <tr key={point.month}>
+            {points.map((point, index) => (
+              <tr key={point.key}>
                 <th scope="row">{point.label}</th>
-                <td>{point.value === null ? '—' : point.value.toFixed(1)}</td>
-                <td>{point.trackCount}</td>
+                {split.map((bar) => (
+                  <td key={bar.activity}>{formatCell(bar.values[index])}</td>
+                ))}
+                <td>{formatCell(point.value)}</td>
+                <td data-testid={`month-${point.key}-tracks`}>{point.trackCount}</td>
                 <td>{point.analysedTrackCount}</td>
                 <td>
                   <button
                     type="button"
                     onClick={() => {
-                      openMonth(point.month)
+                      openPeriod(point.key)
                     }}
-                    data-testid={`open-month-${point.month}`}
+                    data-testid={`open-month-${point.key}`}
                   >
                     Open
                   </button>
@@ -365,17 +452,19 @@ function Period({
 /**
  * What a fresh installation says.
  *
- * Deliberately not "upload your first GPX": there is no upload endpoint, and
- * telling somebody to use one is worse than telling them nothing. Importing is
- * an operator action on the machine that holds the data, and that is what this
- * says.
+ * It used to say only "importing is an operator action", because there was no
+ * upload endpoint and pointing at one that did not exist would have been worse
+ * than saying nothing. There is one now, so the first thing offered is the one
+ * that works from here -- and the operator commands stay, because they are what
+ * a phone sync folder and a hundred files at once actually use.
  */
 function EmptyArchive() {
   return (
     <div className="panel" data-testid="empty-archive">
       <h2>No tracks yet</h2>
       <p className="muted">
-        This archive is empty. Tracks are imported on the machine that holds the data:
+        This archive is empty. <Link to="/tracks">Import files</Link> from here, or import them on
+        the machine that holds the data:
       </p>
       <pre>
         <code>
@@ -425,6 +514,11 @@ function NothingDated({
       </p>
     </div>
   )
+}
+
+/** One cell of the monthly table. An absent value is a dash, never a zero. */
+function formatCell(value: number | null | undefined): string {
+  return value === null || value === undefined ? '—' : value.toFixed(1)
 }
 
 function metricLabel(metric: MonthlyMetric): string {

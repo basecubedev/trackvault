@@ -169,6 +169,8 @@ Trade-offs, accepted:
 - **A file system watcher for the import directory.** Rejected: an explicit scan
   is easier to reason about, cannot leak a thread, and loses nothing because the
   duplicate check makes rescanning free.
-- **An authenticated upload endpoint.** Deferred: authentication is a decision of
+- **An authenticated upload endpoint.** *(Superseded by ADR 0011, which adds an
+  unauthenticated one, bounded and switchable, for a trusted network.)*
+  Deferred: authentication is a decision of
   its own, and a server-side import covers the actual deployment (phone → sync →
   server folder) without it.

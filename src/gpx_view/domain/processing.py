@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-NORMALIZATION_SCHEMA_VERSION = 2
+NORMALIZATION_SCHEMA_VERSION = 3
 """Version of the normalized track model a run produced.
 
 Bumped when the normalized model changes in a way that makes older normalized

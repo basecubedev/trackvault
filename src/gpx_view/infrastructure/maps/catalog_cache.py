@@ -20,7 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from gpx_view.application.maps import CachedCatalog, CatalogRegion, RemotePackage
-from gpx_view.domain.maps import MapRegionId
+from gpx_view.domain.maps import MapBounds, MapRegionId
 from gpx_view.infrastructure.private_data import (
     PRIVATE_FILE_MODE,
     create_private_directory,
@@ -29,6 +29,15 @@ from gpx_view.infrastructure.private_data import (
 logger = logging.getLogger(__name__)
 
 CACHE_VERSION = 1
+"""The document shape this build writes.
+
+Not bumped when a *tolerated* field is added. A region's rectangle arrived after
+this cache existed, and a document without one still says everything it always
+said: the regions read back, browsing keeps working offline, and the only thing
+missing is the ability to suggest a region until the next refresh. Bumping would
+discard a good catalog to gain nothing.
+"""
+
 MAX_CACHE_BYTES = 16 * 1024 * 1024
 
 
@@ -96,6 +105,18 @@ def _document_of(catalog: CachedCatalog) -> dict[str, Any]:
                 "name": region.name,
                 "parent": str(region.parent_id) if region.parent_id else None,
                 "country": region.country_code,
+                # Four numbers rather than the outline they came from. It is
+                # what "which map does this track need" is answered from, and
+                # keeping the polygons would make this document a hundred times
+                # the size for an answer a rectangle already supports.
+                "bounds": None
+                if region.bounds is None
+                else [
+                    region.bounds.min_longitude,
+                    region.bounds.min_latitude,
+                    region.bounds.max_longitude,
+                    region.bounds.max_latitude,
+                ],
             }
             for region in catalog.regions
         ],
@@ -152,9 +173,31 @@ def _regions_of(raw: object) -> tuple[CatalogRegion, ...]:
                 name=entry["name"],
                 parent_id=parent,
                 country_code=country if isinstance(country, str) else None,
+                bounds=_bounds_of(entry.get("bounds")),
             )
         )
     return tuple(regions)
+
+
+def _bounds_of(raw: object) -> MapBounds | None:
+    """Return a stored rectangle, or ``None`` when it is not one.
+
+    A document written by an older build has no rectangle at all, and one
+    written by a failing disk may have four values that are not a rectangle.
+    Both mean the same thing here: this region cannot be suggested, and nothing
+    else about it is affected.
+    """
+    if not isinstance(raw, list) or len(raw) != 4:
+        return None
+    if not all(isinstance(value, int | float) and not isinstance(value, bool) for value in raw):
+        return None
+    west, south, east, north = (float(value) for value in raw)
+    try:
+        return MapBounds(
+            min_longitude=west, min_latitude=south, max_longitude=east, max_latitude=north
+        )
+    except ValueError:
+        return None
 
 
 def _availability_of(raw: object) -> dict[str, RemotePackage | None]:

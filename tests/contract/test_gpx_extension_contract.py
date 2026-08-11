@@ -177,3 +177,65 @@ def test_an_unknown_namespace_survives_as_metadata_only(name: str, namespace: st
     (track,) = import_tracks(name)
 
     assert namespace in track.source.extension_namespaces
+
+
+@pytest.mark.contract
+class TestSensorReadings:
+    """What a body did, read only from a schema that defines it.
+
+    `hr` and `cad` are two- and three-letter names any vocabulary may use. The
+    namespace decides, exactly as it does for a heading -- reading a heart rate
+    out of an element because it is spelled `hr` is the blind matching the
+    extension table exists to prevent.
+    """
+
+    def test_a_recording_carries_the_readings_its_sensors_made(self) -> None:
+        """The point of the whole thing."""
+        (track,) = import_tracks("sensor-readings.gpx")
+
+        readings = [point.heart_rate_bpm for point in track.segments[0].points]
+        assert readings == [112, 128, None, 141]
+
+    def test_a_missing_reading_is_absent_rather_than_zero(self) -> None:
+        """A strap losing contact did not measure a heart rate of nothing."""
+        (track,) = import_tracks("sensor-readings.gpx")
+
+        assert track.segments[0].points[2].heart_rate_bpm is None
+
+    def test_a_reading_of_zero_survives_as_a_reading(self) -> None:
+        """A coasting bike reports a cadence of zero, and that is a fact about it."""
+        (track,) = import_tracks("sensor-readings.gpx")
+
+        assert track.segments[0].points[3].cadence_rpm == 0
+
+    def test_an_element_from_an_unknown_schema_is_not_a_measurement(self) -> None:
+        """`hr` in somebody else's vocabulary is not a heart rate."""
+        document = b"""<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="synthetic" xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:other="https://example.invalid/hospital-rooms">
+  <trk><trkseg>
+    <trkpt lat="51.0" lon="7.0"><time>2026-05-04T08:00:00Z</time>
+      <extensions><other:hr>7</other:hr></extensions></trkpt>
+  </trkseg></trk>
+</gpx>
+"""
+        (track,) = GpxImporter().import_tracks(document, ImportLimits())
+
+        assert track.segments[0].points[0].heart_rate_bpm is None
+
+    def test_an_unreadable_reading_costs_the_reading_and_nothing_else(self) -> None:
+        """A sensor writing nonsense said nothing; the position is still a position."""
+        document = b"""<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="synthetic" xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v2">
+  <trk><trkseg>
+    <trkpt lat="51.0" lon="7.0"><time>2026-05-04T08:00:00Z</time>
+      <extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>n/a</gpxtpx:hr>
+      </gpxtpx:TrackPointExtension></extensions></trkpt>
+  </trkseg></trk>
+</gpx>
+"""
+        (track,) = GpxImporter().import_tracks(document, ImportLimits())
+
+        assert track.segments[0].points[0].heart_rate_bpm is None
+        assert track.segments[0].points[0].latitude == pytest.approx(51.0)

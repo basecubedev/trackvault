@@ -429,7 +429,7 @@ def test_the_command_line_reports_what_produced_a_generation(
     assert exit_code == EXIT_OK
     assert sha256 in output
     assert "importer:       1 -> installed 2" in output
-    assert "normalization:  1 -> installed 2" in output
+    assert "normalization:  1 -> installed 3" in output
     assert "classifier:     1 -> installed 2" in output
     assert "outdated:       yes" in output
 

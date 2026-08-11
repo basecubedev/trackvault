@@ -14,7 +14,7 @@ from gpx_view.domain.activity import Activity
 from gpx_view.domain.classification import ClassificationResult, TrackClassification
 from gpx_view.domain.classifier import classify
 from gpx_view.domain.evidence import EvidenceCode, in_canonical_order
-from gpx_view.domain.geometry import TrackPoint, TrackSegment
+from gpx_view.domain.geometry import TrackPoint, TrackSegment, recording_fingerprint
 from gpx_view.domain.metric_provenance import MetricProvenance
 from gpx_view.domain.processing import (
     NORMALIZATION_SCHEMA_VERSION,
@@ -75,6 +75,7 @@ __all__ = [
     "is_processing_current",
     "normalize_note",
     "normalize_title",
+    "recording_fingerprint",
     "supports_actual_calendar_placement",
     "supports_actual_metrics",
     "supports_actual_timing",

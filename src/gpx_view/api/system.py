@@ -64,6 +64,11 @@ class SystemInfoResponse(BaseModel):
         description="One entry per installed import adapter"
     )
     analysis: AnalysisProfileResponse
+    upload_enabled: bool = Field(
+        description="Whether this deployment accepts files over HTTP. A page that "
+        "offered the control anyway would be a page that lies about what the "
+        "server will do."
+    )
 
 
 def _profile(profile: ProcessingProfile) -> ProcessingProfileResponse:
@@ -105,4 +110,5 @@ def read_system_info(request: Request) -> SystemInfoResponse:
         timezone=info.timezone,
         processing=[_profile(profile) for profile in info.processing],
         analysis=_analysis(info.analysis),
+        upload_enabled=bool(request.app.state.upload_enabled),
     )

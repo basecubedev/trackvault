@@ -285,7 +285,10 @@ describe('the basemap behind a track', () => {
 
   it('offers a way to install one when nothing covers the area', async () => {
     show(
-      archive(track(), on('/api/v1/maps/coverage', coverage({ any_installed: false }))),
+      archive(
+        track(),
+        on('/api/v1/maps/coverage', coverage({ any_installed: false, catalog_known: true })),
+      ),
     )
 
     const notice = await screen.findByTestId('no-offline-map')
@@ -294,6 +297,35 @@ describe('the basemap behind a track', () => {
       'href',
       '/maps',
     )
+  })
+
+  it('names the region that would cover this track, rather than leaving the reader to find it', async () => {
+    // The archive knows where the track went and where the provider's regions
+    // are. Which of five hundred to download is a question it can answer, and
+    // the answer belongs where the question comes up.
+    show(
+      archive(
+        track(),
+        on(
+          '/api/v1/maps/coverage',
+          coverage({
+            any_installed: false,
+            catalog_known: true,
+            suggestions: [
+              {
+                region_id: 'geofabrik:europe/spain/islas-baleares',
+                name: 'Islas Baleares',
+                ancestry: ['Europe', 'Spain'],
+                size_bytes: 96_000_000,
+                availability_known: true,
+              },
+            ],
+          }),
+        ),
+      ),
+    )
+
+    expect(await screen.findByTestId('offered-region')).toHaveTextContent('Islas Baleares')
   })
 
   it('lets a reader turn the basemap off entirely', async () => {
@@ -317,5 +349,51 @@ describe('the basemap behind a track', () => {
     expect(await screen.findByTestId('track-map')).toBeInTheDocument()
     expect(screen.getByTestId('detail-distance')).toBeInTheDocument()
     expect(screen.queryByTestId('map-attribution')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * What the sensors measured, where there were any.
+ *
+ * A chart of its own rather than a third line on the elevation one: that chart
+ * already carries two scales, and a heart rate is neither a length nor a speed.
+ */
+describe('a recording with sensors', () => {
+  function withReadings(heart: number | null, cadence: number | null) {
+    const base = profile()
+    const [segment] = base.segments
+    return {
+      ...base,
+      segments: [
+        {
+          index: 0,
+          samples: (segment?.samples ?? []).map((sample) => ({
+            ...sample,
+            heart_rate_bpm: heart,
+            cadence_rpm: cadence,
+          })),
+        },
+      ],
+    }
+  }
+
+  it('draws them beside the elevation rather than inside it', async () => {
+    show(archive(track(), on('/profile', withReadings(142, 84))))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('sensor-panel')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('heading', { name: /Heart rate and cadence/ })).toBeInTheDocument()
+  })
+
+  it('offers no chart for a track that carried no sensor', async () => {
+    show(archive(track(), on('/profile', withReadings(null, null))))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chart')).toBeInTheDocument()
+    })
+    // An empty chart with two axes and no line is a page claiming data it has
+    // not got.
+    expect(screen.queryByTestId('sensor-panel')).not.toBeInTheDocument()
   })
 })

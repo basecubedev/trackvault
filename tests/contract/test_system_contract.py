@@ -79,6 +79,11 @@ def test_system_information_describes_the_build_and_never_the_machine(
         "timezone",
         "processing",
         "analysis",
+        # Whether this deployment accepts files. A capability rather than a
+        # configuration detail: it says what the server will do, not where it
+        # keeps anything, and the interface needs it to avoid offering a
+        # control the server would refuse.
+        "upload_enabled",
     }
     for leak in ("/data", "data_dir", "sqlite", "map_style", "host", "/home"):
         assert leak not in body

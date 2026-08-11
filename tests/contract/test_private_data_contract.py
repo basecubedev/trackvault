@@ -21,6 +21,15 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 LOCAL_TRACKS_DIRNAME = "import-tracks"
+IMPORT_DIRNAME = "import"
+"""The deployment's own import folder, which `compose.yaml` mounts read-only.
+
+A different thing from the developer's reference directory and the same kind of
+secret: it is where somebody drops the recordings they want the archive to take,
+so it fills up with real movement data the moment the feature is used. The
+directory itself is committed -- as an empty marker, so Docker does not create it
+as root and lock its owner out -- and everything anybody puts in it is not.
+"""
 
 # Paths that must be excluded. The two reference tracks are the files that
 # actually live there today; the others prove the rule covers the *directory*
@@ -31,6 +40,10 @@ PRIVATE_PATHS = (
     f"{LOCAL_TRACKS_DIRNAME}/notes.txt",
     f"{LOCAL_TRACKS_DIRNAME}/README.md",
     f"{LOCAL_TRACKS_DIRNAME}/nested/recording.fit",
+    f"{IMPORT_DIRNAME}/2026-05-04_morning_ride.gpx",
+    f"{IMPORT_DIRNAME}/whatever-the-phone-called-it.fit",
+    f"{IMPORT_DIRNAME}/nested/from-a-sync-client.tcx",
+    f"{IMPORT_DIRNAME}/notes.txt",
 )
 
 # The exemption the fixtures rely on. An exclusion broad enough to swallow the
@@ -39,6 +52,10 @@ PRIVATE_PATHS = (
 COMMITTED_PATHS = (
     "tests/fixtures/gpx/ambiguous-minimal.gpx",
     "tests/contract/test_private_data_contract.py",
+    # The marker that makes the import folder exist in a fresh checkout. Without
+    # it Docker creates the bind mount's source itself, owned by root, and the
+    # person the folder is for cannot drop a file into it.
+    f"{IMPORT_DIRNAME}/.gitkeep",
 )
 
 _IGNORED = 0
@@ -89,6 +106,17 @@ def test_the_whole_local_reference_directory_is_excluded() -> None:
     a file into a directory that already works.
     """
     assert _is_ignored(f"{LOCAL_TRACKS_DIRNAME}/"), "the directory itself is not excluded"
+
+
+@pytest.mark.contract
+def test_the_deployment_import_folder_keeps_its_contents_out() -> None:
+    """The folder is committed; what somebody drops into it never is.
+
+    It exists in the repository as an empty marker on purpose, and that is
+    exactly the arrangement that could go wrong quietly: a directory Git knows
+    about, filling with somebody's movements.
+    """
+    assert _is_ignored(f"{IMPORT_DIRNAME}/anything-at-all"), "the import folder is not excluded"
 
 
 @pytest.mark.contract

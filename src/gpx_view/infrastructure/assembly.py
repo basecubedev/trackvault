@@ -19,9 +19,11 @@ from gpx_view.application.maps import (
     GetMapInstallJob,
     InstallMapPackage,
     ListInstalledMaps,
+    LocateTracks,
     RecoverMapStorage,
     RemoveMapPackage,
     SelectMapCoverage,
+    SuggestMapRegions,
 )
 from gpx_view.application.normalization import NormalizeRawImport
 from gpx_view.application.processing import InstalledProcessing
@@ -68,6 +70,8 @@ class MapServices:
         catalog: What the provider offers, cached.
         installed: What is installed, and whether it can still be proved.
         coverage: Which installed maps belong behind a rectangle.
+        suggestions: Which regions could be installed for one nothing covers.
+        locate: Roughly where a track was, from the cached catalog.
         jobs: Queues and runs installations off the request thread.
         job_query: Reading a job's state.
         remove: Deleting an installed package.
@@ -82,6 +86,8 @@ class MapServices:
     catalog: GetMapCatalog
     installed: ListInstalledMaps
     coverage: SelectMapCoverage
+    suggestions: SuggestMapRegions
+    locate: LocateTracks
     jobs: MapInstallJobs
     job_query: GetMapInstallJob
     remove: RemoveMapPackage
@@ -196,11 +202,8 @@ def build_map_services(
     storage = FilesystemMapPackageStorage(settings.map_storage_dir)
     repository = SqliteMapPackageStore(store)
     provider = GeofabrikMapProvider(version=VERSION)
-    catalog = GetMapCatalog(
-        provider=provider,
-        cache=FilesystemMapCatalogCache(storage.catalog_directory()),
-        clock=clock,
-    )
+    cache = FilesystemMapCatalogCache(storage.catalog_directory())
+    catalog = GetMapCatalog(provider=provider, cache=cache, clock=clock)
     installer = InstallMapPackage(
         provider=provider,
         catalog=catalog,
@@ -217,6 +220,11 @@ def build_map_services(
         installed=installed,
         # One coverage authority, shared by the track page and by nothing else.
         coverage=SelectMapCoverage(installed),
+        # The cache, deliberately not the provider. Suggesting a region for a
+        # track is a read that must contact nobody, and a use case that cannot
+        # reach a provider cannot be the one that does.
+        suggestions=SuggestMapRegions(cache, installed, provider=provider.slug),
+        locate=LocateTracks(cache, provider=provider.slug),
         jobs=MapInstallJobs(
             installer=installer, catalog=catalog, repository=repository, clock=clock
         ),

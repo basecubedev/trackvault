@@ -22,9 +22,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from gpx_view.application.import_tracks import ImportRequest
 from gpx_view.application.maps import (
     GetMapCatalog,
     InstallMapPackage,
+    LocateTracks,
+    SuggestMapRegions,
     queued_job,
 )
 from gpx_view.config import Settings
@@ -46,6 +49,14 @@ MONACO = "fake:europe/monaco"
 ANDORRA = "fake:europe/andorra"
 MONACO_BOUNDS = (7.40, 43.48, 7.60, 43.76)
 ANDORRA_BOUNDS = (1.40, 42.42, 1.79, 42.66)
+LIECHTENSTEIN_BOUNDS = (9.47, 47.05, 9.64, 47.27)
+EUROPE_BOUNDS = (-10.0, 35.0, 20.0, 60.0)
+"""What the fixture catalog says its regions occupy.
+
+The extents are the provider's, not this archive's: they are what makes "which
+map does this track need" answerable at all, and what makes the answer a
+suggestion rather than a fact.
+"""
 
 MONACO_BBOX = "7.42,43.72,7.44,43.74"
 ANDORRA_BBOX = "1.50,42.50,1.52,42.52"
@@ -78,16 +89,22 @@ class Deployment:
         self.repository = SqliteMapPackageStore(self.store)
         self.provider = FakeMapProvider(
             regions=(
-                region("fake:europe", "Europe"),
-                region(MONACO, "Monaco", "fake:europe"),
-                region(ANDORRA, "Andorra", "fake:europe"),
-                region("fake:europe/liechtenstein", "Liechtenstein", "fake:europe"),
+                region("fake:europe", "Europe", bounds=EUROPE_BOUNDS),
+                region(MONACO, "Monaco", "fake:europe", bounds=MONACO_BOUNDS, country="MC"),
+                region(ANDORRA, "Andorra", "fake:europe", bounds=ANDORRA_BOUNDS, country="AD"),
+                region(
+                    "fake:europe/liechtenstein",
+                    "Liechtenstein",
+                    "fake:europe",
+                    bounds=LIECHTENSTEIN_BOUNDS,
+                ),
             ),
             packages={},
         )
+        self.cache = FilesystemMapCatalogCache(self.storage.catalog_directory())
         self.catalog = GetMapCatalog(
             provider=self.provider,
-            cache=FilesystemMapCatalogCache(self.storage.catalog_directory()),
+            cache=self.cache,
             clock=self.clock,
         )
         self.installer = InstallMapPackage(
@@ -101,8 +118,38 @@ class Deployment:
         self._jobs = 0
 
     def use_fixture_provider(self) -> None:
-        """Point the running application's catalog at the fixture provider."""
+        """Point the running application's catalog at the fixture provider.
+
+        Every reader of a catalog is redirected, not one of them. Suggestions come from
+        the cached catalog under the fixture's own slug, and leaving them
+        pointed at the real provider's would make every suggestion test pass by
+        finding nothing.
+        """
         self.app.state.map_catalog = self.catalog
+        self.app.state.map_suggestions = SuggestMapRegions(
+            self.cache, self.app.state.map_installed, provider=self.provider.slug
+        )
+        self.app.state.locate_tracks = LocateTracks(self.cache, provider=self.provider.slug)
+
+    def import_track(self, bbox: str) -> int:
+        """Import a synthetic recording inside one rectangle, and return its track."""
+        west, south, east, north = (float(part) for part in bbox.split(","))
+        points = "\n".join(
+            f'      <trkpt lat="{south + (north - south) * fraction:.6f}" '
+            f'lon="{west + (east - west) * fraction:.6f}">'
+            f"<ele>10</ele><time>2026-05-04T09:0{index}:00Z</time><hdop>1.1</hdop></trkpt>"
+            for index, fraction in enumerate((0.1, 0.5, 0.9))
+        )
+        document = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<gpx version="1.1" creator="synthetic" '
+            'xmlns="http://www.topografix.com/GPX/1/1">\n'
+            f"  <trk><name>Somewhere</name><trkseg>\n{points}\n  </trkseg></trk>\n</gpx>\n"
+        )
+        outcome = self.app.state.services.import_tracks(
+            ImportRequest(content=document.encode("utf-8"), original_filename="somewhere.gpx")
+        )
+        return int(outcome.track_ids[0])
 
     def install(self, identity: str, **options: object) -> None:
         """Publish a package and install it into the running deployment."""
@@ -249,6 +296,124 @@ def test_two_regions_each_answer_for_their_own_area(
 
     assert [source["region_name"] for source in monaco] == ["Monaco"]
     assert [source["region_name"] for source in andorra] == ["Andorra"]
+
+
+# --- What to install, for a track nothing covers -----------------------------
+#
+# The question a reader could not answer before: a track knows where it went,
+# a catalog knows where its regions are, and nobody was putting the two
+# together. What matters here is that the answer stays an *offer* -- suggesting
+# reaches no provider, installs nothing, and never claims more than a rectangle
+# can support.
+
+
+def test_a_track_nothing_covers_is_told_which_regions_could(client: TestClient) -> None:
+    """The whole point: knowing where the track went is knowing which map it needs."""
+    client.post("/api/v1/maps/catalog/refresh")
+
+    payload = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()
+
+    assert next(entry["region_id"] for entry in payload["suggestions"]) == MONACO
+
+
+def test_a_suggestion_names_the_region_and_where_it_sits(client: TestClient) -> None:
+    """A name alone cannot tell "Limburg, Netherlands" from a Limburg elsewhere."""
+    client.post("/api/v1/maps/catalog/refresh")
+
+    first = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()["suggestions"][0]
+
+    assert first["name"] == "Monaco"
+    assert first["ancestry"] == ["Europe"]
+
+
+def test_the_most_specific_region_is_offered_first(client: TestClient) -> None:
+    """Europe contains Monaco, and downloading Europe for a walk in Monaco is absurd."""
+    client.post("/api/v1/maps/catalog/refresh")
+
+    offered = [
+        entry["region_id"]
+        for entry in client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()["suggestions"]
+    ]
+
+    assert offered.index(MONACO) < offered.index("fake:europe")
+
+
+def test_a_region_already_installed_is_never_offered_again(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """It is behind the track already; offering it is offering to do nothing."""
+    client.post("/api/v1/maps/catalog/refresh")
+    deployment.install(MONACO)
+
+    payload = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()
+
+    assert MONACO not in [entry["region_id"] for entry in payload["suggestions"]]
+
+
+def test_nothing_is_suggested_where_a_map_is_already_drawn(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """There is nothing to offer somebody who is looking at their map."""
+    client.post("/api/v1/maps/catalog/refresh")
+    deployment.install(MONACO)
+
+    payload = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()
+
+    assert payload["sources"] != []
+    assert payload["suggestions"] == []
+
+
+def test_suggesting_reaches_no_provider(client: TestClient, deployment: Deployment) -> None:
+    """A track view that contacts a provider is the one thing this feature must not become.
+
+    The catalog is read from the cache the refresh wrote. A deployment whose
+    provider has since gone away answers exactly the same, which is what makes
+    "looking at a track sends nothing anywhere" survive this feature.
+    """
+    client.post("/api/v1/maps/catalog/refresh")
+    deployment.provider.unavailable = True
+
+    payload = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()
+
+    assert next(entry["region_id"] for entry in payload["suggestions"]) == MONACO
+
+
+def test_an_archive_that_never_read_a_catalog_offers_nothing_and_says_why(
+    client: TestClient,
+) -> None:
+    """Not knowing what to suggest and having nothing to suggest are different sentences.
+
+    Reading the catalog is an action somebody presses. Doing it here, because a
+    page was opened, is exactly the provider request this endpoint must never
+    make -- so the honest answer is that the catalog has not been read.
+    """
+    payload = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()
+
+    assert payload["suggestions"] == []
+    assert payload["catalog_known"] is False
+
+
+def test_a_deployment_with_installs_switched_off_offers_nothing(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """Offering a download this deployment would refuse is worse than offering none."""
+    client.post("/api/v1/maps/catalog/refresh")
+    deployment.app.state.maps_enabled = False
+
+    payload = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()
+
+    assert payload["suggestions"] == []
+
+
+def test_a_suggestion_never_carries_an_address(client: TestClient) -> None:
+    """A caller names a region; the adapter resolves the host. That holds here too."""
+    client.post("/api/v1/maps/catalog/refresh")
+
+    payload = client.get(f"/api/v1/maps/coverage?bbox={MONACO_BBOX}").json()
+
+    rendered = str(payload["suggestions"])
+    assert "http" not in rendered
+    assert "provider.invalid" not in rendered
 
 
 def test_a_malformed_bounding_box_is_refused_by_name(client: TestClient) -> None:
@@ -553,3 +718,43 @@ class _RecordingInstaller:
 
     def cancel(self, job_id: str) -> None:
         """Do nothing; there is no worker to interrupt."""
+
+
+# --- Roughly where a track was -----------------------------------------------
+
+
+def test_a_track_is_labelled_with_the_region_it_is_inside(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """The point of the label: "Monaco", not a pair of coordinates."""
+    client.post("/api/v1/maps/catalog/refresh")
+    track_id = deployment.import_track(MONACO_BBOX)
+
+    payload = client.get(f"/api/v1/tracks/{track_id}").json()["approximate_location"]
+
+    assert payload["regions"][0] == "Monaco"
+
+
+def test_the_region_and_the_country_never_contradict_each_other(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """They come from one selection: the country is the region's own ancestor.
+
+    Chosen independently they could say "Zeeland, Germany", which is worse than
+    saying nothing -- a reader cannot tell which half to believe.
+    """
+    client.post("/api/v1/maps/catalog/refresh")
+    track_id = deployment.import_track(MONACO_BBOX)
+
+    payload = client.get(f"/api/v1/tracks/{track_id}").json()["approximate_location"]
+
+    assert payload["countries"] == [{"name": "Monaco", "code": "MC"}]
+
+
+def test_an_archive_that_never_read_a_catalog_says_nothing(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """Locating reaches nobody. Without a catalog there is nothing to answer from."""
+    track_id = deployment.import_track(MONACO_BBOX)
+
+    assert client.get(f"/api/v1/tracks/{track_id}").json()["approximate_location"] is None

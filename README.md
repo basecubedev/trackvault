@@ -41,16 +41,40 @@ Then open **Offline maps** and install the region you walk in. Until you do,
 your tracks are drawn over a neutral background — see
 [Offline maps](#offline-maps).
 
+Files can also be dropped into `import/` beside `compose.yaml` and picked up with
+`docker compose exec gpx-view gpx-view scan`. The folder ships with the
+repository so the bind mount never has to create it: a source Docker creates is
+owned by root, and you would need `sudo` to write into the folder that exists for
+you to write into.
+
 > **Run this on a network you trust.** There is no authentication. See
 > [Security](#security-and-the-trusted-network) below before you expose the
 > port to anything.
 
 ## Importing tracks
 
-Importing is an operator action on the machine that holds the data. There is no
-upload endpoint, deliberately: an unauthenticated endpoint that accepts files
-and writes them to disk is not something to add casually, and authentication
-does not exist yet.
+Three ways in, one pipeline behind them.
+
+**From the browser.** Open **Tracks** and press *Import files*. Pick one file or
+twenty; each one is offered on its own and gets its own answer — imported,
+already in the archive, or not imported with the reason in words. Nothing is
+guessed: a file the archive cannot read is named, and the rest still go in.
+
+**A watched folder.** Drop files into `import/` — the folder `compose.yaml`
+mounts read-only at `/import` — and run `docker compose exec gpx-view gpx-view
+scan`. This is the path for a phone that auto-syncs to the server, and for the
+hundred files you are not going to pick in a file dialog. **The folder is never
+modified**: nothing in it is written, renamed, moved or deleted. Hidden files are
+skipped rather than reported as failures — a synced folder is full of `.DS_Store`
+and half-written downloads, and none of them is a track.
+
+**On the machine itself**, with the commands below.
+
+> **The upload endpoint has no authentication in front of it**, because nothing
+> here does. Anyone who can reach the port can add files as well as read them.
+> Set `GPX_VIEW_UPLOAD_ENABLED=false` in [`compose.yaml`](compose.yaml) to refuse
+> uploads and keep everything else — see
+> [Security](#security-and-the-trusted-network).
 
 ```bash
 gpx-view import path/to/track.gpx another.gpx
@@ -95,13 +119,63 @@ newest one *the archive* has something to show for, not the one your computer
 thinks it is. Recorded, planned and undecided tracks are three separate scopes
 and are never added together.
 
+Each month is drawn as **one bar per activity**, with a legend above the chart
+and a column per activity in the table below it — so a month of cycling and a
+month of walking are two answers rather than one sum. An activity keeps its
+colour whatever else the year holds, so narrowing the filter never repaints what
+is left. A month an activity was not out in shows a dash, not a zero: nobody
+walked no kilometres.
+
+The year selector also offers **All years**, which is a different question and
+says so in its shape: the totals cover everything the scope holds, and the chart
+draws one bar per year instead of per month — one bucket for each year the
+archive has something for, not a padded calendar. Opening one lists that year's
+tracks. The archive answers it in one request; the browser never adds years up
+itself, because summing periods correctly means knowing which analyses may be
+totalled at all.
+
 **Tracks.** The archive, one page at a time, with every filter in the address
 bar — so a filtered view is a link you can send and a refresh does not lose it.
+*Import files* at the top offers files to the archive from the browser.
+Each row carries a small map of where that track went, drawn over the same
+offline basemap the track's own page uses. A row draws nothing until you have
+scrolled to it, and it asks for a reduced shape rather than the whole recording,
+so a page of rows costs a page of rows.
+
+A row also says **roughly where the track was** — `≈ Zeeland · Netherlands`.
+The tilde is not decoration: the archive compares the rectangle around your
+track with the rectangle around each region the map provider publishes, which is
+right well inside a country and wrong at a border. A walk in Aachen is named for
+the Dutch province next door, and the mark is what stops that reading as a fact.
+The region and the country come from one selection — the country is the named
+region's own ancestor — so they can be wrong together but never contradict each
+other. It needs a region catalog, so **Offline maps → refresh** once; without
+one the archive says nothing rather than guessing from a coordinate.
+
+A row that says **"3 imports"** means the same recording arrived three times, in
+three different files — the same ride exported as GPX 1.1, as GPX 1.0 and as a
+route, say. All three are kept: the bytes are different evidence, and one format
+carries readings another cannot. What the badge stops is the list presenting one
+afternoon as three. It is an *equality* — identical positions at identical
+instants — so it never guesses that two rides are one, and it does not find the
+same loop ridden on two different days.
+
+The arrow at the right of a row opens **the track's whole page inside the list**
+— the same component, not a summary of it — so looking for the right track is
+scrolling and reading rather than a page load and a back button each time. One
+row at a time, and which one is in the address too. Corrections made in there
+are corrections: the row above updates rather than keeping the answer it had.
 
 **One track.** What it is, what it did, where it went, and how the archive
 decided all of that. You can correct its kind, give it a title of your own and
 keep a note; the file keeps saying what it said, and resetting hands the display
 back to it.
+
+If a recording carries **heart rate or cadence**, they get a chart of their own
+below the elevation one — measurements passed through exactly as the sensors
+reported them. A gap is a reading the sensor missed; a cadence of zero is a
+reading, not a gap. Tracks without sensors show no such chart rather than an
+empty one.
 
 If a track's metrics were derived by algorithms this build no longer runs, the
 headline figures are left blank and the page says why — while the map and the
@@ -148,6 +222,35 @@ A few things worth knowing:
 - **Install more than one.** A track that crosses a border draws its basemap
   from both, if both are installed.
 
+### Which region do I need?
+
+You do not have to work that out yourself. A track knows where it went, and the
+provider's index says where each of its 555 regions is — so a track with nothing
+behind it **names the regions that would cover it**, with a Download button, on
+the track's own page and in the list. There is no need to guess which province
+a walk was in.
+
+They are candidates, and the page says so. What the archive compares is
+rectangles: the box around your track against the box around a region's
+outline. That is enough to shortlist and not enough to decide — a box around the
+Netherlands contains Aachen, which is in Germany. So several regions are
+offered, each with the regions above it (`Limburg — Europe / Netherlands`), and
+**you** pick the one you actually walked in.
+
+Two honest limits:
+
+- **A catalog has to have been read once.** Suggesting reaches no provider: it
+  reads the catalog this deployment already fetched, because opening a track
+  must not contact anybody. Before the first visit to **Offline maps**, the page
+  says so instead of guessing.
+- **Regions that cross the antimeridian get no suggestion.** New Zealand, Fiji,
+  Alaska and Russia reduce to a rectangle spanning the whole globe, which would
+  match every track on Earth. They are left out rather than offered everywhere,
+  so a track there is offered nothing — as it was before this existed.
+
+Nothing downloads on its own. A region is hundreds of megabytes, and which one
+you want is your decision, not a page-load's.
+
 ### Where it is stored
 
 ```
@@ -177,9 +280,9 @@ and statistics are untouched, and the region can be downloaded again later.
 ### What happens offline
 
 With a region installed, unplug the network and everything still works: the
-dashboard, the track list, a track's detail, its elevation and speed profile,
-the track itself, the basemap behind it, the place and street labels on it, and
-the attribution. `web/e2e/offline-maps.spec.ts` blocks every request that is not
+dashboard, the track list and the small maps beside its rows, a track's detail,
+its elevation and speed profile, the track itself, the basemap behind it, the
+place and street labels on it, and the attribution. `web/e2e/offline-maps.spec.ts` blocks every request that is not
 this deployment and asserts exactly that.
 
 The provider is contacted in exactly three situations, all of them something you
@@ -336,7 +439,12 @@ and can change a track's classification, title and notes.
 
 - Run it on your own network, or behind a reverse proxy that authenticates.
 - **Do not forward the port to the internet.**
-- The absence of authentication is also why there is no upload endpoint.
+- **Uploading is unauthenticated too.** Anyone who can reach the port can add
+  files, not only read them. The endpoint is bounded — one file per request, the
+  size limit applied while reading, the filename never used as a location — and
+  `GPX_VIEW_UPLOAD_ENABLED=false` turns it off entirely while leaving every read
+  working. Why it exists at all is recorded in
+  [`docs/adr/0011-web-upload.md`](docs/adr/0011-web-upload.md).
 
 What the application does do:
 
@@ -463,9 +571,10 @@ GPX file → safe parse → normalized track → evidence → classification
 
 **Not implemented:** FIT, TCX, KML and GeoJSON adapters; 3D path length, grade,
 splits, personal records and lifetime totals; elevation correction against a
-terrain model; sensor metrics (heart rate, cadence, power); semantic duplicate
-detection; authentication and any file upload; a file system watcher; week-based
-or custom statistics periods.
+terrain model; aggregate sensor metrics (average or maximum heart rate) and
+sensor schemas beyond heart rate and cadence; semantic duplicate
+detection; authentication; a file system watcher; week-based or custom
+statistics periods.
 
 **GPX-View declares no licence of its own.** That is a gap rather than a
 statement, and it is the project owner's decision to make: until a `LICENSE`

@@ -9,9 +9,29 @@ class ResizeObserverStub implements ResizeObserver {
   disconnect(): void {}
 }
 
+/**
+ * Nothing scrolls into view unless a test says so.
+ *
+ * The default is deliberately inert: a component that only works once it is
+ * visible must ask for that state explicitly, so a test that never mentions
+ * visibility does not silently start fetching what a reader cannot see.
+ */
+class IntersectionObserverStub implements IntersectionObserver {
+  readonly root = null
+  readonly rootMargin = ''
+  readonly thresholds: readonly number[] = []
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return []
+  }
+}
+
 const environment = globalThis as unknown as Record<string, unknown>
 
 environment['ResizeObserver'] ??= ResizeObserverStub
+environment['IntersectionObserver'] ??= IntersectionObserverStub
 
 environment['matchMedia'] ??= (query: string) => ({
   matches: false,

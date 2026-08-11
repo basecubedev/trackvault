@@ -50,6 +50,34 @@ export function explainQuality(flag: string): string {
   return QUALITY[flag] ?? flag
 }
 
+const IMPORT_ERRORS: Record<string, string> = {
+  unsupported_format: 'the archive does not recognise this kind of file',
+  invalid_gpx: 'it claims to be GPX but could not be read as GPX',
+  unsafe_xml: 'it uses an XML construct this archive refuses to process',
+  import_too_large: 'it is larger than this archive accepts',
+  too_many_tracks: 'it holds more tracks than one document may',
+  too_many_track_segments: 'one of its tracks holds more segments than allowed',
+  too_many_track_points: 'it holds more positions than one document may',
+  invalid_coordinate: 'one of its positions is missing or cannot exist',
+  invalid_timestamp: 'one of its times is unreadable, or carries no timezone',
+  raw_storage_failed: 'the archive could not store the original bytes, so it stored nothing',
+  raw_storage_missing: 'the archive knows these bytes but has lost its copy',
+  raw_storage_corrupt: 'the archive holds a damaged copy of these bytes and will not overwrite it',
+  persistence_failed: 'the archive could not store what it read',
+}
+
+/**
+ * Say why one file was not imported, in words rather than in an enum name.
+ *
+ * A reader who offered a file needs to know whether to fix it, rename it or
+ * leave it alone. `invalid_gpx` says none of that; "it claims to be GPX but
+ * could not be read as GPX" says all of it.
+ */
+export function explainImportError(code: string | null): string {
+  if (code === null) return 'the archive did not say why'
+  return IMPORT_ERRORS[code] ?? code
+}
+
 /**
  * Which side of the classification an observation supported.
  *

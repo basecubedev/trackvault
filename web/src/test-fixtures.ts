@@ -1,6 +1,7 @@
 import { vi } from 'vitest'
 import type {
   AvailableYears,
+  Geometry,
   InstalledMap,
   InstalledMaps,
   MapAttribution,
@@ -10,6 +11,7 @@ import type {
   MapJob,
   MapSource,
   MonthlyStatistics,
+  OverallStatistics,
   SystemInfo,
   Totals,
   Track,
@@ -63,7 +65,25 @@ export function monthly(months: Partial<Totals>[] = []): MonthlyStatistics {
     scope: 'recorded',
     activity: null,
     timezone: 'UTC',
-    months: filled.map((overrides, index) => ({ month: index + 1, totals: totals(overrides) })),
+    months: filled.map((overrides, index) => ({
+      month: index + 1,
+      totals: totals(overrides),
+      by_activity: [],
+    })),
+    activities: [],
+  }
+}
+
+export function overall(overrides: Partial<OverallStatistics> = {}): OverallStatistics {
+  return {
+    scope: 'recorded',
+    activity: null,
+    timezone: 'UTC',
+    totals: totals(),
+    unplaced: { without_date: totals(), with_unverified_date: totals() },
+    years: [],
+    activities: [],
+    ...overrides,
   }
 }
 
@@ -118,6 +138,8 @@ export function track(overrides: Partial<Track> = {}): Track {
     },
     point_count: 831,
     segment_count: 1,
+    same_recording_ids: [],
+    approximate_location: null,
     source: {
       exchange_format: 'gpx',
       format_version: '1.1',
@@ -131,6 +153,25 @@ export function track(overrides: Partial<Track> = {}): Track {
 
 export function trackList(tracks: Track[], overrides: Partial<TrackList> = {}): TrackList {
   return { total: tracks.length, limit: 25, offset: 0, tracks, ...overrides }
+}
+
+export function geometry(overrides: Partial<Geometry> = {}): Geometry {
+  return {
+    track_id: 7,
+    segment_count: 1,
+    point_count: 2,
+    total_point_count: 831,
+    simplified: true,
+    segments: [
+      {
+        points: [
+          { latitude: 39.6, longitude: 2.8, elevation: 12, time: null },
+          { latitude: 39.7, longitude: 2.9, elevation: 520, time: null },
+        ],
+      },
+    ],
+    ...overrides,
+  }
 }
 
 export function analysis(overrides: Partial<TrackAnalysis> = {}): TrackAnalysis {
@@ -204,6 +245,8 @@ export function profile(overrides: Partial<TrackProfile> = {}): TrackProfile {
             elevation_m: 12,
             filtered_elevation_m: 12,
             speed_mps: 0.9,
+            heart_rate_bpm: null,
+            cadence_rpm: null,
           },
           {
             segment_index: 0,
@@ -215,6 +258,8 @@ export function profile(overrides: Partial<TrackProfile> = {}): TrackProfile {
             elevation_m: 520,
             filtered_elevation_m: 519,
             speed_mps: 1.1,
+            heart_rate_bpm: null,
+            cadence_rpm: null,
           },
         ],
       },
@@ -246,6 +291,7 @@ export function systemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
       elevation_algorithm_version: 2,
       metric_schema_version: 1,
     },
+    upload_enabled: true,
     ...overrides,
   }
 }
@@ -308,6 +354,34 @@ export function failing(fragment: string, message = 'network down'): Route {
   }
 }
 
+/**
+ * Report every observed element as on screen.
+ *
+ * The suite's default observer never intersects, so a component that defers
+ * work until it is visible does nothing in a test that does not ask for this.
+ * A test about *what happens once a row is read* says so with this line.
+ */
+export function everythingIsVisible(): void {
+  class VisibleObserver implements IntersectionObserver {
+    readonly root = null
+    readonly rootMargin = ''
+    readonly thresholds: readonly number[] = []
+
+    constructor(private readonly notify: IntersectionObserverCallback) {}
+
+    observe(element: Element): void {
+      this.notify([{ isIntersecting: true, target: element } as IntersectionObserverEntry], this)
+    }
+
+    unobserve(): void {}
+    disconnect(): void {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return []
+    }
+  }
+  vi.stubGlobal('IntersectionObserver', VisibleObserver)
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -357,6 +431,8 @@ export function coverage(overrides: Partial<MapCoverage> = {}): MapCoverage {
     sources: [],
     glyphs_url: '/fonts/{fontstack}/{range}.pbf',
     any_installed: false,
+    suggestions: [],
+    catalog_known: false,
     ...overrides,
   }
 }

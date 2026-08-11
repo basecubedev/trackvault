@@ -9,7 +9,8 @@ DELETE /api/v1/maps/{region_id}          remove one
 GET    /api/v1/maps/jobs                 the newest installations
 GET    /api/v1/maps/jobs/{job_id}        one of them
 POST   /api/v1/maps/jobs/{job_id}/cancel ask one to stop
-GET    /api/v1/maps/coverage             which maps belong behind a rectangle
+GET    /api/v1/maps/coverage             which maps belong behind a rectangle,
+                                         and which could be installed for it
 GET    /api/v1/maps/credits              who to thank, from installed metadata
 GET    /api/v1/maps/tiles/{id}/{z}/{x}/{y}.mvt   one tile
 ```
@@ -36,6 +37,7 @@ what makes a one-year cache lifetime safe.
 """
 
 import logging
+from collections.abc import Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Response, status
@@ -55,6 +57,8 @@ from gpx_view.application.maps import (
     MapTileSource,
     RemoveMapPackage,
     SelectMapCoverage,
+    SuggestedRegion,
+    SuggestMapRegions,
 )
 from gpx_view.application.maps.ports import InstalledMap, MapInstallJob
 from gpx_view.domain.maps import (
@@ -257,8 +261,30 @@ class MapSourceResponse(BaseModel):
     attribution: AttributionResponse
 
 
+class SuggestedRegionResponse(BaseModel):
+    """One region that could be installed for a rectangle nothing covers.
+
+    A candidate, never a verdict. The provider's index says what rectangle a
+    region occupies, and a rectangle around the Netherlands contains Aachen --
+    so several are offered, most specific first, and the reader picks. What
+    travels is an identity: there is no field here that could name a host.
+    """
+
+    region_id: str = Field(description="What an install would name. Never an address.")
+    name: str
+    ancestry: list[str] = Field(
+        description="The regions above it, outermost first, so a name is not ambiguous"
+    )
+    size_bytes: int | None = Field(
+        description="What a download would cost, or null when nobody has asked the provider yet"
+    )
+    availability_known: bool = Field(
+        description="False means the package question has not been asked, not that there is none"
+    )
+
+
 class CoverageResponse(BaseModel):
-    """Which installed maps belong behind a rectangle."""
+    """Which installed maps belong behind a rectangle, and what would fill it."""
 
     sources: list[MapSourceResponse] = Field(
         description="Most specific first. Empty means: draw on a neutral background."
@@ -267,6 +293,16 @@ class CoverageResponse(BaseModel):
     any_installed: bool = Field(
         description="Whether the archive holds any usable map at all, so the page "
         "can tell 'nothing installed' from 'nothing here'"
+    )
+    suggestions: list[SuggestedRegionResponse] = Field(
+        description="Regions that could be installed for this rectangle, most specific "
+        "first. Empty whenever something is already drawn here, whenever this "
+        "deployment refuses installs, and whenever no catalog has been read.",
+    )
+    catalog_known: bool = Field(
+        description="Whether a catalog has ever been read here. False with no "
+        "suggestions means 'nobody has looked', which is a different sentence "
+        "from 'there is nothing'.",
     )
 
 
@@ -462,10 +498,27 @@ def read_coverage(
 
     Reaches no provider and reads no track. It is the only map endpoint a track
     page calls, which is what makes viewing a track send nothing anywhere.
+
+    When nothing is installed for the rectangle, the answer also names the
+    regions that *could* be -- read out of the cached catalog, so this stays a
+    read that contacts nobody. It is one question with one complete answer:
+    "what is behind this track, and if nothing, what would be".
     """
     response.headers["cache-control"] = STATE_CACHE_CONTROL
-    coverage = _coverage(request).for_bounds(_bounds(bbox))
-    return _project_coverage(coverage, any_installed=bool(_installed(request).usable()))
+    rectangle = _bounds(bbox)
+    coverage = _coverage(request).for_bounds(rectangle)
+    suggestions = _suggestions(request)
+    # Nothing to offer somebody who is already looking at their map, and nothing
+    # to offer on a deployment that would refuse the download.
+    offered = (
+        () if coverage.has_basemap or not _enabled(request) else suggestions.for_bounds(rectangle)
+    )
+    return _project_coverage(
+        coverage,
+        any_installed=bool(_installed(request).usable()),
+        suggestions=offered,
+        catalog_known=suggestions.catalog_is_known(),
+    )
 
 
 @router.get("/credits", response_model=CreditsResponse, summary="Who to thank")
@@ -589,6 +642,12 @@ def _coverage(request: Request) -> SelectMapCoverage:
     """Return the coverage authority."""
     coverage: SelectMapCoverage = request.app.state.map_coverage
     return coverage
+
+
+def _suggestions(request: Request) -> SuggestMapRegions:
+    """Return the suggestion query, which reads the cached catalog and nothing else."""
+    suggestions: SuggestMapRegions = request.app.state.map_suggestions
+    return suggestions
 
 
 def _jobs(request: Request) -> GetMapInstallJob:
@@ -791,12 +850,36 @@ def _project_source(source: MapSource) -> MapSourceResponse:
     )
 
 
-def _project_coverage(coverage: MapCoverage, *, any_installed: bool) -> CoverageResponse:
+def _project_coverage(
+    coverage: MapCoverage,
+    *,
+    any_installed: bool,
+    suggestions: Sequence[SuggestedRegion],
+    catalog_known: bool,
+) -> CoverageResponse:
     """Project the coverage answer."""
     return CoverageResponse(
         sources=[_project_source(source) for source in coverage.sources],
         glyphs_url="/fonts/{fontstack}/{range}.pbf",
         any_installed=any_installed,
+        suggestions=[_project_suggestion(entry) for entry in suggestions],
+        catalog_known=catalog_known,
+    )
+
+
+def _project_suggestion(suggestion: SuggestedRegion) -> SuggestedRegionResponse:
+    """Project one candidate region.
+
+    The provider's own address for the package is deliberately not carried over.
+    It exists in the application layer because a transfer needs it; a browser
+    does not, and a field here would be one an API caller could start supplying.
+    """
+    return SuggestedRegionResponse(
+        region_id=str(suggestion.region_id),
+        name=suggestion.name,
+        ancestry=list(suggestion.ancestry),
+        size_bytes=None if suggestion.package is None else suggestion.package.size_bytes,
+        availability_known=suggestion.availability_known,
     )
 
 

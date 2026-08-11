@@ -258,12 +258,14 @@ def test_the_api_publishes_exactly_the_implemented_surface(client: TestClient) -
         "/healthz",
         "/api/v1/system/info",
         "/api/v1/tracks",
+        "/api/v1/tracks/imports",
         "/api/v1/tracks/{track_id}",
         "/api/v1/tracks/{track_id}/geometry",
         "/api/v1/tracks/{track_id}/profile",
         "/api/v1/tracks/{track_id}/analysis",
         "/api/v1/tracks/{track_id}/classification",
         "/api/v1/tracks/{track_id}/metadata",
+        "/api/v1/statistics/overall",
         "/api/v1/statistics/years",
         "/api/v1/statistics/year/{year}",
         "/api/v1/statistics/year/{year}/monthly",
@@ -281,12 +283,27 @@ def test_the_api_publishes_exactly_the_implemented_surface(client: TestClient) -
     }
 
 
-def test_no_write_endpoint_accepts_a_file(client: TestClient) -> None:
-    """Importing is not an unauthenticated upload; it is an operator action."""
+def test_the_one_write_endpoint_that_accepts_a_file_is_the_import(client: TestClient) -> None:
+    """Exactly one endpoint takes bytes, and it is the canonical import.
+
+    This test used to assert that *no* endpoint accepted a file. The archive's
+    owner asked for uploads and that decision is recorded in
+    `docs/adr/0011-web-upload.md`; what remains worth pinning is that adding
+    one did not quietly grow a second. An upload path that is not the import
+    use case is the failure this now guards against.
+    """
     schema = client.get("/openapi.json").json()
 
-    assert "multipart/form-data" not in schema["components"].get("requestBodies", {})
-    assert not [path for path in schema["paths"] if "import" in path or "upload" in path]
+    accepting = [
+        path
+        for path, operations in schema["paths"].items()
+        if any("requestBody" in operation for operation in operations.values())
+        and ("import" in path or "upload" in path)
+    ]
+    assert accepting == ["/api/v1/tracks/imports"]
+    # And it takes a body of bytes rather than a form: no multipart parser is
+    # in this dependency tree, and a filename never arrives as one.
+    assert "multipart/form-data" not in client.get("/openapi.json").text
 
 
 def test_no_endpoint_accepts_a_url_to_fetch(client: TestClient) -> None:

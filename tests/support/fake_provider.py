@@ -36,7 +36,7 @@ from gpx_view.application.maps import (
     RemotePackage,
     TransferOutcome,
 )
-from gpx_view.domain.maps import MapRegionId
+from gpx_view.domain.maps import MapBounds, MapRegionId
 
 CHUNK = 64 * 1024
 
@@ -246,10 +246,30 @@ class FakeMapProvider:
             raise MapOperationError(MapErrorCode.MAP_PROVIDER_UNAVAILABLE)
 
 
-def region(identity: str, name: str, parent: str | None = None) -> CatalogRegion:
-    """Return one catalog region, for building a fixture catalog readably."""
+def region(
+    identity: str,
+    name: str,
+    parent: str | None = None,
+    bounds: tuple[float, float, float, float] | None = None,
+    country: str | None = None,
+) -> CatalogRegion:
+    """Return one catalog region, for building a fixture catalog readably.
+
+    ``bounds`` is west, south, east, north -- what the provider's index says the
+    region occupies, and the only thing that lets the archive answer "which map
+    does this track need".
+    """
     return CatalogRegion(
         region_id=MapRegionId.parse(identity),
         name=name,
         parent_id=None if parent is None else MapRegionId.parse(parent),
+        country_code=country,
+        bounds=None
+        if bounds is None
+        else MapBounds(
+            min_longitude=bounds[0],
+            min_latitude=bounds[1],
+            max_longitude=bounds[2],
+            max_latitude=bounds[3],
+        ),
     )

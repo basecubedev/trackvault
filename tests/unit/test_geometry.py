@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from gpx_view.domain import TrackPoint, TrackSegment
+from gpx_view.domain import TrackPoint, TrackSegment, recording_fingerprint
 
 START = datetime(2026, 5, 4, 8, 0, tzinfo=UTC)
 
@@ -175,3 +175,131 @@ def test_a_segment_without_any_timestamp_reports_no_extent() -> None:
 
     assert segment.earliest_time is None
     assert segment.latest_time is None
+
+
+class TestSensorReadings:
+    """What a device measured beside the position.
+
+    Heart rate and cadence are *measured* values, not derived ones, and they are
+    the first thing here that is neither geometry nor a clock. They are optional
+    exactly as elevation is: a phone in a pocket records neither, and a missing
+    reading is data rather than a defect.
+    """
+
+    def test_a_position_carries_what_the_sensors_read(self) -> None:
+        """The point of the whole thing."""
+        point = TrackPoint(latitude=51.0, longitude=7.0, heart_rate_bpm=142, cadence_rpm=84)
+
+        assert point.heart_rate_bpm == 142
+        assert point.cadence_rpm == 84
+
+    def test_a_position_without_sensors_is_normal(self) -> None:
+        """Most tracks carry none, and that is not a gap to fill."""
+        point = TrackPoint(latitude=51.0, longitude=7.0)
+
+        assert point.heart_rate_bpm is None
+        assert point.cadence_rpm is None
+
+    @pytest.mark.parametrize("reading", [-1, -40])
+    def test_a_negative_reading_is_refused_rather_than_stored(self, reading: int) -> None:
+        """A negative heart rate is a parsing accident, not a measurement."""
+        with pytest.raises(ValueError, match="heart rate"):
+            TrackPoint(latitude=51.0, longitude=7.0, heart_rate_bpm=reading)
+        with pytest.raises(ValueError, match="cadence"):
+            TrackPoint(latitude=51.0, longitude=7.0, cadence_rpm=reading)
+
+    def test_zero_is_a_reading_rather_than_an_absence(self) -> None:
+        """A stopped cadence sensor reports zero, and that is a fact about the ride.
+
+        Folding it into `None` would turn "the wheel was not turning" into "no
+        sensor was here", which is the same conflation this model refuses for
+        every other absent value.
+        """
+        point = TrackPoint(latitude=51.0, longitude=7.0, cadence_rpm=0)
+
+        assert point.cadence_rpm == 0
+
+
+class TestRecordingFingerprint:
+    """What makes two imports the same recording.
+
+    Deliberately an *equality*, not a similarity. Two documents whose normalized
+    positions and instants match exactly, to full precision, are the same
+    recording -- there is no other way for two receivers to produce that. This
+    is therefore not the semantic-duplicate problem the project defers: no
+    threshold, no window, nothing to tune.
+
+    What it will not catch is exactly what that deferred problem is about: the
+    same loop ridden twice, a trimmed export, a file whose coordinates were
+    rounded on the way out. Those need a heuristic, and a heuristic that hides a
+    real track is worse than showing two rows.
+    """
+
+    def _segments(self, *runs: tuple[tuple[float, float], ...]) -> tuple[TrackSegment, ...]:
+        return tuple(
+            TrackSegment(points=tuple(TrackPoint(latitude=lat, longitude=lon) for lat, lon in run))
+            for run in runs
+        )
+
+    def test_the_same_positions_fingerprint_the_same(self) -> None:
+        """The case that started this: one ride exported in three formats."""
+        one = self._segments(((51.0, 7.0), (51.1, 7.1)))
+        again = self._segments(((51.0, 7.0), (51.1, 7.1)))
+
+        assert recording_fingerprint(one) == recording_fingerprint(again)
+
+    def test_segment_boundaries_do_not_change_the_recording(self) -> None:
+        """A route export flattens a paused recording into one run.
+
+        It is the same positions at the same instants, so it is the same
+        recording. Segment structure is source data about the document rather
+        than about where somebody went.
+        """
+        split = self._segments(((51.0, 7.0),), ((51.1, 7.1),))
+        flat = self._segments(((51.0, 7.0), (51.1, 7.1)))
+
+        assert recording_fingerprint(split) == recording_fingerprint(flat)
+
+    def test_a_different_ride_fingerprints_differently(self) -> None:
+        """The property that makes this safe to group by."""
+        one = self._segments(((51.0, 7.0), (51.1, 7.1)))
+        other = self._segments(((51.0, 7.0), (51.1, 7.2)))
+
+        assert recording_fingerprint(one) != recording_fingerprint(other)
+
+    def test_the_clock_is_part_of_the_recording(self) -> None:
+        """Two laps of one loop are two rides, and their instants say so."""
+        morning = (
+            TrackSegment(
+                points=(
+                    TrackPoint(
+                        latitude=51.0, longitude=7.0, time=datetime(2026, 5, 4, 8, tzinfo=UTC)
+                    ),
+                )
+            ),
+        )
+        evening = (
+            TrackSegment(
+                points=(
+                    TrackPoint(
+                        latitude=51.0, longitude=7.0, time=datetime(2026, 5, 4, 18, tzinfo=UTC)
+                    ),
+                )
+            ),
+        )
+
+        assert recording_fingerprint(morning) != recording_fingerprint(evening)
+
+    def test_a_reading_the_position_did_not_move_does_not_change_it(self) -> None:
+        """A richer export of one ride is the same ride.
+
+        The 1.1 export carries a heart rate and the 1.0 export cannot. Letting a
+        sensor reading into the fingerprint would make the two different
+        recordings, which is the opposite of what it is for.
+        """
+        plain = (TrackSegment(points=(TrackPoint(latitude=51.0, longitude=7.0),)),)
+        with_sensors = (
+            TrackSegment(points=(TrackPoint(latitude=51.0, longitude=7.0, heart_rate_bpm=140),)),
+        )
+
+        assert recording_fingerprint(plain) == recording_fingerprint(with_sensors)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Geometry, TrackProfile } from '../api/client'
-import { boundsOf, toFeatureCollection, unwrapAntimeridian } from './geojson'
+import { boundsOf, boundsQuery, toFeatureCollection, unwrapAntimeridian } from './geojson'
 
 /**
  * Everything a map decides that does not need WebGL.
@@ -108,6 +108,30 @@ describe('bounds', () => {
   })
 })
 
+describe('the rectangle coverage is asked about', () => {
+  it('is west, south, east, north, in that order', () => {
+    expect(
+      boundsQuery([
+        [2.8, 39.6],
+        [2.9, 39.7],
+      ]),
+    ).toBe('2.800,39.600,2.900,39.700')
+  })
+
+  it('is rounded, so two views of one track ask the same question', () => {
+    const asked = boundsQuery([
+      [2.80001, 39.60002],
+      [2.9, 39.7],
+    ])
+    const askedAgain = boundsQuery([
+      [2.80002, 39.60001],
+      [2.9, 39.7],
+    ])
+
+    expect(asked).toBe(askedAgain)
+  })
+})
+
 describe('a profile draws the same shape as the geometry', () => {
   it('keeps segments apart there too', () => {
     const profile: TrackProfile = {
@@ -170,5 +194,7 @@ function sample(segmentIndex: number, pointIndex: number, longitude: number, lat
     elevation_m: null,
     filtered_elevation_m: null,
     speed_mps: null,
+    heart_rate_bpm: null,
+    cadence_rpm: null,
   }
 }

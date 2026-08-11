@@ -126,6 +126,19 @@ export function boundsOf(collection: FeatureCollection): Bounds | null {
   ]
 }
 
+/**
+ * The rectangle a map asks the archive about, as the `bbox` query value.
+ *
+ * West, south, east, north -- the order the endpoint documents -- rounded to
+ * three decimals, roughly a hundred metres. The rounding is what stops two
+ * views that framed one track a pixel differently from asking the same question
+ * twice, and it is why the answer can be reused across a page of rows.
+ */
+export function boundsQuery(bounds: Bounds): string {
+  const [[west, south], [east, north]] = bounds
+  return [west, south, east, north].map((value) => value.toFixed(3)).join(',')
+}
+
 /** A neutral background so the track is legible without any tile provider. */
 export const FALLBACK_STYLE = {
   version: 8 as const,

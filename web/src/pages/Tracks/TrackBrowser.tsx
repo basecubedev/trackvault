@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { Activity, AnalysisAvailability, Track, TrackKind, TrackOrder } from '../../api/client'
 import { api } from '../../api/client'
@@ -7,14 +7,28 @@ import { analysisLabel, kindLabel, timingLabel } from '../../api/labels'
 import { displayTitle, isFallbackTitle } from '../../api/titles'
 import { useRequest } from '../../api/useRequest'
 import { ACTIVITIES, ANALYSIS_STATES, ORDERS, SCOPES } from '../../api/vocabulary'
+import { mergeAttribution } from '../../map/style'
+import { TrackMinimap } from '../../map/TrackMinimap'
 import { Badge } from '../../components/Badge'
 import { Notice } from '../../components/Notice'
+import { TrackImport } from './TrackImport'
 
 const PAGE_SIZE = 25
 const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1)
 
 /** Every filter this page understands, so resetting is one list rather than six. */
 const FILTERS = ['kind', 'activity', 'year', 'month', 'analysis_status'] as const
+
+/**
+ * The track's own report, fetched when a row is first opened.
+ *
+ * It brings the map library with it, and most visits to this page never open a
+ * row. Loading it up front would make a list of rows the most expensive page in
+ * the application.
+ */
+const TrackReport = lazy(() =>
+  import('../TrackDetail/TrackReport').then((module) => ({ default: module.TrackReport })),
+)
 
 /**
  * The archive, one page at a time.
@@ -51,7 +65,25 @@ export function TrackBrowser() {
     [offset, sort, kind, activity, year, month, analysisStatus],
   )
 
-  const page = useRequest((signal) => api.listTracks(query, signal), [JSON.stringify(query)])
+  const selection = useMemo(() => JSON.stringify(query), [query])
+  const page = useRequest((signal) => api.listTracks(query, signal), [selection])
+  // Whether this deployment accepts files at all. Asked rather than assumed:
+  // a control the server would refuse is a page that lies about what it does.
+  const system = useRequest((signal) => api.readSystemInfo(signal), [])
+  const [importing, setImporting] = useState(false)
+
+  // What the previews on this page have to credit. It is learned one drawn map
+  // at a time, because which package belongs behind a track is decided per
+  // track -- and it is forgotten when the selection changes, since the next
+  // page may be somewhere the archive holds no map for at all.
+  const [credited, setCredited] = useState<readonly string[]>([])
+  useEffect(() => {
+    setCredited([])
+  }, [selection])
+  const credit = useCallback((lines: readonly string[]) => {
+    setCredited((seen) => mergeAttribution(seen, lines))
+  }, [])
+
   // Which years exist at all, for the filter and for telling an empty archive
   // apart from an empty selection. One extra request on a page that is already
   // making one, and it answers both questions.
@@ -69,6 +101,9 @@ export function TrackBrowser() {
       // the offset would open page four of a three-page result.
       if (key !== 'offset') next.delete('offset')
       if (key === 'year' && !value) next.delete('month')
+      // ...and an opened row belongs to the selection it was opened in. The
+      // next one may not hold that track at all.
+      next.delete('open')
       setParameters(next)
     },
     [parameters, setParameters],
@@ -78,8 +113,28 @@ export function TrackBrowser() {
     const next = new URLSearchParams(parameters)
     for (const name of FILTERS) next.delete(name)
     next.delete('offset')
+    next.delete('open')
     setParameters(next)
   }, [parameters, setParameters])
+
+  /**
+   * Which row is open, in the address.
+   *
+   * In the address because every other part of this view is: a track somebody
+   * found by scanning the list is then a link they can send, and a refresh does
+   * not throw the search away. One at a time -- an open report holds a map, and
+   * a map holds a WebGL context.
+   */
+  const opened = Number(parameters.get('open') ?? 0)
+  const toggle = useCallback(
+    (trackId: number) => {
+      const next = new URLSearchParams(parameters)
+      if (next.get('open') === String(trackId)) next.delete('open')
+      else next.set('open', String(trackId))
+      setParameters(next)
+    },
+    [parameters, setParameters],
+  )
 
   const total = page.data?.total ?? 0
   const shown = page.data?.tracks ?? []
@@ -91,6 +146,22 @@ export function TrackBrowser() {
       <h1>Tracks</h1>
 
       <div className="filters">
+        <div className="field">
+          <span className="visually-hidden" id="import-help">
+            Offer files to the archive from this browser
+          </span>
+          <button
+            type="button"
+            aria-expanded={importing}
+            aria-describedby="import-help"
+            data-testid="toggle-import"
+            onClick={() => {
+              setImporting((open) => !open)
+            }}
+          >
+            {importing ? 'Close import' : 'Import files'}
+          </button>
+        </div>
         <Select id="kind" label="Kind" value={kind} onChange={update} empty="All kinds">
           {SCOPES.map((scope) => (
             <option key={scope.value} value={scope.value}>
@@ -170,6 +241,16 @@ export function TrackBrowser() {
         </div>
       </div>
 
+      {importing && (
+        <TrackImport
+          enabled={system.data?.upload_enabled ?? false}
+          onImported={() => {
+            page.reload()
+            available.reload()
+          }}
+        />
+      )}
+
       {page.error !== null && (
         <div role="alert" data-testid="request-error">
           <Notice tone="error">{page.error}</Notice>
@@ -186,9 +267,22 @@ export function TrackBrowser() {
 
       <ul className="track-list">
         {shown.map((track) => (
-          <TrackRow key={track.id} track={track} />
+          <TrackRow
+            key={track.id}
+            track={track}
+            onAttribution={credit}
+            expanded={track.id === opened}
+            onToggle={toggle}
+            onChanged={page.reload}
+          />
         ))}
       </ul>
+
+      {credited.length > 0 && (
+        <p className="map-attribution" data-testid="list-map-attribution">
+          {credited.join(' · ')}
+        </p>
+      )}
 
       {shown.length === 0 && !page.loading && page.error === null && (
         <EmptyResult archiveIsEmpty={archiveIsEmpty} filtered={filtered} onReset={reset} />
@@ -293,12 +387,75 @@ function Select({
   )
 }
 
-export function TrackRow({ track }: { track: Track }) {
+/**
+ * What the badge on a row of several imports says when you point at it.
+ *
+ * "Imports", not "duplicates". The archive holds each file because each one is
+ * different evidence, and one of them may carry readings the others lost --
+ * calling them duplicates invites deleting the wrong one.
+ */
+function sameRecordingHint(track: Track): string {
+  const total = track.same_recording_ids.length + 1
+  return (
+    `The same recording arrived ${String(total)} times, in ${String(total)} different files. ` +
+    'Each is kept: they are different evidence, and one may carry readings the others lost.'
+  )
+}
+
+/**
+ * Roughly where a track was.
+ *
+ * The tilde is the whole point. What the archive compared is rectangles -- the
+ * box around the track against the box around a region's outline -- which is
+ * right inside a country and wrong at a border. A label without the mark would
+ * read as a fact, and this one cannot be one.
+ *
+ * The country is shown beside the region, never instead of it: "Limburg" alone
+ * is ambiguous, and the pair is what lets a reader notice the wrong one.
+ */
+export function TrackPlace({ location }: { location: Track['approximate_location'] }) {
+  if (location === null || location.regions.length === 0) return null
+  const countries = location.countries.map((country) => country.name).join(' / ')
+  return (
+    <span
+      className="track-place"
+      data-testid="track-place"
+      title="Approximate: the archive compared the rectangle around this track with the rectangle around each region. Near a border it can name the wrong one."
+    >
+      <span aria-hidden="true">≈ </span>
+      {location.regions[0]}
+      {countries && <span className="muted"> · {countries}</span>}
+    </span>
+  )
+}
+
+export function TrackRow({
+  track,
+  onAttribution,
+  expanded = false,
+  onToggle,
+  onChanged,
+}: {
+  track: Track
+  onAttribution?: (lines: readonly string[]) => void
+  /** Whether this row is currently showing the track's own report. */
+  expanded?: boolean
+  onToggle?: (trackId: number) => void
+  /** Fired when the report changed something this row is also showing. */
+  onChanged?: () => void
+}) {
   const analysis = analysisLabel(track.analysis.status)
   const timing = timingLabel(track.timeline.basis)
   const current = track.analysis.status === 'current'
+  const title = displayTitle(track)
+  const panelId = `track-details-${String(track.id)}`
   return (
     <li className="track-row" data-testid={`track-${track.id}`}>
+      <TrackMinimap
+        trackId={track.id}
+        title={title}
+        {...(onAttribution ? { onAttribution } : {})}
+      />
       <span className="track-row__title">
         <Link to={`/tracks/${track.id}`}>{displayTitle(track)}</Link>
         {isFallbackTitle(track) && (
@@ -308,6 +465,7 @@ export function TrackRow({ track }: { track: Track }) {
       <span className="track-row__meta">
         <Badge label={kindLabel(track.classification.effective_kind)} />
         <span>{track.activity}</span>
+        <TrackPlace location={track.approximate_location} />
         <span title={timing.hint}>
           {formatInstant(track.timeline.started_at)}
           {!track.timeline.is_actual_calendar_time && (
@@ -330,7 +488,51 @@ export function TrackRow({ track }: { track: Track }) {
           </span>
         )}
         <Badge label={analysis} />
+        {track.same_recording_ids.length > 0 && (
+          <span data-testid="same-recording">
+            <Badge
+              label={{
+                text: `${String(track.same_recording_ids.length + 1)} imports`,
+                tone: 'neutral',
+                mark: '⧉',
+                hint: sameRecordingHint(track),
+              }}
+            />
+          </span>
+        )}
       </span>
+      {onToggle && (
+        <button
+          type="button"
+          className="track-row__disclosure"
+          data-testid={`expand-${track.id}`}
+          aria-expanded={expanded}
+          aria-controls={panelId}
+          aria-label={`${expanded ? 'Hide' : 'Show'} details for ${title}`}
+          onClick={() => {
+            onToggle(track.id)
+          }}
+        >
+          <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        </button>
+      )}
+      {expanded && (
+        <div className="track-row__details" id={panelId}>
+          <Suspense
+            fallback={
+              <p className="muted" role="status">
+                Loading this track…
+              </p>
+            }
+          >
+            <TrackReport
+              trackId={track.id}
+              headingLevel={2}
+              {...(onChanged ? { onChanged } : {})}
+            />
+          </Suspense>
+        </div>
+      )}
     </li>
   )
 }

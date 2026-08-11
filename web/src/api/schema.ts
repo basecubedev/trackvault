@@ -81,6 +81,11 @@ export interface paths {
          *
          *     Reaches no provider and reads no track. It is the only map endpoint a track
          *     page calls, which is what makes viewing a track send nothing anywhere.
+         *
+         *     When nothing is installed for the rectangle, the answer also names the
+         *     regions that *could* be -- read out of the cached catalog, so this stays a
+         *     read that contacts nobody. It is one question with one complete answer:
+         *     "what is behind this track, and if nothing, what would be".
          */
         get: operations["read_coverage_api_v1_maps_coverage_get"];
         put?: never;
@@ -253,6 +258,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/statistics/overall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Total every year at once
+         * @description Return what a whole scope adds up to, and what each of its years did.
+         *
+         *     Registered before ``/year/{year}`` for the same reason ``/years`` is: a
+         *     literal path must win over a parameterised one whatever the router's
+         *     matching order turns out to be.
+         */
+        get: operations["read_overall_api_v1_statistics_overall_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/statistics/year/{year}": {
         parameters: {
             query?: never;
@@ -361,6 +390,36 @@ export interface paths {
         get: operations["list_tracks_api_v1_tracks_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tracks/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Offer one file to the archive
+         * @description Import one offered file and report what it produced.
+         *
+         *     The body is the file. One file per request, deliberately: a reader watching
+         *     twenty files arrive wants to know which of them the archive could not read,
+         *     and a single response for a batch either hides that or reinvents this
+         *     response inside a list.
+         *
+         *     Nothing about the request decides anything. The bytes go to the same
+         *     ``ImportTracks`` use case the command line and the scanned directory use, so
+         *     the duplicate rule, the storage layout, the classification and the analysis
+         *     are the archive's, not this route's.
+         */
+        post: operations["import_file_api_v1_tracks_imports_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -554,6 +613,14 @@ export interface components {
          */
         Activity: "walking" | "hiking" | "cycling" | "running" | "scooter" | "motorcycle" | "other" | "unknown";
         /**
+         * ActivityTotalsResponse
+         * @description What one activity did inside one period.
+         */
+        ActivityTotalsResponse: {
+            activity: components["schemas"]["Activity"];
+            totals: components["schemas"]["TotalsResponse"];
+        };
+        /**
          * AggregationScope
          * @description Which set of tracks a total covers.
          *
@@ -639,6 +706,32 @@ export interface components {
             moving_duration_s: number | null;
             /** @description current, outdated, missing or invalid -- the same word the detail view uses */
             status: components["schemas"]["AnalysisAvailability"];
+        };
+        /**
+         * ApproximateLocationResponse
+         * @description Roughly where a track was, and the word "roughly" is in the name.
+         *
+         *     What is compared is rectangles: the box around the track against the box
+         *     around a region's outline. Inside a country that is right; near a border it
+         *     is not, and it is confidently not -- a walk in Aachen falls inside the
+         *     rectangle around the Dutch province of Limburg, and this says so. An
+         *     interface showing it has to say it is approximate; the field name is the
+         *     reminder that it cannot be anything else.
+         *
+         *     ``null`` where nothing can answer: a track with no positions, or an archive
+         *     that has never read a region catalog. Locating reaches no provider.
+         */
+        ApproximateLocationResponse: {
+            /**
+             * Countries
+             * @description The countries those regions belong to. The country is the named region's own ancestor, so the two can be wrong together but never contradict.
+             */
+            countries: components["schemas"]["LocatedCountryResponse"][];
+            /**
+             * Regions
+             * @description Named regions, most specific first. More than one only when no single region's rectangle holds the whole track.
+             */
+            regions: string[];
         };
         /**
          * AttributionLinkResponse
@@ -800,7 +893,7 @@ export interface components {
         };
         /**
          * CoverageResponse
-         * @description Which installed maps belong behind a rectangle.
+         * @description Which installed maps belong behind a rectangle, and what would fill it.
          */
         CoverageResponse: {
             /**
@@ -808,6 +901,11 @@ export interface components {
              * @description Whether the archive holds any usable map at all, so the page can tell 'nothing installed' from 'nothing here'
              */
             any_installed: boolean;
+            /**
+             * Catalog Known
+             * @description Whether a catalog has ever been read here. False with no suggestions means 'nobody has looked', which is a different sentence from 'there is nothing'.
+             */
+            catalog_known: boolean;
             /**
              * Glyphs Url
              * @description Same-origin glyph template the styles use
@@ -818,6 +916,11 @@ export interface components {
              * @description Most specific first. Empty means: draw on a neutral background.
              */
             sources: components["schemas"]["MapSourceResponse"][];
+            /**
+             * Suggestions
+             * @description Regions that could be installed for this rectangle, most specific first. Empty whenever something is already drawn here, whenever this deployment refuses installs, and whenever no catalog has been read.
+             */
+            suggestions: components["schemas"]["SuggestedRegionResponse"][];
         };
         /**
          * CreditResponse
@@ -954,6 +1057,56 @@ export interface components {
          */
         ImportErrorCode: "unsupported_format" | "invalid_gpx" | "unsafe_xml" | "import_too_large" | "too_many_tracks" | "too_many_track_segments" | "too_many_track_points" | "invalid_coordinate" | "invalid_timestamp" | "raw_storage_failed" | "raw_storage_missing" | "raw_storage_corrupt" | "persistence_failed" | "track_not_found" | "analysis_failed";
         /**
+         * ImportOutcomeResponse
+         * @description What one offered file produced.
+         *
+         *     Every completed attempt answers ``200`` and says in ``status`` which of the
+         *     four outcomes it was -- including ``failed``. A file the archive could not
+         *     read is not a failed *request*: the server did exactly what was asked, read
+         *     the bytes, and concluded something about them. Encoding that conclusion in
+         *     an HTTP status as well would be a second vocabulary for one answer, and the
+         *     two would drift the first time a fifth outcome existed.
+         */
+        ImportOutcomeResponse: {
+            /**
+             * Error Code
+             * @description Why a failed attempt failed
+             */
+            error_code: string | null;
+            /**
+             * Sha256
+             * @description Content hash of the offered bytes, and their identity
+             */
+            sha256: string;
+            /** @description imported, duplicate, repaired or failed */
+            status: components["schemas"]["ImportStatus"];
+            /**
+             * Track Ids
+             * @description The tracks this produced, or the tracks a duplicate already had
+             */
+            track_ids: number[];
+        };
+        /**
+         * ImportStatus
+         * @description How one import attempt ended.
+         *
+         *     Four outcomes, because an operator has to be able to tell three different
+         *     things apart: nothing was needed, something was repaired, and something is
+         *     wrong. Hiding a repair inside ``DUPLICATE`` would make the archive silently
+         *     fix itself, and hiding an integrity failure there would make it silently not.
+         *
+         *     Attributes:
+         *         IMPORTED: New bytes were stored and normalized.
+         *         DUPLICATE: The archive already holds these bytes, and holds them
+         *             correctly. Nothing to do.
+         *         REPAIRED: The archive knew these bytes but had lost its managed copy, and
+         *             the copy was restored from the bytes offered again. The normalized
+         *             data was never in question and is unchanged.
+         *         FAILED: The attempt did not complete. ``error_code`` says why.
+         * @enum {string}
+         */
+        ImportStatus: "imported" | "duplicate" | "repaired" | "failed";
+        /**
          * InstallRequest
          * @description What an install asks for: a region, and nothing that could name a host.
          */
@@ -1064,6 +1217,19 @@ export interface components {
             jobs: components["schemas"]["JobResponse"][];
         };
         /**
+         * LocatedCountryResponse
+         * @description One country a track was approximately in.
+         */
+        LocatedCountryResponse: {
+            /**
+             * Code
+             * @description ISO 3166-1 alpha-2, where the provider states one
+             */
+            code: string | null;
+            /** Name */
+            name: string;
+        };
+        /**
          * MapInstallState
          * @description What a region's package amounts to right now.
          *
@@ -1108,8 +1274,14 @@ export interface components {
          * @description One month of a year. Present even when nothing happened in it.
          */
         MonthResponse: {
+            /**
+             * By Activity
+             * @description The same tracks grouped by activity, in the taxonomy's order. A partition: the parts add up to `totals`. An activity with no track in this month is absent rather than reported as zero.
+             */
+            by_activity: components["schemas"]["ActivityTotalsResponse"][];
             /** Month */
             month: number;
+            /** @description The authority for this month */
             totals: components["schemas"]["TotalsResponse"];
         };
         /**
@@ -1117,6 +1289,11 @@ export interface components {
          * @description A year broken into its twelve months.
          */
         MonthlyResponse: {
+            /**
+             * Activities
+             * @description The activities this year holds, in the taxonomy's order -- not the whole vocabulary, and never ordered by size. A client may rely on an activity keeping its place, and therefore its colour, across requests.
+             */
+            activities: components["schemas"]["Activity"][];
             activity: components["schemas"]["Activity"] | null;
             /** Months */
             months: components["schemas"]["MonthResponse"][];
@@ -1125,6 +1302,34 @@ export interface components {
             timezone: string;
             /** Year */
             year: number;
+        };
+        /**
+         * OverallResponse
+         * @description Everything one scope holds, and each year inside it.
+         *
+         *     A year is reported as twelve months because a calendar has twelve. This is
+         *     reported as the years the archive has something for: padding out to the
+         *     supported calendar would draw a century of empty buckets to say nothing.
+         */
+        OverallResponse: {
+            /**
+             * Activities
+             * @description The activities this scope holds, in the taxonomy's order
+             */
+            activities: components["schemas"]["Activity"][];
+            activity: components["schemas"]["Activity"] | null;
+            scope: components["schemas"]["AggregationScope"];
+            /** Timezone */
+            timezone: string;
+            /** @description What the whole scope adds up to. The years add up to exactly this. */
+            totals: components["schemas"]["TotalsResponse"];
+            /** @description Tracks in scope that belong to no year -- beside the total, never inside */
+            unplaced: components["schemas"]["UnplacedResponse"];
+            /**
+             * Years
+             * @description One bucket per year the archive holds something for, oldest first
+             */
+            years: components["schemas"]["YearBucketResponse"][];
         };
         /**
          * PointResponse
@@ -1167,6 +1372,11 @@ export interface components {
          */
         ProfileSampleResponse: {
             /**
+             * Cadence Rpm
+             * @description What a cadence sensor measured here. Zero is a reading, not an absence.
+             */
+            cadence_rpm: number | null;
+            /**
              * Distance M
              * @description Cumulative distance, summed within segments
              */
@@ -1181,6 +1391,11 @@ export interface components {
              * @description The altitude after the filter the ascent figure is accumulated from
              */
             filtered_elevation_m: number | null;
+            /**
+             * Heart Rate Bpm
+             * @description What a monitor measured here. A measurement, passed through untouched.
+             */
+            heart_rate_bpm: number | null;
             /** Latitude */
             latitude: number;
             /** Longitude */
@@ -1248,6 +1463,39 @@ export interface components {
             links: string[];
         };
         /**
+         * SuggestedRegionResponse
+         * @description One region that could be installed for a rectangle nothing covers.
+         *
+         *     A candidate, never a verdict. The provider's index says what rectangle a
+         *     region occupies, and a rectangle around the Netherlands contains Aachen --
+         *     so several are offered, most specific first, and the reader picks. What
+         *     travels is an identity: there is no field here that could name a host.
+         */
+        SuggestedRegionResponse: {
+            /**
+             * Ancestry
+             * @description The regions above it, outermost first, so a name is not ambiguous
+             */
+            ancestry: string[];
+            /**
+             * Availability Known
+             * @description False means the package question has not been asked, not that there is none
+             */
+            availability_known: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Region Id
+             * @description What an install would name. Never an address.
+             */
+            region_id: string;
+            /**
+             * Size Bytes
+             * @description What a download would cost, or null when nobody has asked the provider yet
+             */
+            size_bytes: number | null;
+        };
+        /**
          * SystemInfoResponse
          * @description What this deployment is running.
          */
@@ -1268,6 +1516,11 @@ export interface components {
              * @description Zone every month and year boundary is drawn in
              */
             timezone: string;
+            /**
+             * Upload Enabled
+             * @description Whether this deployment accepts files over HTTP. A page that offered the control anyway would be a page that lies about what the server will do.
+             */
+            upload_enabled: boolean;
             /**
              * Version
              * @description The GPX-View release, from its distribution metadata
@@ -1582,6 +1835,8 @@ export interface components {
         TrackResponse: {
             activity: components["schemas"]["Activity"];
             analysis: components["schemas"]["AnalysisSummaryResponse"];
+            /** @description Roughly where the track was, from region rectangles. Never exact. */
+            approximate_location: components["schemas"]["ApproximateLocationResponse"] | null;
             classification: components["schemas"]["ClassificationResponse"];
             /** Id */
             id: number;
@@ -1590,6 +1845,11 @@ export interface components {
             point_count: number;
             /** Raw Import Sha256 */
             raw_import_sha256: string;
+            /**
+             * Same Recording Ids
+             * @description Other tracks whose normalized positions and instants are identical to this one's -- one ride exported more than once. An equality, not a similarity: it never claims two rides are one because they look alike, and it does not find the same loop ridden on two days. Empty also means 'nothing matched', never 'nothing was compared'.
+             */
+            same_recording_ids: number[];
             /** Segment Count */
             segment_count: number;
             source: components["schemas"]["SourceResponse"];
@@ -1668,6 +1928,20 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * YearBucketResponse
+         * @description One year of the whole archive.
+         */
+        YearBucketResponse: {
+            /**
+             * By Activity
+             * @description The same partition a month reports, one level up
+             */
+            by_activity: components["schemas"]["ActivityTotalsResponse"][];
+            totals: components["schemas"]["TotalsResponse"];
+            /** Year */
+            year: number;
         };
         /**
          * YearResponse
@@ -2178,6 +2452,40 @@ export interface operations {
             };
         };
     };
+    read_overall_api_v1_statistics_overall_get: {
+        parameters: {
+            query?: {
+                /** @description Which set of tracks to total: recorded, planned or unknown */
+                scope?: components["schemas"]["AggregationScope"];
+                /** @description Narrow the totals to one activity */
+                activity?: components["schemas"]["Activity"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverallResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     read_year_api_v1_statistics_year__year__get: {
         parameters: {
             query?: {
@@ -2339,6 +2647,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_file_api_v1_tracks_imports_post: {
+        parameters: {
+            query?: {
+                /** @description What to remember the file as. Display metadata; never a location. */
+                filename?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The file itself. One per request. */
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportOutcomeResponse"];
+                };
+            };
+            /** @description Nothing was offered */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                };
+            };
+            /** @description This deployment refuses uploads */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
+                };
+            };
+            /** @description Larger than this archive accepts */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["gpx_view__api__tracks__ErrorResponse"];
                 };
             };
             /** @description Validation Error */

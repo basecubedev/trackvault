@@ -57,6 +57,12 @@ class Settings(BaseSettings):
             A ceiling rather than a preference: an unbounded stream to a file is
             a way to fill a disk with one request, and the default admits every
             country package the provider actually publishes.
+        upload_enabled: Whether the web interface may offer files to the
+            archive. This is the one endpoint that lets a caller make the server
+            write, and the archive has no authentication -- so a deployment on a
+            network its operator does not fully trust turns it off and keeps
+            every read. Importing then stays what it was: an operator action on
+            the machine that holds the data.
         maps_enabled: Whether offline map packages may be installed at all.
             An operator who never wants an outbound request, not even a
             deliberate one, turns the whole capability off and the manager says
@@ -83,6 +89,8 @@ class Settings(BaseSettings):
     timezone: str = DEFAULT_TIMEZONE
 
     web_dir: Path = Path("web/dist")
+
+    upload_enabled: bool = True
 
     map_max_download_bytes: int = DEFAULT_MAX_DOWNLOAD_BYTES
     maps_enabled: bool = True

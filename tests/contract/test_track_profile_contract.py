@@ -37,9 +37,12 @@ from gpx_view.config import Settings
 from gpx_view.domain import TrackPoint, TrackSegment
 from gpx_view.domain.analysis import analyse_elevation, analyse_movement
 from gpx_view.domain.analysis.series import derive_profile
+from gpx_view.infrastructure.assembly import build_services
 from gpx_view.main import create_app
 
 pytestmark = [pytest.mark.contract, pytest.mark.analysis]
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "gpx"
 
 _DEGREE = 111_195.0
 START = datetime(2025, 10, 5, 9, 0, tzinfo=UTC)
@@ -429,3 +432,44 @@ def test_the_profile_is_source_agnostic() -> None:
     assert profile.sample_count == 2
     assert profile.segments[0].samples[0].segment_index == 0
     assert movement.elapsed_seconds is not None
+
+
+def test_a_profile_carries_what_the_sensors_measured(tmp_path: Path) -> None:
+    """A recording with a chest strap has a heart rate at every position it read one.
+
+    It travels beside the derived series rather than inside them. The elevation
+    appears twice because the ascent is accumulated from one of the two; nothing
+    is accumulated from this, so it is passed through exactly as measured.
+    """
+    settings = Settings(data_dir=tmp_path / "data")
+    services = build_services(settings)
+    services.prepare_storage()
+    outcome = services.import_tracks(
+        ImportRequest(content=(FIXTURES / "sensor-readings.gpx").read_bytes())
+    )
+
+    with TestClient(create_app(settings)) as client:
+        payload = client.get(f"/api/v1/tracks/{outcome.track_ids[0]}/profile").json()
+
+    samples = payload["segments"][0]["samples"]
+    assert [sample["heart_rate_bpm"] for sample in samples] == [112, 128, None, 141]
+    assert [sample["cadence_rpm"] for sample in samples] == [78, 82, 85, 0]
+
+
+def test_a_track_without_sensors_reports_their_absence_rather_than_zero(
+    tmp_path: Path,
+) -> None:
+    """Nobody's heart stopped. There was no monitor."""
+    settings = Settings(data_dir=tmp_path / "data")
+    services = build_services(settings)
+    services.prepare_storage()
+    outcome = services.import_tracks(
+        ImportRequest(content=(FIXTURES / "recorded-measurements.gpx").read_bytes())
+    )
+
+    with TestClient(create_app(settings)) as client:
+        payload = client.get(f"/api/v1/tracks/{outcome.track_ids[0]}/profile").json()
+
+    samples = payload["segments"][0]["samples"]
+    assert all(sample["heart_rate_bpm"] is None for sample in samples)
+    assert all(sample["cadence_rpm"] is None for sample in samples)

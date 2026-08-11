@@ -11,8 +11,14 @@ of positions, so a listing must not pay for them, and a client can read
 
 **There is no authentication.** These endpoints are meant for a trusted network:
 a self-hosted deployment reachable only from the owner's own machines or behind a
-reverse proxy that authenticates. That is also why importing is not exposed here
--- see ``docs/technical/architecture.md``.
+reverse proxy that authenticates.
+
+``POST /tracks/imports`` is the one endpoint here that makes the server *write*,
+and it is the reason that sentence matters more than it used to. It exists
+because the archive's owner asked for it, it goes through the single canonical
+import use case like every other input path, it bounds its read before consuming
+a body, and a deployment that cannot assume a trusted network refuses it with
+``GPX_VIEW_UPLOAD_ENABLED=false``. See ``docs/adr/0011-web-upload.md``.
 """
 
 from collections.abc import Mapping
@@ -25,6 +31,8 @@ from pydantic import BaseModel, Field
 from gpx_view.application import ImportErrorCode
 from gpx_view.application.analysis import GetTrackAnalysis, TrackAnalysisReport
 from gpx_view.application.calendar import MAX_QUERY_YEAR, MIN_QUERY_YEAR, MONTHS_IN_YEAR
+from gpx_view.application.import_tracks import ImportRequest, ImportStatus, ImportTracks
+from gpx_view.application.maps import ApproximateLocation, LocateTracks
 from gpx_view.application.ports import (
     MAX_PAGE_SIZE,
     AnalysisAvailability,
@@ -56,6 +64,7 @@ from gpx_view.domain import (
     supports_actual_timing,
 )
 from gpx_view.domain.analysis import AnalysisProfile, MetricName, MetricValue
+from gpx_view.domain.raw_import import InputChannel
 
 router = APIRouter(prefix="/api/v1", tags=["tracks"])
 
@@ -211,6 +220,37 @@ class UserMetadataResponse(BaseModel):
     is_overridden: bool
 
 
+class LocatedCountryResponse(BaseModel):
+    """One country a track was approximately in."""
+
+    name: str
+    code: str | None = Field(description="ISO 3166-1 alpha-2, where the provider states one")
+
+
+class ApproximateLocationResponse(BaseModel):
+    """Roughly where a track was, and the word "roughly" is in the name.
+
+    What is compared is rectangles: the box around the track against the box
+    around a region's outline. Inside a country that is right; near a border it
+    is not, and it is confidently not -- a walk in Aachen falls inside the
+    rectangle around the Dutch province of Limburg, and this says so. An
+    interface showing it has to say it is approximate; the field name is the
+    reminder that it cannot be anything else.
+
+    ``null`` where nothing can answer: a track with no positions, or an archive
+    that has never read a region catalog. Locating reaches no provider.
+    """
+
+    regions: list[str] = Field(
+        description="Named regions, most specific first. More than one only when no "
+        "single region's rectangle holds the whole track."
+    )
+    countries: list[LocatedCountryResponse] = Field(
+        description="The countries those regions belong to. The country is the named "
+        "region's own ancestor, so the two can be wrong together but never contradict."
+    )
+
+
 class TrackResponse(BaseModel):
     """One stored track without its geometry."""
 
@@ -228,6 +268,16 @@ class TrackResponse(BaseModel):
     point_count: int
     segment_count: int
     source: SourceResponse
+    approximate_location: ApproximateLocationResponse | None = Field(
+        description="Roughly where the track was, from region rectangles. Never exact."
+    )
+    same_recording_ids: list[int] = Field(
+        description="Other tracks whose normalized positions and instants are identical to "
+        "this one's -- one ride exported more than once. An equality, not a "
+        "similarity: it never claims two rides are one because they look alike, "
+        "and it does not find the same loop ridden on two days. Empty also means "
+        "'nothing matched', never 'nothing was compared'."
+    )
 
 
 class TrackListResponse(BaseModel):
@@ -315,6 +365,12 @@ class ProfileSampleResponse(BaseModel):
     )
     speed_mps: float | None = Field(
         description="Speed held across the analysis window; null where none could be derived"
+    )
+    heart_rate_bpm: int | None = Field(
+        description="What a monitor measured here. A measurement, passed through untouched."
+    )
+    cadence_rpm: int | None = Field(
+        description="What a cadence sensor measured here. Zero is a reading, not an absence."
     )
 
 
@@ -441,9 +497,39 @@ class TrackMetadataRequest(BaseModel):
     )
 
 
+class ImportOutcomeResponse(BaseModel):
+    """What one offered file produced.
+
+    Every completed attempt answers ``200`` and says in ``status`` which of the
+    four outcomes it was -- including ``failed``. A file the archive could not
+    read is not a failed *request*: the server did exactly what was asked, read
+    the bytes, and concluded something about them. Encoding that conclusion in
+    an HTTP status as well would be a second vocabulary for one answer, and the
+    two would drift the first time a fifth outcome existed.
+    """
+
+    status: ImportStatus = Field(description="imported, duplicate, repaired or failed")
+    sha256: str = Field(description="Content hash of the offered bytes, and their identity")
+    track_ids: list[int] = Field(
+        description="The tracks this produced, or the tracks a duplicate already had"
+    )
+    error_code: str | None = Field(description="Why a failed attempt failed")
+
+
 NOT_FOUND: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "No such track"}
 }
+
+
+def _locate(request: Request, summary: TrackSummary) -> ApproximateLocation | None:
+    """Return roughly where one track was, from the catalog this deployment cached.
+
+    Read per row rather than batched: the whole answer is a few hundred
+    rectangle comparisons against a document already in memory, and a cache read
+    per page would be the thing to add if that ever stopped being true.
+    """
+    locate = cast(LocateTracks, request.app.state.locate_tracks)
+    return locate.for_bounds(summary.bounds)
 
 
 def _queries(request: Request) -> TrackQueries:
@@ -474,7 +560,7 @@ def _not_found(response: Response) -> ErrorResponse:
     )
 
 
-def _project(summary: TrackSummary) -> TrackResponse:
+def _project(summary: TrackSummary, location: ApproximateLocation | None = None) -> TrackResponse:
     """Shape one stored track for HTTP."""
     classification = summary.classification
     detected = classification.detected
@@ -518,6 +604,18 @@ def _project(summary: TrackSummary) -> TrackResponse:
         ),
         point_count=summary.point_count,
         segment_count=summary.segment_count,
+        same_recording_ids=list(summary.same_recording_ids),
+        approximate_location=(
+            None
+            if location is None
+            else ApproximateLocationResponse(
+                regions=list(location.regions),
+                countries=[
+                    LocatedCountryResponse(name=country.name, code=country.code)
+                    for country in location.countries
+                ],
+            )
+        ),
         source=SourceResponse(
             exchange_format=summary.source.exchange_format,
             format_version=summary.source.format_version,
@@ -579,6 +677,8 @@ def _project_profile(report: TrackProfileReport) -> TrackProfileResponse:
                         elevation_m=sample.raw_elevation_m,
                         filtered_elevation_m=sample.filtered_elevation_m,
                         speed_mps=sample.sustained_speed_mps,
+                        heart_rate_bpm=sample.heart_rate_bpm,
+                        cadence_rpm=sample.cadence_rpm,
                     )
                     for sample in segment.samples
                 ],
@@ -638,6 +738,125 @@ def _project_analysis(report: TrackAnalysisReport) -> TrackAnalysisResponse:
     )
 
 
+MAX_FILENAME_LENGTH = 255
+UploadFilename = Annotated[
+    str | None,
+    Query(
+        max_length=MAX_FILENAME_LENGTH,
+        description="What to remember the file as. Display metadata; never a location.",
+    ),
+]
+
+
+def _importer(request: Request) -> ImportTracks:
+    """Return the one canonical import use case."""
+    return cast(ImportTracks, request.app.state.import_tracks)
+
+
+def _refuse(code: str, message: str, http_status: int) -> HTTPException:
+    """Return the archive's own error envelope, wrapped as every route wraps it."""
+    return HTTPException(
+        status_code=http_status, detail={"error": {"code": code, "message": message}}
+    )
+
+
+def _too_large() -> HTTPException:
+    """Return the one refusal a body's size earns, named as the pipeline names it."""
+    return _refuse(
+        ImportErrorCode.IMPORT_TOO_LARGE.value,
+        "the file is larger than this archive accepts",
+        status.HTTP_413_CONTENT_TOO_LARGE,
+    )
+
+
+async def _bounded_body(request: Request, limit: int) -> bytes:
+    """Read the request body, stopping as soon as it exceeds ``limit``.
+
+    The bound is on the *read*. Loading a body and then measuring it has already
+    paid the cost the limit exists to prevent, and this is an endpoint anybody
+    who can reach the port may call. A declared length over the ceiling is
+    refused before a single chunk is pulled; an undeclared one is stopped mid
+    stream.
+
+    Raises:
+        HTTPException: ``413`` when the body is larger than ``limit``.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise _too_large()
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise _too_large()
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.post(
+    "/tracks/imports",
+    summary="Offer one file to the archive",
+    responses={
+        400: {"model": ErrorResponse, "description": "Nothing was offered"},
+        403: {"model": ErrorResponse, "description": "This deployment refuses uploads"},
+        413: {"model": ErrorResponse, "description": "Larger than this archive accepts"},
+    },
+    # Declared rather than inferred. The body is read as a stream so that the
+    # size limit bounds the read, which means FastAPI never sees a body
+    # parameter to document -- and an endpoint whose schema does not mention
+    # the bytes it takes is lying by omission to every generated client.
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "description": "The file itself. One per request.",
+            "content": {
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            },
+        }
+    },
+)
+async def import_file(request: Request, filename: UploadFilename = None) -> ImportOutcomeResponse:
+    """Import one offered file and report what it produced.
+
+    The body is the file. One file per request, deliberately: a reader watching
+    twenty files arrive wants to know which of them the archive could not read,
+    and a single response for a batch either hides that or reinvents this
+    response inside a list.
+
+    Nothing about the request decides anything. The bytes go to the same
+    ``ImportTracks`` use case the command line and the scanned directory use, so
+    the duplicate rule, the storage layout, the classification and the analysis
+    are the archive's, not this route's.
+    """
+    if not request.app.state.upload_enabled:
+        raise _refuse(
+            "upload_disabled",
+            "this deployment does not accept uploads",
+            status.HTTP_403_FORBIDDEN,
+        )
+    settings = request.app.state.services.settings
+    content = await _bounded_body(request, settings.import_max_bytes)
+    if not content:
+        # A request-level complaint rather than an import outcome: there is no
+        # file here to have concluded anything about. `ImportErrorCode` is the
+        # vocabulary for what the archive made of some bytes.
+        raise _refuse("upload_empty", "no bytes were offered", status.HTTP_400_BAD_REQUEST)
+    outcome = _importer(request)(
+        ImportRequest(
+            content=content,
+            original_filename=filename,
+            input_channel=InputChannel.WEB_UPLOAD,
+        )
+    )
+    return ImportOutcomeResponse(
+        status=outcome.status,
+        sha256=outcome.sha256,
+        track_ids=list(outcome.track_ids),
+        error_code=None if outcome.error_code is None else outcome.error_code.value,
+    )
+
+
 @router.get("/tracks", summary="List stored tracks")
 def list_tracks(
     request: Request,
@@ -678,7 +897,7 @@ def list_tracks(
         total=page.total,
         limit=page.limit,
         offset=page.offset,
-        tracks=[_project(summary) for summary in page.tracks],
+        tracks=[_project(summary, _locate(request, summary)) for summary in page.tracks],
     )
 
 
@@ -688,7 +907,7 @@ def read_track(
 ) -> TrackResponse | ErrorResponse:
     """Return one stored track, without geometry."""
     summary = _queries(request).get_track(track_id)
-    return _not_found(response) if summary is None else _project(summary)
+    return _not_found(response) if summary is None else _project(summary, _locate(request, summary))
 
 
 @router.get(
@@ -762,7 +981,7 @@ def override_classification(
 ) -> TrackResponse | ErrorResponse:
     """Record a user correction, which outranks the classifier from now on."""
     summary = _queries(request).override_classification(track_id, correction.kind)
-    return _not_found(response) if summary is None else _project(summary)
+    return _not_found(response) if summary is None else _project(summary, _locate(request, summary))
 
 
 @router.delete(
@@ -775,7 +994,7 @@ def reset_classification(
 ) -> TrackResponse | ErrorResponse:
     """Remove a user correction, handing authority back to the classifier."""
     summary = _queries(request).reset_classification(track_id)
-    return _not_found(response) if summary is None else _project(summary)
+    return _not_found(response) if summary is None else _project(summary, _locate(request, summary))
 
 
 @router.patch(
@@ -805,7 +1024,7 @@ def update_metadata(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
         ) from error
-    return _not_found(response) if summary is None else _project(summary)
+    return _not_found(response) if summary is None else _project(summary, _locate(request, summary))
 
 
 def _stated(update: TrackMetadataRequest, field: str) -> str | Unchanged | None:

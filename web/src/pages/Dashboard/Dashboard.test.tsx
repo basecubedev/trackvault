@@ -6,6 +6,7 @@ import {
   availableYears,
   failing,
   monthly,
+  overall,
   on,
   stubArchive,
   totals,
@@ -252,5 +253,189 @@ describe('choosing which year to show', () => {
 
   it('answers null when the scope has no dated tracks at all', () => {
     expect(selectedYear('2021', [])).toBeNull()
+  })
+})
+
+/**
+ * The per-activity view of a year.
+ *
+ * The chart draws one bar per activity; the table carries the same numbers as
+ * text. That is not a courtesy — three of the eight series colours sit below
+ * 3:1 against a white surface, and a readable table is what permits them.
+ */
+describe('a year split by activity', () => {
+  const SPLIT = {
+    year: 2025,
+    scope: 'recorded' as const,
+    activity: null,
+    timezone: 'UTC',
+    activities: ['walking', 'cycling'] as const,
+    months: Array.from({ length: 12 }, (_, index) => ({
+      month: index + 1,
+      totals: totals(index === 4 ? { track_count: 3, distance_m: 24_000 } : {}),
+      by_activity:
+        index === 4
+          ? [
+              { activity: 'walking' as const, totals: totals({ track_count: 1, distance_m: 4000 }) },
+              { activity: 'cycling' as const, totals: totals({ track_count: 2, distance_m: 20_000 }) },
+            ]
+          : [],
+    })),
+  }
+
+  it('gives the table a column per activity, so the numbers are readable as text', async () => {
+    archive(on('/monthly', SPLIT))
+
+    show()
+
+    await waitFor(() => {
+      // The table is on the page before the answer is; wait for the rows.
+      expect(screen.getByTestId('monthly-table').querySelectorAll('tbody tr')).toHaveLength(12)
+    })
+    const headers = [...screen.getByTestId('monthly-table').querySelectorAll('th[scope="col"]')].map(
+      (node) => node.textContent,
+    )
+    expect(headers.slice(0, 4)).toEqual(['Month', 'walking', 'cycling', 'All'])
+  })
+
+  it('shows what each activity did in a month, and a dash where it did nothing', async () => {
+    archive(on('/monthly', SPLIT))
+
+    show()
+
+    await waitFor(() => {
+      // The table is on the page before the answer is; wait for the rows.
+      expect(screen.getByTestId('monthly-table').querySelectorAll('tbody tr')).toHaveLength(12)
+    })
+    const rows = screen.getByTestId('monthly-table').querySelectorAll('tbody tr')
+    const may = [...(rows[4]?.querySelectorAll('td') ?? [])].map((node) => node.textContent)
+    const january = [...(rows[0]?.querySelectorAll('td') ?? [])].map((node) => node.textContent)
+    expect(may.slice(0, 3)).toEqual(['4.0', '20.0', '24.0'])
+    // Nobody walked in January. A dash says that; a zero would say they walked
+    // no distance.
+    expect(january.slice(0, 3)).toEqual(['—', '—', '0.0'])
+  })
+
+  it('keeps the plain table for a year with one activity', async () => {
+    archive(
+      on('/monthly', {
+        ...SPLIT,
+        activities: ['cycling'] as const,
+        months: SPLIT.months.map((bucket) => ({
+          ...bucket,
+          by_activity: bucket.by_activity.filter((split) => split.activity === 'cycling'),
+        })),
+      }),
+    )
+
+    show()
+
+    await waitFor(() => {
+      // The table is on the page before the answer is; wait for the rows.
+      expect(screen.getByTestId('monthly-table').querySelectorAll('tbody tr')).toHaveLength(12)
+    })
+    const headers = [...screen.getByTestId('monthly-table').querySelectorAll('th[scope="col"]')].map(
+      (node) => node.textContent,
+    )
+    expect(headers.slice(0, 2)).toEqual(['Month', 'Distance'])
+  })
+})
+
+/**
+ * Every year at once.
+ *
+ * A different question from "what did 2025 do", and the page says so in its
+ * shape: the buckets become years, the heading says yearly, and opening one
+ * lists that year rather than a month of it.
+ */
+describe('all years together', () => {
+  const ARCHIVE = overall({
+    totals: totals({ track_count: 3, distance_m: 30_000 }),
+    activities: ['walking'],
+    years: [
+      {
+        year: 2024,
+        totals: totals({ track_count: 1, distance_m: 10_000 }),
+        by_activity: [{ activity: 'walking', totals: totals({ track_count: 1, distance_m: 10_000 }) }],
+      },
+      {
+        year: 2025,
+        totals: totals({ track_count: 2, distance_m: 20_000 }),
+        by_activity: [{ activity: 'walking', totals: totals({ track_count: 2, distance_m: 20_000 }) }],
+      },
+    ],
+  })
+
+  it('is offered beside the years, not instead of them', async () => {
+    archive(on('/statistics/years', availableYears({ years: [2025, 2024] })))
+
+    show()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Year')).toBeInTheDocument()
+    })
+    const options = [...screen.getByLabelText('Year').querySelectorAll('option')].map(
+      (node) => node.textContent,
+    )
+    expect(options).toEqual(['All years', '2025', '2024'])
+  })
+
+  it('asks the archive one question rather than adding the years up itself', async () => {
+    const stub = archive(on('/statistics/overall', ARCHIVE))
+
+    show('/?year=all')
+
+    await waitFor(() => {
+      expect(stub.requested.some((url) => url.includes('/statistics/overall'))).toBe(true)
+    })
+    // Summing years in the browser would be a second authority on aggregation,
+    // and it would have to re-implement the currency rule to be right.
+    expect(stub.requested.some((url) => url.includes('/monthly'))).toBe(false)
+  })
+
+  it('totals the whole scope, not the newest year', async () => {
+    archive(on('/statistics/overall', ARCHIVE))
+
+    show('/?year=all')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('metric-tracks').textContent).toContain('3')
+    })
+    expect(screen.getByTestId('metric-distance').textContent).toContain('30')
+  })
+
+  it('turns the buckets into years, and says so', async () => {
+    archive(on('/statistics/overall', ARCHIVE))
+
+    show('/?year=all')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('monthly-table').querySelectorAll('tbody tr')).toHaveLength(2)
+    })
+    const headers = [...screen.getByTestId('monthly-table').querySelectorAll('th[scope="col"]')].map(
+      (node) => node.textContent,
+    )
+    expect(headers[0]).toBe('Year')
+    const rows = [...screen.getByTestId('monthly-table').querySelectorAll('tbody tr')].map(
+      (row) => row.querySelector('th')?.textContent,
+    )
+    expect(rows).toEqual(['2024', '2025'])
+    expect(screen.getByRole('heading', { name: /Yearly/ })).toBeInTheDocument()
+  })
+
+  it('opens a year as a year, not as a month of one', async () => {
+    archive(on('/statistics/overall', ARCHIVE))
+
+    show('/?year=all')
+    await waitFor(() => {
+      expect(screen.getByTestId('open-month-2024')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('open-month-2024'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toContain('year=2024')
+    })
+    expect(screen.getByTestId('location').textContent).not.toContain('month=')
   })
 })

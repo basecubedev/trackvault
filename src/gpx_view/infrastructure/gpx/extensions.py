@@ -34,11 +34,14 @@ from dataclasses import dataclass, field
 from gpx_view.infrastructure.gpx.parsing import GPX_1_0_NAMESPACE
 
 GARMIN_TRACK_POINT_EXTENSION_V2 = "http://www.garmin.com/xmlschemas/TrackPointExtension/v2"
-"""The track-point schema that defines a measured heading.
+"""The track-point schema that defines a measured heading, and what a body did.
 
 Version 1 of the same family defines temperature, heart rate and cadence but no
 heading, so it is deliberately not listed: supporting "every version that ever
-existed" would be exactly the blind vendor matching this module replaces.
+existed" would be exactly the blind vendor matching this module replaces. A
+document carrying v1 readings is not misread here -- it is unknown data, which
+parses fine and means nothing, and listing v1 is a change to make when a fixture
+in this project carries one.
 """
 
 LOCUS_MAP_EXTENSIONS = "https://www.locusmap.app"
@@ -60,6 +63,8 @@ class ExtensionSchema:
         activity_elements: Local names stating an activity explicitly.
         course_elements: Local names carrying a measured heading.
         navigation_elements: Local names carrying a turn-by-turn instruction.
+        heart_rate_elements: Local names carrying a measured heart rate.
+        cadence_elements: Local names carrying a measured cadence.
     """
 
     name: str
@@ -67,6 +72,8 @@ class ExtensionSchema:
     activity_elements: frozenset[str] = field(default_factory=frozenset)
     course_elements: frozenset[str] = field(default_factory=frozenset)
     navigation_elements: frozenset[str] = field(default_factory=frozenset)
+    heart_rate_elements: frozenset[str] = field(default_factory=frozenset)
+    cadence_elements: frozenset[str] = field(default_factory=frozenset)
 
 
 KNOWN_SCHEMAS: tuple[ExtensionSchema, ...] = (
@@ -81,6 +88,8 @@ KNOWN_SCHEMAS: tuple[ExtensionSchema, ...] = (
         name="garmin-trackpoint-v2",
         namespaces=frozenset({GARMIN_TRACK_POINT_EXTENSION_V2}),
         course_elements=frozenset({"course"}),
+        heart_rate_elements=frozenset({"hr"}),
+        cadence_elements=frozenset({"cad"}),
     ),
     ExtensionSchema(
         name="locus-map",
@@ -118,3 +127,14 @@ COURSE_ELEMENTS = _qualified(lambda schema: schema.course_elements)
 
 NAVIGATION_ELEMENTS = _qualified(lambda schema: schema.navigation_elements)
 """Where a turn-by-turn navigation instruction may be read from."""
+
+HEART_RATE_ELEMENTS = _qualified(lambda schema: schema.heart_rate_elements)
+"""Where a measured heart rate may be read from.
+
+`hr` is two letters and any vocabulary may use them. Reading a body measurement
+out of an element only because it is spelled that way is exactly the blind
+matching this module exists to prevent, so the namespace decides here too.
+"""
+
+CADENCE_ELEMENTS = _qualified(lambda schema: schema.cadence_elements)
+"""Where a measured cadence may be read from."""

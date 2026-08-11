@@ -24,7 +24,7 @@ pytestmark = [pytest.mark.contract, pytest.mark.statistics]
 
 RECORDING = """<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="synthetic" xmlns="http://www.topografix.com/GPX/1/1">
-  <trk><name>Synthetic walk</name><type>walking</type><trkseg>
+  <trk><name>Synthetic {kind}</name><type>{kind}</type><trkseg>
 {points}
   </trkseg></trk>
 </gpx>
@@ -40,8 +40,12 @@ PLANNED = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def _recording(count: int = 120, *, minute: int = 0) -> str:
-    """Build a synthetic recording that analyses to real numbers."""
+def _recording(count: int = 120, *, minute: int = 0, kind: str = "walking") -> str:
+    """Build a synthetic recording that analyses to real numbers.
+
+    ``kind`` is the activity the document declares. It is stated by the source
+    rather than inferred, which is the only way this archive ever assigns one.
+    """
     points = "\n".join(
         f'    <trkpt lat="{index * 1.4 / 111195.0:.8f}" lon="8.0">'
         f"<ele>{100 + index}</ele>"
@@ -50,7 +54,7 @@ def _recording(count: int = 120, *, minute: int = 0) -> str:
         f"<hdop>1.1</hdop></trkpt>"
         for index in range(count)
     )
-    return RECORDING.format(points=points)
+    return RECORDING.format(points=points, kind=kind)
 
 
 @pytest.fixture
@@ -230,6 +234,104 @@ def test_the_monthly_totals_agree_with_the_year(client: TestClient) -> None:
     )
 
 
+# --- What each activity did in a month ---------------------------------------
+#
+# A month's total answers "how far", and a reader looking at it usually wants
+# "how far doing what". The rows are already there, so the month says it --
+# without ever becoming a second authority on the month's own total.
+
+
+def test_a_month_says_what_each_activity_did_in_it(client: TestClient) -> None:
+    """The question a monthly total on its own cannot answer."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+
+    may = client.get("/api/v1/statistics/year/2026/monthly").json()["months"][4]
+
+    assert {entry["activity"]: entry["totals"]["track_count"] for entry in may["by_activity"]} == {
+        "walking": 1,
+        "cycling": 1,
+    }
+
+
+def test_the_breakdown_partitions_the_month_exactly(client: TestClient) -> None:
+    """A track has one activity, so nothing is counted twice and nothing dropped.
+
+    The month's own total stays the authority. This is the same rows grouped a
+    second way, and a breakdown that did not add up would make one of the two
+    numbers a guess.
+    """
+    _import(client, _recording(), "walk.gpx")
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+    _import(client, _recording(kind="hiking"), "hike.gpx")
+
+    may = client.get("/api/v1/statistics/year/2026/monthly").json()["months"][4]
+
+    assert (
+        sum(entry["totals"]["track_count"] for entry in may["by_activity"])
+        == (may["totals"]["track_count"])
+    )
+    assert sum(entry["totals"]["distance_m"] for entry in may["by_activity"]) == pytest.approx(
+        may["totals"]["distance_m"]
+    )
+
+
+def test_a_year_names_the_activities_it_actually_holds(client: TestClient) -> None:
+    """A legend of eight for an archive of two is a claim about the archive."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+
+    payload = client.get("/api/v1/statistics/year/2026/monthly").json()
+
+    assert payload["activities"] == ["walking", "cycling"]
+
+
+def test_the_activities_come_out_in_the_taxonomys_own_order(client: TestClient) -> None:
+    """Ordering by size would repaint a chart whenever somebody imported a file.
+
+    The order is the domain's, so an activity keeps its place -- and therefore
+    its colour -- however much of it the archive holds.
+    """
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+    _import(client, _recording(kind="cycling"), "ride-two.gpx")
+    _import(client, _recording(), "walk.gpx")
+
+    payload = client.get("/api/v1/statistics/year/2026/monthly").json()
+
+    assert payload["activities"] == ["walking", "cycling"]
+
+
+def test_an_activity_that_did_nothing_in_a_month_is_absent_from_it(client: TestClient) -> None:
+    """Absent rather than zero: no cycling in March is not a March of no kilometres."""
+    _import(client, _recording(), "walk.gpx")
+
+    payload = client.get("/api/v1/statistics/year/2026/monthly").json()
+
+    assert payload["months"][2]["by_activity"] == []
+    assert [entry["activity"] for entry in payload["months"][4]["by_activity"]] == ["walking"]
+
+
+def test_a_narrowed_request_breaks_down_only_what_it_asked_for(client: TestClient) -> None:
+    """The filter is the question; the breakdown answers inside it."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+
+    payload = client.get("/api/v1/statistics/year/2026/monthly?activity=cycling").json()
+
+    assert payload["activities"] == ["cycling"]
+    assert [entry["activity"] for entry in payload["months"][4]["by_activity"]] == ["cycling"]
+
+
+def test_a_breakdown_never_mixes_two_scopes(client: TestClient) -> None:
+    """Planned routes are not a quieter kind of recorded ones."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, PLANNED, "route.gpx")
+
+    recorded = client.get("/api/v1/statistics/year/2026/monthly").json()
+
+    assert recorded["activities"] == ["walking"]
+
+
 def test_statistics_can_be_narrowed_to_one_activity(client: TestClient) -> None:
     """Walking kilometres and cycling kilometres are not one statistic."""
     _import(client, _recording(), "walk.gpx")
@@ -254,3 +356,128 @@ def test_statistics_never_expose_a_coordinate(client: TestClient) -> None:
 
     assert "latitude" not in body
     assert "8.0" not in body
+
+
+# --- The whole archive at once ------------------------------------------------
+#
+# A year is a period. "Everything" is not one, and the difference shows up in
+# what the answer is shaped like: a year has months inside it, and everything
+# has years. What does not change is who decides -- the same window arithmetic,
+# the same currency rule, the same refusal to date a track nothing measured.
+
+
+def test_the_whole_archive_can_be_totalled_at_once(client: TestClient) -> None:
+    """A reader with three years of tracks has a question a year cannot answer."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+
+    payload = client.get("/api/v1/statistics/overall").json()
+
+    assert payload["totals"]["track_count"] == 2
+    assert payload["totals"]["distance_m"] > 0.0
+
+
+def test_the_overall_total_is_the_years_added_up(client: TestClient) -> None:
+    """The invariant a dashboard will rely on without checking it."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+
+    payload = client.get("/api/v1/statistics/overall").json()
+
+    assert sum(bucket["totals"]["distance_m"] for bucket in payload["years"]) == pytest.approx(
+        payload["totals"]["distance_m"]
+    )
+
+
+def test_it_holds_one_bucket_per_year_the_archive_has_something_for(
+    client: TestClient,
+) -> None:
+    """Twelve months are always twelve. Years are however many there are.
+
+    A month is a slot in a calendar and an empty one is a fact about the year.
+    A year the archive holds nothing for is not a fact about anything -- padding
+    the axis out to the supported calendar would draw a hundred empty bars.
+    """
+    _import(client, _recording(), "walk.gpx")
+
+    payload = client.get("/api/v1/statistics/overall").json()
+
+    assert [bucket["year"] for bucket in payload["years"]] == [2026]
+
+
+def test_the_years_come_out_oldest_first(client: TestClient) -> None:
+    """A time axis reads left to right, and this is what a chart plots."""
+    _import(client, _recording(), "walk.gpx")
+
+    payload = client.get("/api/v1/statistics/overall").json()
+
+    assert payload["years"] == sorted(payload["years"], key=lambda bucket: bucket["year"])
+
+
+def test_a_year_of_the_whole_archive_splits_by_activity_too(client: TestClient) -> None:
+    """The same partition the months carry, one level up."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+
+    bucket = client.get("/api/v1/statistics/overall").json()["years"][0]
+
+    counts = {entry["activity"]: entry["totals"]["track_count"] for entry in bucket["by_activity"]}
+    assert counts == {"walking": 1, "cycling": 1}
+
+
+def test_the_whole_archive_names_the_activities_it_holds(client: TestClient) -> None:
+    """So a chart of every year keeps one colour per activity."""
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+    _import(client, _recording(), "walk.gpx")
+
+    payload = client.get("/api/v1/statistics/overall").json()
+
+    assert payload["activities"] == ["walking", "cycling"]
+
+
+def test_it_reports_what_belongs_to_no_year_at_all(client: TestClient) -> None:
+    """A route with no clock is not in "everything" either. It is beside it."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, PLANNED, "route.gpx")
+
+    payload = client.get("/api/v1/statistics/overall?scope=planned").json()
+
+    assert payload["totals"]["track_count"] == 0
+    assert payload["unplaced"]["without_date"]["track_count"] == 1
+    assert payload["unplaced"]["without_date"]["distance_m"] > 0.0
+
+
+def test_the_whole_archive_is_still_asked_for_by_scope(client: TestClient) -> None:
+    """Widening the period does not create a combined total.
+
+    Everything means everything *in one scope*. A number that added planned
+    routes to travelled distance would be about neither, however wide the
+    period it covered.
+    """
+    _import(client, _recording(), "walk.gpx")
+
+    recorded = client.get("/api/v1/statistics/overall?scope=recorded").json()
+    planned = client.get("/api/v1/statistics/overall?scope=planned").json()
+
+    assert recorded["totals"]["track_count"] == 1
+    assert planned["totals"]["track_count"] == 0
+
+
+def test_the_whole_archive_can_be_narrowed_to_one_activity(client: TestClient) -> None:
+    """The filter is the question, whatever the period is."""
+    _import(client, _recording(), "walk.gpx")
+    _import(client, _recording(kind="cycling"), "ride.gpx")
+
+    payload = client.get("/api/v1/statistics/overall?activity=cycling").json()
+
+    assert payload["totals"]["track_count"] == 1
+    assert payload["activities"] == ["cycling"]
+
+
+def test_an_empty_archive_totals_zero_years_rather_than_failing(client: TestClient) -> None:
+    """The first thing a fresh installation asks for."""
+    payload = client.get("/api/v1/statistics/overall").json()
+
+    assert payload["years"] == []
+    assert payload["totals"]["track_count"] == 0
+    assert payload["timezone"] == "Europe/Berlin"

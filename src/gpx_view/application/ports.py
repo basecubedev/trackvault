@@ -32,6 +32,7 @@ from gpx_view.domain.analysis import (
     MetricValue,
     TrackAnalysis,
 )
+from gpx_view.domain.maps import MapBounds
 
 
 class AnalysisAvailability(StrEnum):
@@ -114,6 +115,16 @@ class TrackSummary:
             nobody uses. Stale and damaged numbers are deliberately absent --
             they are the last thing that was derived, not what the track is, and
             a headline metric is a claim about what the track is.
+        bounds: The rectangle the track occupies, or ``None`` for a track with
+            no positions. A fact about the geometry, stored beside the other
+            facts a listing reads without touching a position. *Where* that
+            rectangle is stays a read-time question: the answer comes from a
+            catalog that changes, and a stored name would be the copy nobody
+            updates.
+        same_recording_ids: The other current tracks whose normalized positions
+            and instants are identical to this one's -- one ride exported twice.
+            An equality rather than a similarity: it does not find the same loop
+            ridden on two days, and it never guesses that it has.
     """
 
     track_id: int
@@ -131,6 +142,8 @@ class TrackSummary:
     analysis: AnalysisAvailability = AnalysisAvailability.MISSING
     metrics: Mapping[MetricName, MetricValue] = field(default_factory=dict)
     user_metadata: UserTrackMetadata = EMPTY_USER_METADATA
+    same_recording_ids: tuple[int, ...] = ()
+    bounds: MapBounds | None = None
 
     @property
     def display_title(self) -> str | None:

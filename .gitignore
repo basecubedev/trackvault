@@ -38,6 +38,13 @@ junit*.xml
 *.gpx
 !tests/fixtures/**/*.gpx
 
+# The deployment's import folder, bind-mounted read-only at /import. The folder
+# itself is committed as an empty marker so a fresh checkout has it -- otherwise
+# Docker creates it, owned by root, and the person it exists for cannot drop a
+# file into it. Everything anybody puts in it is private movement data.
+/import/*
+!/import/.gitkeep
+
 # Local reference tracks: real private recordings and routes a developer may keep
 # here for exploration and local regression runs. The whole directory is excluded,
 # not just the extensions we happen to know today, so a sidecar file, an export

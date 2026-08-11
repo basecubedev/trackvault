@@ -257,3 +257,22 @@ def test_reading_a_candidate_leaves_the_directory_untouched(inbox: Path) -> None
         path.name: (path.read_bytes(), stat.S_IMODE(path.stat().st_mode))
         for path in inbox.iterdir()
     } == before
+
+
+def test_a_hidden_file_is_not_a_candidate(tmp_path: Path) -> None:
+    """A sync folder is full of dotfiles, and none of them is a track.
+
+    `.DS_Store`, `.nomedia`, a client's partial download, the `.gitkeep` that
+    makes the deployment's import folder exist -- reporting each of them as a
+    failed import on every scan is noise, and noise is where a real failure
+    goes unnoticed. They are not candidates, which is a different statement
+    from "unreadable": nothing is hidden from the summary that was ever offered
+    to it.
+    """
+    (tmp_path / "walk.gpx").write_bytes(b"<gpx/>")
+    (tmp_path / ".gitkeep").write_bytes(b"")
+    (tmp_path / ".DS_Store").write_bytes(b"junk")
+
+    with open_import_directory(tmp_path) as directory:
+        assert directory is not None
+        assert [entry.name for entry in directory.entries()] == ["walk.gpx"]

@@ -91,9 +91,18 @@ class ImportDirectory:
         The listing goes through the held descriptor rather than through a path.
         ``Path.iterdir`` would resolve the root again, which is the resolution
         this boundary exists to do exactly once.
+
+        **A hidden name is not a candidate.** A folder a phone syncs into fills
+        up with `.DS_Store`, `.nomedia`, half-written `.part` files and the
+        marker that makes the folder exist at all. None of them is a track, and
+        reporting each as a failed import on every scan is noise -- which is
+        where a real failure goes unnoticed. Not offered is a different
+        statement from unreadable, and only the second belongs in a summary.
         """
         names = os.listdir(self._descriptor)  # noqa: PTH208 - the descriptor is the authority
-        return tuple(ImportDirectoryEntry(name) for name in sorted(names))
+        return tuple(
+            ImportDirectoryEntry(name) for name in sorted(names) if not name.startswith(".")
+        )
 
     def read(self, entry: ImportDirectoryEntry, max_bytes: int) -> bytes | None:
         """Return a candidate's bytes, or ``None`` if it must not be read.
