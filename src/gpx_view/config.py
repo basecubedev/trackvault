@@ -17,6 +17,7 @@ from gpx_view.application.maps import DEFAULT_MAX_DOWNLOAD_BYTES
 DATABASE_FILENAME = "gpx-view.sqlite3"
 RAW_STORAGE_DIRECTORY = "raw"
 MAP_STORAGE_DIRECTORY = "maps"
+BACKUP_DIRECTORY = "backups"
 
 DEFAULT_TIMEZONE = "UTC"
 """Which zone month and year boundaries are drawn in, until one is configured.
@@ -42,6 +43,12 @@ class Settings(BaseSettings):
         import_dir: Directory the server scans for new files, for example a phone
             auto-sync target. Unset disables the feature. The directory is input
             only: nothing in it is written, renamed or deleted.
+        backup_dir: Where ``gpx-view backup create`` writes. Deliberately *not*
+            inside the data directory by default: a backup that lives inside the
+            thing it protects is lost with it, and one written into the import
+            directory would be re-read as an import. Unset means the data
+            directory's sibling ``backups/``, which a deployment mounts
+            separately.
         import_max_bytes: Largest accepted input file.
         import_max_tracks: Most tracks one document may contain.
         import_max_segments_per_track: Most segments one track may contain.
@@ -80,6 +87,7 @@ class Settings(BaseSettings):
     port: int = 8080
     data_dir: Path = Path("data")
     import_dir: Path | None = None
+    backup_dir: Path | None = None
 
     import_max_bytes: int = 16 * 1024 * 1024
     import_max_tracks: int = 100
@@ -126,6 +134,20 @@ class Settings(BaseSettings):
     def raw_storage_dir(self) -> Path:
         """Return the managed raw import directory, inside the data directory."""
         return self.data_dir / RAW_STORAGE_DIRECTORY
+
+    @property
+    def backup_storage_dir(self) -> Path:
+        """Return where backups are written.
+
+        Beside the data directory rather than inside it. A backup kept in the
+        directory it backs up survives exactly the failures that do not matter:
+        it is deleted with the volume, corrupted with the disk, and restored over
+        by the restore it exists to enable. Keeping it outside is what makes the
+        default worth having, and a deployment mounts it somewhere else again.
+        """
+        if self.backup_dir is not None:
+            return self.backup_dir
+        return self.data_dir.parent / BACKUP_DIRECTORY
 
     @property
     def map_storage_dir(self) -> Path:

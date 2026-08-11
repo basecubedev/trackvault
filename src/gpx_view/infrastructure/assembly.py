@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from gpx_view.application import ImportLimits
 from gpx_view.application.analysis import InstalledAnalysis
 from gpx_view.application.analyze import AnalyzeTrack
+from gpx_view.application.archive import CreateArchive, RestoreArchive
+from gpx_view.application.export import ExportRawSource, ExportTrackDocument
 from gpx_view.application.import_tracks import ImportTracks
 from gpx_view.application.maps import (
     GetMapCatalog,
@@ -32,9 +34,11 @@ from gpx_view.application.reprocess import ReprocessRawImport
 from gpx_view.config import Settings
 from gpx_view.infrastructure.clock import SystemClock
 from gpx_view.infrastructure.database import SqliteTrackStore
+from gpx_view.infrastructure.database.archive_source import SqliteArchiveSource
 from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore
+from gpx_view.infrastructure.database.migrations import SCHEMA_VERSION
 from gpx_view.infrastructure.filesystem import FilesystemRawImportStore
-from gpx_view.infrastructure.gpx import GpxImporter
+from gpx_view.infrastructure.gpx import GpxDocumentWriter, GpxImporter
 from gpx_view.infrastructure.maps import (
     FilesystemMapCatalogCache,
     FilesystemMapPackageStorage,
@@ -104,6 +108,9 @@ class TrackServices:
 
     Attributes:
         settings: The configuration everything was built from.
+        clock: The one source of "now" this process uses. Shared rather than
+            read again, so a backup's filename and its manifest cannot disagree
+            about when it was taken.
         store: The SQLite repository.
         raw_store: The managed raw import storage.
         import_tracks: The single canonical import use case.
@@ -112,6 +119,12 @@ class TrackServices:
             installed processing outdates it.
         analyze: The single canonical analysis use case, and the selection of
             what needs analysing again.
+        create_archive: Writing the whole deployment into one portable file.
+        restore_archive: Putting one back, having proved first that it can be.
+        export_raw: Handing back the bytes of one import, unchanged.
+        export_document: Rendering one current track as an exchange document.
+            A different thing from ``export_raw`` on purpose -- one is the
+            evidence, the other is what this build currently makes of it.
         processing: What this build turns a source into, per installed adapter.
             The same object that stamps a run and judges whether it is current,
             exposed so a deployment can state which algorithms produced the
@@ -120,6 +133,7 @@ class TrackServices:
     """
 
     settings: Settings
+    clock: SystemClock
     store: SqliteTrackStore
     raw_store: FilesystemRawImportStore
     import_tracks: ImportTracks
@@ -127,6 +141,10 @@ class TrackServices:
     processing_status: GetProcessingStatus
     analyze: AnalyzeTrack
     processing: InstalledProcessing
+    export_raw: ExportRawSource
+    export_document: ExportTrackDocument
+    create_archive: CreateArchive
+    restore_archive: RestoreArchive
     maps: MapServices
 
     def prepare_storage(self) -> None:
@@ -163,6 +181,7 @@ def build_services(settings: Settings) -> TrackServices:
     return TrackServices(
         maps=build_map_services(settings, store, clock),
         settings=settings,
+        clock=clock,
         store=store,
         raw_store=raw_store,
         import_tracks=ImportTracks(
@@ -187,6 +206,21 @@ def build_services(settings: Settings) -> TrackServices:
         ),
         analyze=analyze,
         processing=normalize.processing,
+        export_raw=ExportRawSource(repository=store, raw_store=raw_store),
+        # One writer, named once. The exported document states which release
+        # produced it, which is what makes "why does this file differ from the
+        # one I exported last year" answerable.
+        export_document=ExportTrackDocument(
+            repository=store, writer=GpxDocumentWriter(generator=f"GPX-View {VERSION}")
+        ),
+        create_archive=CreateArchive(
+            source=SqliteArchiveSource(store), clock=clock, version=VERSION
+        ),
+        # The schema version this *build* installs, not the one the database
+        # happens to hold. A restore is judged against what this code can read,
+        # which is what makes an archive from a newer build a refusal rather
+        # than a silent downgrade.
+        restore_archive=RestoreArchive(installed_schema_version=SCHEMA_VERSION),
     )
 
 

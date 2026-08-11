@@ -20,20 +20,45 @@ import logging
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from gpx_view.application.analyze import AnalyzeOutcome, AnalyzeStatus
+from gpx_view.application.archive import (
+    ArchiveCompatibility,
+    ArchiveError,
+    ArchiveInspection,
+    ArchiveManifest,
+    describe_omissions,
+)
+from gpx_view.application.diagnostics import CheckStatus, Diagnose
 from gpx_view.application.import_tracks import ImportOutcome, ImportRequest, ImportStatus
 from gpx_view.application.reprocess import ReprocessOutcome, ReprocessStatus
 from gpx_view.config import Settings, get_settings
 from gpx_view.domain import InputChannel, ProcessingProfile
+from gpx_view.infrastructure.archive import (
+    ARCHIVE_SUFFIX,
+    FilesystemArchiveBuilder,
+    FilesystemArchiveExtractor,
+)
 from gpx_view.infrastructure.assembly import TrackServices, build_services
+from gpx_view.infrastructure.database.migrations import SCHEMA_VERSION
+from gpx_view.infrastructure.diagnostics import observe
 from gpx_view.infrastructure.filesystem import read_bounded, scan_import_directory
+from gpx_view.infrastructure.private_data import create_private_directory
 from gpx_view.main import create_app
 
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_DISABLED = 2
+EXIT_DEGRADED = 2
+"""Something needs attention but nothing is broken.
+
+The same number as ``EXIT_DISABLED`` and a different word, because they are
+different statements about different commands: a scan with no import directory
+is switched off, and a deployment with no backup is working and unprotected.
+"""
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -89,6 +114,66 @@ def _parser() -> argparse.ArgumentParser:
     )
     status_command.add_argument("sha256", help="content hash of the raw import")
 
+    export_command = commands.add_parser(
+        "export", help="write a source or a track out of the archive"
+    )
+    exports = export_command.add_subparsers(dest="export_kind", required=True)
+
+    raw_export = exports.add_parser(
+        "raw", help="the original bytes of one import, byte-identical to what arrived"
+    )
+    raw_export.add_argument("sha256", help="content hash of the raw import")
+    _add_output_argument(raw_export)
+
+    document_export = exports.add_parser(
+        "track", help="one current track as a generated GPX 1.1 document"
+    )
+    document_export.add_argument("track_id", type=int, help="identity of a track")
+    _add_output_argument(document_export)
+
+    backup_command = commands.add_parser(
+        "backup", help="write the whole archive into one portable file"
+    )
+    backups = backup_command.add_subparsers(dest="backup_action", required=True)
+    backup_create = backups.add_parser("create", help="create a new backup")
+    backup_create.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="file to write; a timestamped name in the backup directory when omitted",
+    )
+    backup_create.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="skip reading the finished archive back; faster, and proves less",
+    )
+    backups.add_parser("list", help="list the backups in the backup directory")
+
+    restore_command = commands.add_parser(
+        "restore", help="put a backup back, after proving it can be put back"
+    )
+    restore_command.add_argument("archive", type=Path, help="the archive to restore")
+    restore_command.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report what would happen and change nothing",
+    )
+    restore_command.add_argument(
+        "--replace",
+        action="store_true",
+        help="allow replacing data that is already in the data directory",
+    )
+    restore_command.add_argument(
+        "--into",
+        type=Path,
+        default=None,
+        help="restore into this directory instead of the configured data directory",
+    )
+
+    commands.add_parser(
+        "doctor", help="report what is wrong with this deployment, changing nothing"
+    )
+
     openapi_command = commands.add_parser(
         "openapi", help="write the HTTP schema the frontend types are generated from"
     )
@@ -99,6 +184,21 @@ def _parser() -> argparse.ArgumentParser:
         help="file to write; standard output when omitted",
     )
     return parser
+
+
+def _add_output_argument(parser: argparse.ArgumentParser) -> None:
+    """Give an export command its destination, defaulting to standard output.
+
+    Standard output rather than a file the command invents: an export composes
+    into a pipe, and a command that silently creates files in the working
+    directory is a command that eventually creates one somewhere surprising.
+    """
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="file to write; standard output when omitted",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,6 +442,230 @@ def _scan(services: TrackServices) -> int:
     )
 
 
+def _export_raw(services: TrackServices, sha256: str, destination: Path | None) -> int:
+    """Write the original bytes of one import, exactly as they arrived.
+
+    The store verifies the bytes against the hash they are filed under before
+    they leave it, so this either produces the original or fails with a named
+    reason. It never produces "probably the original".
+    """
+    export = services.export_raw(sha256)
+    if export is None:
+        sys.stderr.write(f"unknown source {sha256[:12]}\n")
+        return EXIT_FAILED
+    return _write_bytes(export.content, destination)
+
+
+def _export_document(services: TrackServices, track_id: int, destination: Path | None) -> int:
+    """Write one current track as a generated exchange document.
+
+    Not the file that was imported. This is the archive's current normalized
+    generation rendered into GPX, which is why `export raw` exists beside it.
+    """
+    export = services.export_document(track_id)
+    if export is None:
+        sys.stderr.write(f"unknown track {track_id}\n")
+        return EXIT_FAILED
+    return _write_bytes(export.content, destination)
+
+
+def _write_bytes(content: bytes, destination: Path | None) -> int:
+    """Write bytes to a file, or to standard output when none was named.
+
+    Written through the buffer rather than through the text stream: this is a
+    document with its own declared encoding, and letting a terminal's locale
+    re-encode it would corrupt exactly the files somebody exported to keep.
+    """
+    if destination is None:
+        sys.stdout.buffer.write(content)
+    else:
+        destination.write_bytes(content)
+    return EXIT_OK
+
+
+def _backup_create(services: TrackServices, destination: Path | None, *, verify: bool) -> int:
+    """Write one archive, and read it back to prove it is one.
+
+    Verification re-runs the *restore* validation against the finished file:
+    manifest, every checksum, and the database's own integrity check. Proving a
+    backup with the code that would restore it is the only proof worth having --
+    a bespoke check would be a second opinion, and the day the two disagreed the
+    backup would already be the thing at stake.
+    """
+    settings = services.settings
+    directory = destination.parent if destination else settings.backup_storage_dir
+    create_private_directory(directory)
+    target = destination or directory / _backup_name(services)
+    builder = FilesystemArchiveBuilder(
+        destination=target,
+        database_path=settings.database_path,
+        raw_root=settings.raw_storage_dir,
+    )
+    try:
+        manifest = services.create_archive(builder)
+        if verify:
+            _verify_archive(target, settings)
+    except ArchiveError as error:
+        sys.stderr.write(f"backup failed: {error.code.value} {error.detail}\n")
+        return EXIT_FAILED
+    _report_manifest(manifest, target)
+    return EXIT_OK
+
+
+def _backup_name(services: TrackServices) -> str:
+    """Return a timestamped archive name, ordered the way a listing reads.
+
+    The instant comes from the same clock the manifest is stamped from, so the
+    name and the content cannot disagree about when the backup was taken.
+    """
+    stamp = services.clock.now().astimezone(UTC).strftime("%Y%m%d-%H%M%S")
+    return f"gpx-view-{stamp}{ARCHIVE_SUFFIX}"
+
+
+def _verify_archive(path: Path, settings: Settings) -> None:
+    """Read a finished archive back through the restore validation.
+
+    Staged into a temporary directory beside the archive rather than into the
+    data directory: verifying a backup must not put anything near the live
+    deployment, and the archive's own filesystem is the one known to have had
+    room for it.
+    """
+    with TemporaryDirectory(dir=path.parent, prefix=".verify-") as scratch:
+        root = Path(scratch)
+        extractor = FilesystemArchiveExtractor(
+            source=path,
+            data_dir=root,
+            database_path=root / settings.database_path.name,
+            raw_root=root / settings.raw_storage_dir.name,
+        )
+        try:
+            extractor.verify(extractor.manifest())
+        finally:
+            extractor.abandon()
+
+
+def _report_manifest(manifest: ArchiveManifest, target: Path) -> None:
+    """Print what was written, in the terms an operator checks it against."""
+    sys.stdout.write(
+        "\n".join(
+            [
+                f"created:   {target}",
+                f"size:      {target.stat().st_size} bytes",
+                f"taken at:  {manifest.created_at.isoformat()}",
+                f"release:   {manifest.gpx_view_version}",
+                f"schema:    {manifest.schema_version}",
+                f"sources:   {manifest.counts.raw_imports}",
+                f"tracks:    {manifest.counts.tracks}",
+                f"overrides: {manifest.counts.classification_overrides}",
+                f"notes:     {manifest.counts.user_metadata}",
+                f"omits:     {describe_omissions(manifest.omissions)}",
+            ]
+        )
+        + "\n"
+    )
+
+
+def _backup_list(services: TrackServices) -> int:
+    """List the archives in the backup directory, newest first."""
+    directory = services.settings.backup_storage_dir
+    archives = sorted(directory.glob(f"*{ARCHIVE_SUFFIX}")) if directory.is_dir() else []
+    if not archives:
+        sys.stdout.write(f"no backups in {directory}\n")
+        return EXIT_OK
+    for path in reversed(archives):
+        sys.stdout.write(f"{path.stat().st_size:>14} {path.name}\n")
+    return EXIT_OK
+
+
+def _restore(
+    services: TrackServices, archive: Path, *, dry_run: bool, replace: bool, into: Path | None
+) -> int:
+    """Inspect or restore one archive, in that order and never the other way."""
+    settings = services.settings
+    data_dir = into or settings.data_dir
+    extractor = FilesystemArchiveExtractor(
+        source=archive,
+        data_dir=data_dir,
+        database_path=data_dir / settings.database_path.name,
+        raw_root=data_dir / settings.raw_storage_dir.name,
+    )
+    try:
+        if dry_run:
+            return _report_inspection(services.restore_archive.inspect(extractor), data_dir)
+        outcome = services.restore_archive(extractor, replace=replace)
+    except ArchiveError as error:
+        sys.stderr.write(f"restore failed: {error.code.value} {error.detail}\n")
+        return EXIT_FAILED
+    sys.stdout.write(
+        f"restored {outcome.manifest.counts.tracks} track(s) from "
+        f"{outcome.manifest.counts.raw_imports} source(s) into {data_dir}\n"
+        f"compatibility: {outcome.compatibility.value}\n"
+        f"replaced existing data: {'yes' if outcome.replaced_existing_data else 'no'}\n"
+    )
+    if outcome.compatibility is ArchiveCompatibility.MIGRATION_REQUIRED:
+        sys.stdout.write("the database will be migrated the next time the archive starts\n")
+    return EXIT_OK
+
+
+def _report_inspection(inspection: ArchiveInspection, data_dir: Path) -> int:
+    """Print what a restore would do, having changed nothing.
+
+    Returns a non-zero code when the archive could not be restored, so a dry-run
+    is usable as a check in a script rather than only as something to read.
+    """
+    manifest = inspection.manifest
+    sys.stdout.write(
+        "\n".join(
+            [
+                f"archive:       {manifest.format_name} v{manifest.format_version}",
+                f"taken at:      {manifest.created_at.isoformat()}",
+                f"written by:    GPX-View {manifest.gpx_view_version}",
+                f"schema:        {manifest.schema_version}",
+                f"compatibility: {inspection.compatibility.value}",
+                f"sources:       {manifest.counts.raw_imports}",
+                f"tracks:        {manifest.counts.tracks}",
+                f"overrides:     {manifest.counts.classification_overrides}",
+                f"notes:         {manifest.counts.user_metadata}",
+                f"omits:         {describe_omissions(manifest.omissions)}",
+                f"target:        {data_dir}",
+                f"target holds data: {'yes' if inspection.target_holds_data else 'no'}",
+                f"needs:         {inspection.required_bytes} bytes",
+            ]
+        )
+        + "\n"
+    )
+    if inspection.target_holds_data:
+        sys.stdout.write("restoring would replace it; pass --replace to allow that\n")
+    return EXIT_OK if inspection.restorable else EXIT_FAILED
+
+
+def _doctor(services: TrackServices) -> int:
+    """Report the state of this deployment, and return a code a script can read.
+
+    Deliberately not run through ``prepare_storage``: a diagnostic that migrated
+    the database before looking at it would report a schema it had just written,
+    and would be a change to the very thing somebody ran it to understand.
+    """
+    report = Diagnose()(observe(services, SCHEMA_VERSION))
+    for check in report.checks:
+        sys.stdout.write(f"{check.status.value:<8} {check.name:<20} {check.detail}\n")
+    sys.stdout.write(f"\n{report.status.value}\n")
+    return _DOCTOR_EXIT_CODES[report.status]
+
+
+_DOCTOR_EXIT_CODES = {
+    CheckStatus.OK: EXIT_OK,
+    CheckStatus.WARNING: EXIT_DEGRADED,
+    CheckStatus.ERROR: EXIT_FAILED,
+}
+"""What ``doctor`` returns, so a cron job can tell the three apart.
+
+Degraded is deliberately its own code rather than a failure. A pending migration
+and an unreadable database both need somebody, and only one of them needs them
+tonight.
+"""
+
+
 def _openapi(destination: Path | None) -> int:
     """Write the HTTP schema, byte-for-byte reproducibly.
 
@@ -373,8 +697,31 @@ def main(argv: Sequence[str] | None = None, settings: Settings | None = None) ->
         return _openapi(arguments.output)
 
     services = build_services(settings or get_settings())
+
+    # Restore runs before anything creates a database. Migrating first would put
+    # an empty archive in the destination and make every restore report that it
+    # was about to replace something -- the protection would fire on the case it
+    # exists to allow.
+    # Diagnosing runs before anything migrates, for the same reason restoring
+    # does: it would otherwise report a state it had just created.
+    if arguments.command == "doctor":
+        return _doctor(services)
+
+    if arguments.command == "restore":
+        return _restore(
+            services,
+            arguments.archive,
+            dry_run=arguments.dry_run,
+            replace=arguments.replace,
+            into=arguments.into,
+        )
+
     services.prepare_storage()
 
+    if arguments.command == "backup":
+        if arguments.backup_action == "create":
+            return _backup_create(services, arguments.output, verify=not arguments.no_verify)
+        return _backup_list(services)
     if arguments.command == "import":
         return _import_paths(services, arguments.paths)
     if arguments.command == "reprocess":
@@ -393,6 +740,10 @@ def main(argv: Sequence[str] | None = None, settings: Settings | None = None) ->
         )
     if arguments.command == "processing-status":
         return _processing_status(services, arguments.sha256)
+    if arguments.command == "export":
+        if arguments.export_kind == "raw":
+            return _export_raw(services, arguments.sha256, arguments.output)
+        return _export_document(services, arguments.track_id, arguments.output)
     return _scan(services)
 
 
