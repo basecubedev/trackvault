@@ -19,6 +19,32 @@ const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1)
 /** Every filter this page understands, so resetting is one list rather than six. */
 const FILTERS = ['kind', 'activity', 'year', 'month', 'analysis_status'] as const
 
+const DEFAULT_KIND: TrackKind = 'recorded'
+/**
+ * What the browser lists when the address does not say.
+ *
+ * Opening the archive is nearly always a question about what somebody actually
+ * did, and a list that mixes routes nobody travelled into the answer makes the
+ * reader do the filtering. It is a *default*, not a restriction: every other
+ * kind is one selection away and one link away.
+ *
+ * Read here and nowhere else. `sort` and `offset` already work this way -- the
+ * address carries what somebody chose, and what nobody chose is decided when
+ * the address is read. Writing the default into the URL instead would put the
+ * same decision in two places and make `/tracks` a link that rewrites itself.
+ */
+
+const ALL_KINDS = 'all'
+/**
+ * The address for "every kind", which now needs saying out loud.
+ *
+ * An absent parameter used to mean it, and it cannot any more: absence is the
+ * default and one absence cannot mean two things. So the option that used to
+ * clear the filter names itself instead. Nothing about the *API* changes --
+ * `all` never leaves the browser, and the request simply carries no kind, which
+ * is what it always did for this case.
+ */
+
 /**
  * The track's own report, fetched when a row is first opened.
  *
@@ -43,7 +69,7 @@ const TrackReport = lazy(() =>
 export function TrackBrowser() {
   const [parameters, setParameters] = useSearchParams()
   const offset = Number(parameters.get('offset') ?? 0)
-  const kind = parameters.get('kind') ?? ''
+  const kind = parameters.get('kind') ?? DEFAULT_KIND
   const activity = parameters.get('activity') ?? ''
   const year = parameters.get('year') ?? ''
   const month = parameters.get('month') ?? ''
@@ -56,7 +82,7 @@ export function TrackBrowser() {
       limit: PAGE_SIZE,
       offset,
       sort,
-      ...(kind ? { kind: kind as TrackKind } : {}),
+      ...(kind === ALL_KINDS ? {} : { kind: kind as TrackKind }),
       ...(activity ? { activity: activity as Activity } : {}),
       ...(year ? { year: Number(year) } : {}),
       ...(year && month ? { month: Number(month) } : {}),
@@ -87,8 +113,12 @@ export function TrackBrowser() {
   // Which years exist at all, for the filter and for telling an empty archive
   // apart from an empty selection. One extra request on a page that is already
   // making one, and it answers both questions.
+  // Scoped by the same kind the list is, so the years on offer are years this
+  // selection has something in. `archive_track_count` is deliberately not
+  // scoped by the archive, which is what still tells an empty archive from an
+  // empty selection whatever the filter says.
   const available = useRequest(
-    (signal) => api.readYears(kind ? { scope: kind } : {}, signal),
+    (signal) => api.readYears(kind === ALL_KINDS ? {} : { scope: kind }, signal),
     [kind],
   )
 
@@ -162,7 +192,14 @@ export function TrackBrowser() {
             {importing ? 'Close import' : 'Import files'}
           </button>
         </div>
-        <Select id="kind" label="Kind" value={kind} onChange={update} empty="All kinds">
+        <Select
+          id="kind"
+          label="Kind"
+          value={kind}
+          onChange={update}
+          empty="All kinds"
+          emptyValue={ALL_KINDS}
+        >
           {SCOPES.map((scope) => (
             <option key={scope.value} value={scope.value}>
               {scope.label}
@@ -360,6 +397,7 @@ function Select({
   label,
   value,
   empty,
+  emptyValue = '',
   onChange,
   children,
 }: {
@@ -367,6 +405,14 @@ function Select({
   label: string
   value: string
   empty: string
+  /**
+   * What "no choice" puts in the address, for a filter whose default is not it.
+   *
+   * Empty for every filter that narrows nothing by default -- the parameter is
+   * simply removed. The kind filter is the exception: not choosing means
+   * `recorded`, so its widest option has to be something a URL can say.
+   */
+  emptyValue?: string
   onChange: (key: string, value: string) => void
   children: React.ReactNode
 }) {
@@ -380,7 +426,7 @@ function Select({
           onChange(id, event.target.value)
         }}
       >
-        <option value="">{empty}</option>
+        <option value={emptyValue}>{empty}</option>
         {children}
       </select>
     </div>

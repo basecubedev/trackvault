@@ -10,7 +10,9 @@ import { expect, test } from '@playwright/test'
  */
 
 async function open(page: import('@playwright/test').Page, title: string) {
-  await page.goto('/tracks')
+  // Every kind: the track this renames carries no clock, so it is not a
+  // recording and the browser's default would not list it.
+  await page.goto('/tracks?kind=all')
   await page.getByRole('link', { name: title }).click()
   await expect(page.getByTestId('track-title')).toHaveText(title)
 }
@@ -28,8 +30,9 @@ test('a renamed track keeps its new title across a refresh, and can be reset', a
   await expect(page.getByTestId('track-title')).toHaveText('The lane behind the church')
   await expect(page.getByTestId('track-note')).toContainText('lost its fix')
 
-  // The listing reads the same authority.
-  await page.goto('/tracks')
+  // The listing reads the same authority. Every kind, because a track with no
+  // clock is not a recording and the default list would not hold it.
+  await page.goto('/tracks?kind=all')
   await expect(page.getByRole('link', { name: 'The lane behind the church' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Route with no clock' })).toHaveCount(0)
 

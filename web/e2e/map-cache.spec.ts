@@ -200,7 +200,8 @@ test('the same positions split differently are two pictures', async ({ page }) =
   ])
   await expect(page.getByTestId('import-result')).toContainText('imported')
 
-  await page.goto(`${SHAPE_ARCHIVE}/tracks`)
+  // Every kind: neither document states a measurement, so both are `unknown`.
+  await page.goto(`${SHAPE_ARCHIVE}/tracks?kind=all`)
   const rows = await everyPreviewIsDrawn(page)
 
   expect(rows).toBe(2)

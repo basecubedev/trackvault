@@ -30,6 +30,13 @@ totalled at all.
 
 **Tracks.** The archive, one page at a time, with every filter in the address
 bar — so a filtered view is a link you can send and a refresh does not lose it.
+
+It opens on **Recorded**, because opening the archive is nearly always a question
+about what you actually did. That is a starting point and not a restriction: the
+*Kind* filter still offers Planned, Unknown and *All kinds*, and a link that
+names a kind — `?kind=planned`, `?kind=unknown`, `?kind=all` — always wins over
+the default.
+
 *Import files* at the top offers files to the archive from the browser. Each row
 carries a small map of where that track went, drawn over the same offline
 basemap the track's own page uses. A row draws nothing until you have scrolled

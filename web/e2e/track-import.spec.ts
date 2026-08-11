@@ -120,6 +120,8 @@ test('a recording with sensors shows what they measured', async ({ page }) => {
 })
 
 test('one ride imported in two formats is two rows that say so', async ({ page }) => {
+  // Every kind: a route export states no measurement, so one of the two rows
+  // is `unknown` and the browser's default would show only the other.
   const asTrack = document_('Zeeland, twice over', 3)
   const asRoute = asTrack
     .replace('<trk>', '<rte>')
@@ -129,7 +131,7 @@ test('one ride imported in two formats is two rows that say so', async ({ page }
     .replaceAll('<trkpt', '<rtept')
     .replaceAll('</trkpt>', '</rtept>')
 
-  await page.goto(`${IMPORT_ARCHIVE}/tracks`)
+  await page.goto(`${IMPORT_ARCHIVE}/tracks?kind=all`)
   await page.getByTestId('toggle-import').click()
   await page.getByLabel(/choose files/i).setInputFiles([
     file('zeeland-track.gpx', asTrack),

@@ -14,7 +14,13 @@ export function TrackDetail() {
   return (
     <>
       <p className="muted">
-        <Link to="/tracks">← All tracks</Link>
+        {/*
+          Every kind, said out loud, because this link means what it says. The
+          browser lists recordings when the address does not narrow it, and a
+          link out of a planned route's page that quietly dropped it would be
+          the one place the word "all" was not true.
+        */}
+        <Link to="/tracks?kind=all">← All tracks</Link>
       </p>
       <TrackReport trackId={Number(trackId)} />
     </>
