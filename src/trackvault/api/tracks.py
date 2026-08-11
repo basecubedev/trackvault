@@ -268,13 +268,15 @@ class TrackResponse(BaseModel):
     point_count: int
     segment_count: int
     geometry_sha256: str | None = Field(
-        description="Content identity of the geometry this track currently has: the "
-        "identity of the recording its normalized positions and instants describe. "
-        "It changes when reprocessing changes the shape and stays put when a user "
-        "renames the track, so anything derived from the shape can say whether it "
-        "still belongs to it. Two tracks that are the same recording share it -- it "
-        "names a shape, not a row. Null means the archive does not know it: a track "
-        "stored before the value existed and not processed since."
+        description="Content identity of the **recording** this track's geometry "
+        "describes: its normalized positions and instants, which is what "
+        "`same_recording_ids` is decided by. It changes when reprocessing changes a "
+        "position and stays put when a user renames the track. It is deliberately "
+        "not the identity of a drawing -- it treats a route export that flattened a "
+        "paused ride as the same recording, and a map draws those two differently. "
+        "Anything keyed on what a track *looks like* wants `shape_sha256` from the "
+        "geometry resource. Null means the archive does not know it: a track stored "
+        "before the value existed and not processed since."
     )
     source: SourceResponse
     approximate_location: ApproximateLocationResponse | None = Field(
@@ -334,6 +336,16 @@ class GeometryResponse(BaseModel):
     point_count: int = Field(description="Positions in this response")
     total_point_count: int = Field(description="Positions the track holds")
     simplified: bool = Field(description="Whether the shape was reduced for presentation")
+    shape_sha256: str = Field(
+        description="Content identity of the line **this response** draws: its positions, "
+        "in order, and where its segments begin and end. It identifies the shape a "
+        "client is holding, so a reduced projection identifies the reduction -- a "
+        "different `max_points`, or a changed simplification, is a different value. "
+        "Deliberately not the track's `geometry_sha256`, which names the *recording* "
+        "and treats a route export that flattened a paused ride as the same thing: "
+        "one ride, two pictures. Instants and elevation are not in it, because a "
+        "flat map does not draw them."
+    )
     segments: list[SegmentResponse]
 
 
@@ -645,6 +657,7 @@ def _project_geometry(report: TrackGeometryReport) -> GeometryResponse:
         point_count=report.point_count,
         total_point_count=report.total_point_count,
         simplified=report.simplified,
+        shape_sha256=report.shape_sha256,
         segments=[
             SegmentResponse(
                 points=[

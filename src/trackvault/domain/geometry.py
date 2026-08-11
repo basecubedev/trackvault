@@ -175,10 +175,53 @@ def recording_fingerprint(segments: Sequence["TrackSegment"]) -> str:
     * **Elevation and sensor readings.** A poorer export of one ride is that
       ride. Letting a heart rate in would make the richer file a different
       recording, which is the opposite of the point.
+
+    Neither omission is a shortcut, and neither may be quietly borrowed for a
+    different question. "Is this the same drawing?" is answered by
+    :func:`shape_fingerprint`, which excludes the opposite things.
     """
     digest = hashlib.sha256()
     for segment in segments:
         for point in segment.points:
             instant = point.time.isoformat() if point.time is not None else ""
             digest.update(f"{point.latitude!r},{point.longitude!r},{instant}\n".encode())
+    return digest.hexdigest()
+
+
+def shape_fingerprint(segments: Sequence["TrackSegment"]) -> str:
+    """Return the identity of the *line* a set of segments draws.
+
+    > Two geometries that put the same positions in the same order into the
+    > same runs draw the same picture.
+
+    A different question from :func:`recording_fingerprint`, and the two
+    deliberately disagree. A map draws one line per segment, never one line
+    across the track, because a single line string over a segment boundary
+    draws a straight run over ground nobody travelled. So a paused recording and
+    the route export that flattened it are **one ride and two pictures** -- the
+    recording fingerprint says they are the same, this says they are not, and
+    both are right.
+
+    What is in it is exactly what a flat map can show:
+
+    * **Positions, in order.** A line drawn backwards covers the same ground and
+      is a different drawing.
+    * **Segment boundaries.** Stated as a run length before each run, so a split
+      cannot be forged out of the positions themselves: two different
+      arrangements of the same points differ in their very first token.
+
+    What is left out is what such a map cannot show. **Instants** -- one route
+    planned for the morning and for the evening is two recordings and one
+    picture. **Elevation and sensor readings** -- nothing here draws them.
+
+    It identifies whatever geometry it is handed, which is the point: given the
+    *reduced* geometry a preview asks for, it identifies that reduction, and a
+    changed position budget or a changed simplification changes it without
+    anybody having to remember to say so.
+    """
+    digest = hashlib.sha256()
+    for segment in segments:
+        digest.update(f"segment {segment.point_count}\n".encode())
+        for point in segment.points:
+            digest.update(f"{point.latitude!r},{point.longitude!r}\n".encode())
     return digest.hexdigest()

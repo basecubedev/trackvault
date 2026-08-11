@@ -44,15 +44,46 @@ thread on the way out. Bytes and a media type are stored rather than a `Blob`,
 because implementations have shipped that cannot structured-clone one into a
 store.
 
+### Two geometry identities, and which is which
+
+The archive publishes two, because there are two questions and one value cannot
+answer both.
+
+| | `TrackResponse.geometry_sha256` | `GeometryResponse.shape_sha256` |
+| --- | --- | --- |
+| Answers | is this the same **recording**? | is this the same **drawing**? |
+| Positions | yes | yes, in order |
+| Instants | yes | no — a map does not draw a clock |
+| Segment boundaries | **no** | **yes** |
+| Elevation, sensors | no | no |
+| Of what | the track's canonical geometry, stored | *this response*, including its reduction |
+| Used by | `same_recording_ids` | the minimap cache key |
+
+They disagree exactly where a route export flattened a paused recording into one
+run: **one ride, two pictures**, and both answers are right. `geometry_sha256`
+must keep saying "same recording" there — that is what groups one afternoon
+exported as GPX 1.1, as GPX 1.0 and as a route — so it cannot also be the
+identity of a drawing. A map draws one line per segment, never one line across a
+break, so the same positions split `[A,B,C][D,E]` and `[A,B][C,D,E]` are two
+different pairs of lines.
+
+`shape_sha256` identifies **the answer, not the archive**. A preview asks for at
+most `MINIMAP_POINTS` positions and draws what comes back, so the identity is
+computed over the reduced segments — a different `max_points`, or a changed
+simplification, is a different value with nothing to remember. Both are computed
+in `trackvault.domain.geometry`; nothing is hashed in the browser, because a
+second answer computed there is a second authority.
+
 ### The key
 
 A rendering may be reused when, and only when, everything that decided how it
-looks is unchanged. The key names all of it:
+looks is unchanged — and it must be reused when all of it is. The key names all
+of it:
 
 ```
-trackvault-minimap:v1|geometry=<sha256>|segments=<n>|maps=<delivery ids>
-  |theme=<t>|style=<n>|render=<n>|width=<n>|height=<n>|points=<n>
-  |maxzoom=<n>|padding=<n>
+trackvault-minimap:v2|shape=<shape_sha256>|maps=<delivery ids>|theme=<t>
+  |projection=<n>|style=<n>|render=<n>|width=<n>|height=<n>|points=<n>
+  |maxzoom=<n>|padding=<n>|pixel=<device pixel ratio>
 ```
 
 Every field is named, so a field inserted later is a miss rather than a wrong
@@ -61,32 +92,51 @@ needs `crypto.subtle`, which a browser withholds outside a secure context —
 which is exactly a self-hosted archive on a plain-HTTP address on somebody's own
 network.
 
-**`geometry`** is `TrackResponse.geometry_sha256`, the archive's own identity for
-the geometry a track currently has. Reprocessing that moves a position changes
-it; a title, a note or a kind correction does not. Inventing a second hash in
-the browser would be a second answer to a question the archive already answers.
-
-**`segments`** is beside it, not instead of it. `geometry_sha256` names the
-*recording* — positions and instants — and deliberately leaves out where the
-source put its breaks, because a route export of a paused ride is the same
-afternoon. A minimap draws one line per segment, so the same recording flattened
-into one run and split into three are two different pictures. What is left is
-narrow and cosmetic: two exports of one recording split differently into the
-*same* number of runs.
-
 **`maps`** is the ordered `delivery_id` of every package the coverage answer
 reported, which is the content hash of each. A region installed again from newer
 data is a new hash, so the picture drawn over the old package is simply never
 found again. Nothing has to hunt for it.
 
-**`style`** and **`render`** are `BASEMAP_STYLE_VERSION` in `web/src/map/style.ts`
-and `MINIMAP_RENDER_VERSION` in `web/src/map/minimap.ts`. They stand for the code
-that decides what a map looks like: a palette, a layer, a filter, a line width,
-a font. **Change any of those and bump the constant in the same commit** —
-nothing else can tell that a kept picture is no longer one this build would
-produce. They are deliberately constants rather than a digest of the source,
-which would change for a renamed local and stay the same for a colour moved
-between the two files.
+**`pixel`** is the display's device pixel ratio. MapLibre sizes its canvas by it,
+so the same track on a plain monitor and on a high-resolution laptop are a
+132×96 image and a 264×192 one — the same box, two pictures. Without it, moving a
+window between two screens shows one of them a blurred copy of the other.
+
+**`projection`**, **`style`** and **`render`** are `SHAPE_PROJECTION_VERSION` in
+`web/src/map/geojson.ts`, `BASEMAP_STYLE_VERSION` in `web/src/map/style.ts` and
+`MINIMAP_RENDER_VERSION` in `web/src/map/minimap.ts`. They stand for the code
+that decides what a map looks like: how a shape becomes features and a frame,
+what a basemap's palettes, layers, filters, line widths and glyphs are, and how
+the camera and the track overlay draw. **Change any of that and bump the
+constant in the same file, in the same commit** — nothing else can tell that a
+kept picture is no longer one this build would produce. Three constants rather
+than one because each sits where its edits happen; a version in another module
+is a version nobody remembers. They are deliberately constants rather than a
+digest of the source, which would change for a renamed local and stay the same
+for a colour moved between two files.
+
+### What was audited and left out
+
+Every input `renderTrackMinimap` receives, and where each is accounted for:
+
+| Input | Accounted for by |
+| --- | --- |
+| the line, its order, its segment breaks, its reduction | `shape` |
+| antimeridian unwrapping, the framing rectangle, single-position padding | `projection` |
+| tile template, min/max zoom, package bounds | `maps` — all derived from the content hash |
+| palettes, layers, filters, line widths, opacity, label fonts and sizes | `style` |
+| glyph ranges under `web/public/fonts/` | `style` — committed assets, changed deliberately |
+| sprite sheet | none exists; no layer uses `icon-image` |
+| track casing and line colour and width, fade, camera options | `render` |
+| theme, width, height, zoom ceiling, padding, position budget | their own fields |
+| canvas resolution | `pixel` |
+| attribution text | not in the picture — see below |
+
+Deliberately **not** in the key: the track's title, note, classification,
+activity, statistics and instants. None of them is drawn, and a renamed track
+must keep its picture. `points` is kept although `shape` already reflects it: the
+shape identity names the answer and this names the request, and a key that says
+which budget produced a shape is one somebody can read.
 
 ### Attribution
 
@@ -103,6 +153,13 @@ a few kilobytes, so the entry ceiling is the one that usually binds. A storage
 refusal makes room and retries once, then gives up. The schema version is the
 database's own version, so an upgrade discards the old store rather than
 orphaning a database nobody opens again and nobody reclaims.
+
+Version 2 of that schema does not change what a record looks like; it changes
+what one *means*. Every key version 1 wrote was built from the recording
+identity, which cannot tell two drawings of one recording apart, so nothing
+written under it can be trusted to be a picture of what its key claims. The new
+keys would never find those entries anyway — dropping them is what the version
+is for, and a derived picture is never worth migrating.
 
 Nothing the cache does can fail a caller. Storage switched off, a quota that is
 full, a record this build cannot vouch for, a database somebody cleared
@@ -121,6 +178,23 @@ browser that shows it.
 
 If the cache and the archive ever disagree, the archive wins: the picture is
 found by an identity the archive publishes, so a stale one is not found at all.
+
+### What causes a miss, and what deliberately does not
+
+| Change | |
+| --- | --- |
+| a position moved, added or removed | miss |
+| the same positions split into different runs | miss |
+| a different position budget that changes the drawn line | miss |
+| a map package installed again from newer data | miss |
+| a package added to or removed from the coverage | miss |
+| a different theme | miss |
+| `SHAPE_PROJECTION_VERSION`, `BASEMAP_STYLE_VERSION` or `MINIMAP_RENDER_VERSION` bumped | miss |
+| a different width, height, zoom ceiling or padding | miss |
+| the page moved to a screen with another pixel ratio | miss |
+| the track renamed, re-noted, reclassified, re-analysed | **hit** |
+| the same track drawn again after a reload or in a new tab | **hit** |
+| one recording imported twice, drawn identically | **hit**, and they share one entry |
 
 ### What is deliberately not cached
 

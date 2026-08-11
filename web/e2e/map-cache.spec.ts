@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
+import { SHAPE_ARCHIVE } from '../playwright.config'
 
 /**
  * A drawn minimap outliving the page that drew it.
@@ -160,6 +161,63 @@ test('clearing browser storage costs a redraw and nothing else', async ({ page }
   expect(await keptRenders(page)).toHaveLength(rows)
 })
 
+/**
+ * One walk, written down twice with the pause in a different place.
+ *
+ * The same four positions in the same order; one document breaks after the
+ * second, the other after the first. The archive is right to call them one
+ * *recording* -- and a map draws them as two different pairs of lines, because
+ * it draws one line per segment and never one across a break.
+ *
+ * This is the case the cache identity was rewritten for, so it is built here
+ * out of real files put through the real import.
+ */
+function twoRuns(name: string, first: number): string {
+  const positions = [
+    [39.7, 3.1],
+    [39.701, 3.101],
+    [39.702, 3.102],
+    [39.703, 3.103],
+  ]
+  const run = (from: number, to: number) =>
+    `<trkseg>${positions
+      .slice(from, to)
+      .map(([lat, lon]) => `<trkpt lat="${lat}" lon="${lon}"><ele>10</ele></trkpt>`)
+      .join('')}</trkseg>`
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="e2e" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><name>${name}</name><type>walking</type>${run(0, first)}${run(first, positions.length)}</trk>
+</gpx>
+`
+}
+
+test('the same positions split differently are two pictures', async ({ page }) => {
+  await page.goto(`${SHAPE_ARCHIVE}/tracks`)
+  await page.getByTestId('toggle-import').click()
+  await page.getByLabel(/choose files/i).setInputFiles([
+    { name: 'break-late.gpx', mimeType: 'application/gpx+xml', buffer: Buffer.from(twoRuns('Break after the second', 2)) },
+    { name: 'break-early.gpx', mimeType: 'application/gpx+xml', buffer: Buffer.from(twoRuns('Break after the first', 1)) },
+  ])
+  await expect(page.getByTestId('import-result')).toContainText('imported')
+
+  await page.goto(`${SHAPE_ARCHIVE}/tracks`)
+  const rows = await everyPreviewIsDrawn(page)
+
+  expect(rows).toBe(2)
+  // The archive calls them one recording, and it is right.
+  const tracks = await page.evaluate(async () => {
+    const answer = (await (await fetch('/api/v1/tracks')).json()) as {
+      tracks: { geometry_sha256: string | null }[]
+    }
+    return answer.tracks.map((track) => track.geometry_sha256)
+  })
+  expect(tracks[0]).toBe(tracks[1])
+  // ...and they are two pictures, so they are two entries under two keys.
+  const kept = await keptRenders(page)
+  expect(kept).toHaveLength(2)
+  expect(kept[0]?.key).not.toBe(kept[1]?.key)
+})
+
 test('what is kept is pictures of maps and nothing else', async ({ page }) => {
   await page.goto('/tracks')
   const rows = await everyPreviewIsDrawn(page)
@@ -173,7 +231,7 @@ test('what is kept is pictures of maps and nothing else', async ({ page }) => {
     // itself -- which is why this is browser-local and never a server artifact.
     expect(render.media_type).toBe('image/png')
     expect(render.size).toBeGreaterThan(0)
-    expect(render.key).toContain('trackvault-minimap:v1')
+    expect(render.key).toContain('trackvault-minimap:v2')
   }
   // One database, holding one store. The archive's own data has an authority
   // and this is not a second copy of it.

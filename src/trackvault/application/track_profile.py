@@ -35,7 +35,12 @@ from dataclasses import dataclass
 from trackvault.application.analysis import InstalledAnalysis
 from trackvault.application.ports import AnalysisAvailability, TrackRepository
 from trackvault.application.projection import decimate_profile, simplify_geometry
-from trackvault.domain import TemporalEvidence, TrackSegment, supports_actual_timing
+from trackvault.domain import (
+    TemporalEvidence,
+    TrackSegment,
+    shape_fingerprint,
+    supports_actual_timing,
+)
 from trackvault.domain.analysis import AnalysisProfile
 from trackvault.domain.analysis.series import TrackProfile, derive_profile
 
@@ -119,6 +124,20 @@ class TrackGeometryReport:
     point_count: int
     total_point_count: int
     simplified: bool
+
+    @property
+    def shape_sha256(self) -> str:
+        """Return the identity of the line these segments draw.
+
+        Derived here rather than stored, and derived from *this* report rather
+        than from the track. That is what makes it the identity of the answer
+        instead of the identity of the archive: a reduced projection identifies
+        the reduction, so a different position budget or a changed
+        simplification is a different value without anybody remembering to say
+        so. A stored one would describe the canonical geometry and be handed to
+        a client that is holding something else.
+        """
+        return shape_fingerprint(self.segments)
 
 
 class GetTrackProfile:

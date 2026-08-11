@@ -5,7 +5,12 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from trackvault.domain import TrackPoint, TrackSegment, recording_fingerprint
+from trackvault.domain import (
+    TrackPoint,
+    TrackSegment,
+    recording_fingerprint,
+    shape_fingerprint,
+)
 
 START = datetime(2026, 5, 4, 8, 0, tzinfo=UTC)
 
@@ -303,3 +308,129 @@ class TestRecordingFingerprint:
         )
 
         assert recording_fingerprint(plain) == recording_fingerprint(with_sensors)
+
+
+class TestShapeFingerprint:
+    """The identity of the *line* a set of segments draws.
+
+    A second fingerprint beside the recording one, because they answer two
+    different questions and one value cannot answer both. "Is this the same
+    ride?" must say yes to a route export that flattened a paused recording
+    into one run -- it is the same afternoon. "Is this the same picture?" must
+    say no to it, because a map draws one line per segment and a flattened
+    export draws a line across ground nobody travelled.
+
+    That is the whole reason this exists: the two questions disagree, and the
+    disagreement is not an edge case. It is what a route export *is*.
+    """
+
+    def _segments(self, *runs: tuple[tuple[float, float], ...]) -> tuple[TrackSegment, ...]:
+        return tuple(
+            TrackSegment(points=tuple(TrackPoint(latitude=lat, longitude=lon) for lat, lon in run))
+            for run in runs
+        )
+
+    def test_the_same_line_fingerprints_the_same(self) -> None:
+        """The reuse half of the invariant: an identical drawing is one picture."""
+        one = self._segments(((51.0, 7.0), (51.1, 7.1)), ((51.2, 7.2),))
+        again = self._segments(((51.0, 7.0), (51.1, 7.1)), ((51.2, 7.2),))
+
+        assert shape_fingerprint(one) == shape_fingerprint(again)
+
+    def test_a_different_position_draws_a_different_line(self) -> None:
+        """The property that makes this safe to key a picture on."""
+        one = self._segments(((51.0, 7.0), (51.1, 7.1)))
+        other = self._segments(((51.0, 7.0), (51.1, 7.2)))
+
+        assert shape_fingerprint(one) != shape_fingerprint(other)
+
+    def test_the_same_positions_split_differently_draw_different_lines(self) -> None:
+        """The defect this was written for.
+
+        The same positions, the same number of segments, a boundary one
+        position further along. A map draws two lines either way -- different
+        ones -- and anything that decided these were the same picture would show
+        somebody a drawing of a track they are not looking at.
+        """
+        early = self._segments(((51.0, 7.0), (51.1, 7.1)), ((51.2, 7.2), (51.3, 7.3)))
+        late = self._segments(((51.0, 7.0),), ((51.1, 7.1), (51.2, 7.2), (51.3, 7.3)))
+
+        assert shape_fingerprint(early) != shape_fingerprint(late)
+
+    def test_flattening_a_paused_recording_draws_a_different_line(self) -> None:
+        """Where the two fingerprints deliberately disagree.
+
+        The recording fingerprint says these are one ride, and it is right. The
+        shape fingerprint says they are two pictures, and it is also right: the
+        flattened one draws a straight line across the pause.
+        """
+        split = self._segments(((51.0, 7.0),), ((51.1, 7.1),))
+        flat = self._segments(((51.0, 7.0), (51.1, 7.1)))
+
+        assert recording_fingerprint(split) == recording_fingerprint(flat)
+        assert shape_fingerprint(split) != shape_fingerprint(flat)
+
+    def test_the_order_positions_are_drawn_in_is_part_of_the_line(self) -> None:
+        """A line drawn backwards is the same ground and a different drawing."""
+        forwards = self._segments(((51.0, 7.0), (51.1, 7.1), (51.2, 7.0)))
+        backwards = self._segments(((51.2, 7.0), (51.1, 7.1), (51.0, 7.0)))
+
+        assert shape_fingerprint(forwards) != shape_fingerprint(backwards)
+
+    def test_a_clock_draws_nothing(self) -> None:
+        """The same route planned twice, an hour apart, is one picture.
+
+        Two recordings, correctly -- and one drawing. Putting instants in here
+        would redraw a map for a difference no map can show.
+        """
+        morning = (
+            TrackSegment(
+                points=(
+                    TrackPoint(
+                        latitude=51.0, longitude=7.0, time=datetime(2026, 5, 4, 8, tzinfo=UTC)
+                    ),
+                )
+            ),
+        )
+        evening = (
+            TrackSegment(
+                points=(
+                    TrackPoint(
+                        latitude=51.0, longitude=7.0, time=datetime(2026, 5, 4, 18, tzinfo=UTC)
+                    ),
+                )
+            ),
+        )
+
+        assert recording_fingerprint(morning) != recording_fingerprint(evening)
+        assert shape_fingerprint(morning) == shape_fingerprint(evening)
+
+    def test_what_a_flat_map_cannot_show_is_not_in_it(self) -> None:
+        """Elevation and sensor readings draw nothing on a two-dimensional line."""
+        plain = (TrackSegment(points=(TrackPoint(latitude=51.0, longitude=7.0),)),)
+        richer = (
+            TrackSegment(
+                points=(
+                    TrackPoint(latitude=51.0, longitude=7.0, elevation=812.0, heart_rate_bpm=140),
+                )
+            ),
+        )
+
+        assert shape_fingerprint(plain) == shape_fingerprint(richer)
+
+    def test_a_track_with_no_positions_still_has_an_answer(self) -> None:
+        """Nothing to draw is a state, and it needs a value like any other."""
+        assert len(shape_fingerprint(())) == 64
+
+    def test_a_boundary_cannot_be_forged_out_of_a_coordinate(self) -> None:
+        """The segment count is a claim the positions themselves cannot make.
+
+        A canonical form that simply concatenated positions with a separator
+        would let one arrangement of segments produce another's bytes. The
+        length of each run is stated before its positions, so the very first
+        token of two different splits already differs.
+        """
+        one = self._segments(((51.0, 7.0), (51.1, 7.1), (51.2, 7.2)))
+        three = self._segments(((51.0, 7.0),), ((51.1, 7.1),), ((51.2, 7.2),))
+
+        assert shape_fingerprint(one) != shape_fingerprint(three)

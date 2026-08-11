@@ -23,6 +23,7 @@ from trackvault.domain import (
     TrackSegment,
     classify,
     recording_fingerprint,
+    shape_fingerprint,
 )
 from trackvault.infrastructure.assembly import build_services, import_limits_from
 from trackvault.infrastructure.gpx import GpxImporter
@@ -160,11 +161,38 @@ def test_segment_boundaries_survive_the_http_projection(tmp_path: Path) -> None:
 
 # --- Geometry identity ------------------------------------------------------
 #
-# A track says what its current geometry *is*, so a client holding something
-# derived from that geometry can tell whether it still describes this track. It
-# is the same value `same_recording_ids` is decided by, published rather than
-# recomputed: a second identity invented in a browser would be a second answer
-# to a question the archive already answers.
+# Two identities, because there are two questions and one value cannot answer
+# both. A track says which *recording* it is, which is what groups two exports
+# of one afternoon. A geometry response says which *line* it draws, which is
+# what anything holding a picture of it needs. They disagree exactly where a
+# route export flattened a paused recording, and that disagreement is the point.
+#
+# Both are published rather than recomputed by a client: an identity invented in
+# a browser would be a second answer to a question the archive already answers.
+
+
+_RUN_POSITIONS = ((51.0, 7.0), (51.1, 7.1), (51.2, 7.2), (51.3, 7.3))
+
+
+def _two_runs(first: int, second: int) -> bytes:
+    """Return a GPX whose four positions are split into two runs of the given sizes.
+
+    The same ground, walked once and written down twice with the pause in a
+    different place. Nothing else about the two documents differs.
+    """
+    assert first + second == len(_RUN_POSITIONS)
+    runs = (_RUN_POSITIONS[:first], _RUN_POSITIONS[first:])
+    segments = "".join(
+        "<trkseg>"
+        + "".join(f'<trkpt lat="{lat}" lon="{lon}"><ele>10</ele></trkpt>' for lat, lon in run)
+        + "</trkseg>"
+        for run in runs
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<gpx version="1.1" creator="contract" xmlns="http://www.topografix.com/GPX/1/1">'
+        f"<trk><name>Two runs</name>{segments}</trk></gpx>"
+    ).encode()
 
 
 def _segments_of(payload: dict[str, object]) -> list[TrackSegment]:
@@ -254,6 +282,84 @@ def test_the_identity_follows_the_geometry_through_a_reprocess(tmp_path: Path) -
         geometry = fresh.get(f"/api/v1/tracks/{track_id}/geometry").json()
         track = fresh.get(f"/api/v1/tracks/{track_id}").json()
     assert track["geometry_sha256"] == recording_fingerprint(_segments_of(geometry))
+
+
+def test_a_geometry_response_states_the_identity_of_the_line_it_draws(
+    archive: TestClient,
+) -> None:
+    """Sixty-four lowercase hex digits, over exactly the shape that was answered."""
+    track_id = _recording_id(archive)
+
+    payload = archive.get(f"/api/v1/tracks/{track_id}/geometry").json()
+
+    identity = payload["shape_sha256"]
+    assert isinstance(identity, str)
+    assert len(identity) == 64
+    assert identity == identity.lower()
+    assert identity == shape_fingerprint(_segments_of(payload))
+
+
+def test_the_same_positions_split_differently_are_a_different_line(tmp_path: Path) -> None:
+    """The defect this contract exists for.
+
+    Two documents with the same positions and the same number of runs, split a
+    position apart. They are drawn as different pairs of lines, so anything
+    keyed on what they look like has to be able to tell them apart. The
+    *recording* identity says they are one ride -- correctly -- which is exactly
+    why it cannot be the identity of a drawing.
+    """
+    settings = Settings(data_dir=tmp_path / "data")
+    services = build_services(settings)
+    services.prepare_storage()
+    early = services.import_tracks(
+        ImportRequest(content=_two_runs(2, 2), original_filename="break-late.gpx")
+    )
+    late = services.import_tracks(
+        ImportRequest(content=_two_runs(1, 3), original_filename="break-early.gpx")
+    )
+
+    with TestClient(create_app(settings)) as client:
+        one = client.get(f"/api/v1/tracks/{early.track_ids[0]}/geometry").json()
+        other = client.get(f"/api/v1/tracks/{late.track_ids[0]}/geometry").json()
+        tracks = {track["id"]: track for track in client.get("/api/v1/tracks").json()["tracks"]}
+
+    assert [len(segment["points"]) for segment in one["segments"]] == [2, 2]
+    assert [len(segment["points"]) for segment in other["segments"]] == [1, 3]
+    assert one["shape_sha256"] != other["shape_sha256"]
+    # ...and the recording identity, correctly, does not distinguish them.
+    assert (
+        tracks[early.track_ids[0]]["geometry_sha256"]
+        == tracks[late.track_ids[0]]["geometry_sha256"]
+    )
+
+
+def test_a_reduced_shape_is_identified_as_the_reduction_it_is(archive: TestClient) -> None:
+    """The identity describes the answer, never the archive behind it.
+
+    A client holding four positions and a client holding two are looking at two
+    different lines. An identity that named the track would tell them they hold
+    the same thing.
+    """
+    track_id = _recording_id(archive)
+
+    canonical = archive.get(f"/api/v1/tracks/{track_id}/geometry").json()
+    reduced = archive.get(f"/api/v1/tracks/{track_id}/geometry?max_points=2").json()
+
+    assert canonical["simplified"] is False
+    assert reduced["simplified"] is True
+    assert reduced["shape_sha256"] != canonical["shape_sha256"]
+    assert reduced["shape_sha256"] == shape_fingerprint(_segments_of(reduced))
+
+
+def test_asking_for_the_same_shape_twice_gives_the_same_identity(archive: TestClient) -> None:
+    """The reuse half: nothing about a request's timing may reach the value."""
+    track_id = _recording_id(archive)
+    query = f"/api/v1/tracks/{track_id}/geometry?max_points=3"
+
+    first = archive.get(query).json()
+    second = archive.get(query).json()
+
+    assert first["shape_sha256"] == second["shape_sha256"]
 
 
 def test_correcting_what_a_user_says_leaves_the_geometry_identity_alone(

@@ -23,6 +23,22 @@ export interface FeatureCollection {
 
 export type Bounds = [[number, number], [number, number]]
 
+export const SHAPE_PROJECTION_VERSION = 1
+/**
+ * How this module turns an archive's answer into a line and a frame.
+ *
+ * The archive says where a track went; the two functions below decide what is
+ * actually drawn from that -- one feature per segment, where a line that
+ * crosses 180° is cut, and which rectangle a map opens on including the padding
+ * a single position gets. Every one of those changes the picture while the
+ * archive's own data does not move an inch.
+ *
+ * So this belongs beside `BASEMAP_STYLE_VERSION` and `MINIMAP_RENDER_VERSION`
+ * as a third thing somebody has to change on purpose. Three constants rather
+ * than one, because each sits in the file whose edits require it: a version in
+ * another module is a version nobody remembers.
+ */
+
 /**
  * One feature per segment. Never one feature for the track.
  *

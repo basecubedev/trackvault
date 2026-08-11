@@ -163,6 +163,10 @@ export function geometry(overrides: Partial<Geometry> = {}): Geometry {
     point_count: 2,
     total_point_count: 831,
     simplified: true,
+    // The identity of the line this answer draws, which the archive states and
+    // nothing here recomputes. A test that wants a *different* drawing says so
+    // by overriding this, exactly as the archive would.
+    shape_sha256: 'a'.repeat(64),
     segments: [
       {
         points: [

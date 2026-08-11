@@ -26,7 +26,7 @@
  */
 
 const DATABASE = 'trackvault-minimap'
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const STORE = 'renders'
 const ACCESSED_INDEX = 'last_accessed_at'
 /**
@@ -37,6 +37,12 @@ const ACCESSED_INDEX = 'last_accessed_at'
  * Bumping the version instead makes the upgrade delete the old store on the
  * first page load of the new build. Kept renderings are derived data; there is
  * nothing here to migrate, and drawing them again is the whole point.
+ *
+ * Version 2 does not change what a record *looks like*. It changes what one
+ * means: every key version 1 wrote was computed from the track's recording
+ * identity, which cannot tell two different drawings of one recording apart.
+ * The new keys would never find those entries anyway, so they would sit there
+ * as bytes nothing can reach -- dropping them is what the version is for.
  */
 
 export const MAX_CACHE_BYTES = 64 * 1024 * 1024

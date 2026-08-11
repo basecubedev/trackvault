@@ -453,7 +453,6 @@ export function TrackRow({
     <li className="track-row" data-testid={`track-${track.id}`}>
       <TrackMinimap
         trackId={track.id}
-        geometryId={track.geometry_sha256}
         title={title}
         {...(onAttribution ? { onAttribution } : {})}
       />

@@ -14,7 +14,12 @@ from trackvault.domain.activity import Activity
 from trackvault.domain.classification import ClassificationResult, TrackClassification
 from trackvault.domain.classifier import classify
 from trackvault.domain.evidence import EvidenceCode, in_canonical_order
-from trackvault.domain.geometry import TrackPoint, TrackSegment, recording_fingerprint
+from trackvault.domain.geometry import (
+    TrackPoint,
+    TrackSegment,
+    recording_fingerprint,
+    shape_fingerprint,
+)
 from trackvault.domain.metric_provenance import MetricProvenance
 from trackvault.domain.processing import (
     NORMALIZATION_SCHEMA_VERSION,
@@ -76,6 +81,7 @@ __all__ = [
     "normalize_note",
     "normalize_title",
     "recording_fingerprint",
+    "shape_fingerprint",
     "supports_actual_calendar_placement",
     "supports_actual_metrics",
     "supports_actual_timing",

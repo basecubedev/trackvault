@@ -66,13 +66,10 @@ vi.mock('../cache/minimapCache', async (importOriginal) => ({
 
 const drawn = vi.mocked(renderTrackMinimap)
 
-const GEOMETRY_ID = 'a'.repeat(64)
-
 function show(
   routes: Route[],
   options: {
     onAttribution?: (lines: readonly string[]) => void
-    geometryId?: string | null
     title?: string
   } = {},
 ) {
@@ -80,7 +77,6 @@ function show(
   const view = render(
     <TrackMinimap
       trackId={7}
-      geometryId={options.geometryId === undefined ? GEOMETRY_ID : options.geometryId}
       title={options.title ?? 'Talaia ridge walk'}
       {...(options.onAttribution ? { onAttribution: options.onAttribution } : {})}
     />,
@@ -101,6 +97,14 @@ function withDelivery(delivery: string): Route[] {
       '/maps/coverage',
       coverage({ sources: [mapSource({ delivery_id: delivery })], any_installed: true }),
     ),
+  ]
+}
+
+/** The same archive, answering with a different drawing of the same track. */
+function drawing(shape: string): Route[] {
+  return [
+    on('/geometry', geometry({ shape_sha256: shape })),
+    on('/maps/coverage', coverage({ sources: [mapSource()], any_installed: true })),
   ]
 }
 
@@ -257,15 +261,32 @@ describe('a picture that has been drawn before', () => {
   })
 
   it('is not reused after the track has been processed again', async () => {
-    // Reprocessing that moves a position is a different shape, so the picture
-    // of the old one is not found. An old rendering must never be able to stand
-    // in for a track the archive has since changed.
+    // Reprocessing that moves a position is a different line, so the picture of
+    // the old one is not found. An old rendering must never be able to stand in
+    // for a track the archive has since changed.
     const { view } = show(ARCHIVE_DRAWS_A_TRACK)
     await shownMap()
     view.unmount()
     drawn.mockClear()
 
-    show(ARCHIVE_DRAWS_A_TRACK, { geometryId: 'b'.repeat(64) })
+    show(drawing('b'.repeat(64)))
+
+    await shownMap()
+    expect(drawn).toHaveBeenCalledTimes(1)
+  })
+
+  it('is not reused for the same positions split into different runs', async () => {
+    // The defect this identity was rewritten for. Two tracks can be the same
+    // *recording* -- one afternoon, exported twice -- and still be two
+    // drawings, because a map draws one line per segment. The archive says so
+    // by answering a different shape identity for the same positions, and the
+    // row must draw rather than reuse.
+    const { view } = show(drawing('1'.repeat(64)))
+    await shownMap()
+    view.unmount()
+    drawn.mockClear()
+
+    show(drawing('2'.repeat(64)))
 
     await shownMap()
     expect(drawn).toHaveBeenCalledTimes(1)
@@ -283,14 +304,19 @@ describe('a picture that has been drawn before', () => {
     expect(drawn).toHaveBeenCalledTimes(1)
   })
 
-  it('is not kept at all for a track the archive cannot identify a shape for', async () => {
-    show(ARCHIVE_DRAWS_A_TRACK, { geometryId: null })
-
+  it('survives everything about a track that is not its drawing', async () => {
+    // A renamed, reclassified, re-noted track over an unchanged map is the same
+    // picture, and redrawing it would be work nobody asked for. Only the shape
+    // identity and the coverage decide.
+    const { view } = show(ARCHIVE_DRAWS_A_TRACK, { title: 'Talaia ridge walk' })
     await shownMap()
+    view.unmount()
+    drawn.mockClear()
 
-    expect(drawn).toHaveBeenCalledTimes(1)
-    expect(kept.get).not.toHaveBeenCalled()
-    expect(kept.put).not.toHaveBeenCalled()
+    show(ARCHIVE_DRAWS_A_TRACK, { title: 'Renamed, reclassified and annotated' })
+
+    await screen.findByRole('img', { name: /Renamed, reclassified and annotated/ })
+    expect(drawn).not.toHaveBeenCalled()
   })
 })
 
@@ -306,8 +332,8 @@ describe('two rows showing the same track', () => {
     const stub = stubArchive(ARCHIVE_DRAWS_A_TRACK)
     render(
       <>
-        <TrackMinimap trackId={7} geometryId={GEOMETRY_ID} title="From the phone" />
-        <TrackMinimap trackId={8} geometryId={GEOMETRY_ID} title="From the watch" />
+        <TrackMinimap trackId={7} title="From the phone" />
+        <TrackMinimap trackId={8} title="From the watch" />
       </>,
     )
 

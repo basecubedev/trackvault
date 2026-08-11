@@ -49,19 +49,10 @@ const PRELOAD_MARGIN = '400px'
  */
 export function TrackMinimap({
   trackId,
-  geometryId,
   title,
   onAttribution,
 }: {
   trackId: number
-  /**
-   * The archive's identity for this track's current geometry.
-   *
-   * `null` for a track the archive cannot name a geometry for, which is a track
-   * whose picture is drawn and not kept. Guessing an identity would be worse
-   * than having none: a wrong one shows somebody another track's map.
-   */
-  geometryId: string | null
   title: string
   /** What the drawn basemap requires, reported so the page can credit it once. */
   onAttribution?: (lines: readonly string[]) => void
@@ -120,21 +111,18 @@ export function TrackMinimap({
       if (gone()) return
       credit.current?.(requiredAttribution(covered))
       const request = { collection, bounds, style: basemapStyle(covered, MINIMAP_THEME) }
-      const key =
-        geometryId === null
-          ? null
-          : minimapCacheKey(
-              minimapIdentity({
-                geometry: geometryId,
-                segments: shape.segment_count,
-                deliveries: drawnDeliveries(covered),
-                theme: MINIMAP_THEME,
-              }),
-            )
-      const drawn =
-        key === null
-          ? await renderTrackMinimap(request)
-          : await renderedMinimap(key, () => renderTrackMinimap(request))
+      // The identity of the shape the archive just answered with, not of the
+      // track it belongs to. Two rows can be the same recording and two
+      // different drawings of it; one row can be renamed a dozen times and stay
+      // the same drawing.
+      const key = minimapCacheKey(
+        minimapIdentity({
+          shape: shape.shape_sha256,
+          deliveries: drawnDeliveries(covered),
+          theme: MINIMAP_THEME,
+        }),
+      )
+      const drawn = await renderedMinimap(key, () => renderTrackMinimap(request))
       if (gone()) return
       setPicture(drawn)
     }
@@ -146,7 +134,7 @@ export function TrackMinimap({
     return () => {
       controller.abort()
     }
-  }, [wanted, trackId, geometryId])
+  }, [wanted, trackId])
 
   // The address the browser shows the picture under, and the only thing that
   // ever revokes it. A picture handed to `<img>` and then forgotten is memory
