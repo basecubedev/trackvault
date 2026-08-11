@@ -14,7 +14,7 @@ this way is not read.
 | `TRACKVAULT_DATA_DIR` | `data` | Holds *all* persistent data: the database and every original import |
 | `TRACKVAULT_IMPORT_DIR` | unset | Directory `trackvault scan` reads. Unset disables the feature. Never modified. |
 | `TRACKVAULT_BACKUP_DIR` | `backups/` beside the data directory | Where `trackvault backup create` writes. Outside the data directory on purpose: a backup kept inside what it protects is lost with it. |
-| `TRACKVAULT_UPLOAD_ENABLED` | `false` | Whether the browser interface may add files. Off unless you set it: uploading is unauthenticated, and every read works without it. |
+| `TRACKVAULT_UPLOAD_ENABLED` | `true` | Whether the browser interface may add files. Set it to `false` to refuse the capability: uploading is unauthenticated, and every read works without it. |
 | `TRACKVAULT_IMPORT_MAX_BYTES` | `16777216` | Largest accepted input file |
 | `TRACKVAULT_IMPORT_MAX_TRACKS` | `100` | Most tracks in one document |
 | `TRACKVAULT_IMPORT_MAX_SEGMENTS_PER_TRACK` | `1000` | Most segments in one track |
@@ -85,14 +85,15 @@ and can change a track's classification, title and notes.
 
 - Run it on your own network, or behind a reverse proxy that authenticates.
 - **Do not forward the port to the internet.**
-- **Uploading is off by default, and unauthenticated when you enable it.**
-  Writing is the one thing an unauthenticated caller must not be able to do
-  because a container happened to start, so `TRACKVAULT_UPLOAD_ENABLED` defaults
-  to `false` and turning it on is a statement about your network. The endpoint
-  itself is bounded — one file per request, the size limit applied while
-  reading, no archive or multipart parsing, the filename never used as a
-  location — but bounded is not authenticated. Why the capability exists at all
-  is recorded in [ADR 0011](../adr/0011-web-upload.md).
+- **Uploading is on by default, and unauthenticated.** Adding a track from the
+  browser is what an installation is for, so `TRACKVAULT_UPLOAD_ENABLED`
+  defaults to `true` — which means anyone who can reach the port can add files
+  as well as read them. Set it to `false` to refuse the capability outright;
+  every read keeps working. The endpoint itself is bounded — one file per
+  request, the size limit applied while reading, no archive or multipart
+  parsing, the filename never used as a location — but bounded is not
+  authenticated. Why the capability exists at all is recorded in
+  [ADR 0011](../adr/0011-web-upload.md).
 
 What the application does do:
 

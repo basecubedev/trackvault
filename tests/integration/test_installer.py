@@ -275,22 +275,22 @@ def test_force_replaces_the_configuration_and_only_the_configuration(
     assert "TRACKVAULT_HTTP_PORT=9123" not in environment
 
 
-def test_an_installation_does_not_switch_writing_on_for_you(tmp_path: Path) -> None:
+def test_an_installation_does_not_switch_writing_off_for_you(tmp_path: Path) -> None:
     """The installer writes a settings file, so it is a second place to get this wrong.
 
     Somebody running this script has read nothing -- that is what it is for --
-    and an unauthenticated write endpoint must not be reachable because they
-    typed one command. The generated `.env` therefore has to agree with the
-    application's own default rather than quietly overriding it.
+    and what they get has to be an archive they can actually add tracks to. The
+    generated `.env` therefore has to agree with the application's own default
+    rather than quietly overriding it.
     """
     target = tmp_path / "trackvault"
 
     _run("--dir", str(target), "--no-start")
 
     environment = (target / ".env").read_text(encoding="utf-8")
-    assert "TRACKVAULT_UPLOAD_ENABLED=false" in environment
-    assert "TRACKVAULT_UPLOAD_ENABLED=true" not in environment
-    assert Settings(data_dir=tmp_path / "unused").upload_enabled is False
+    assert "TRACKVAULT_UPLOAD_ENABLED=true" in environment
+    assert "TRACKVAULT_UPLOAD_ENABLED=false" not in environment
+    assert Settings(data_dir=tmp_path / "unused").upload_enabled is True
 
 
 def test_the_created_directories_are_private(tmp_path: Path) -> None:

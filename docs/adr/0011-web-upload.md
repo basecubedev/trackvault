@@ -2,19 +2,21 @@
 
 ## Status
 
-Accepted (2026-08-10). Amended the same day: the capability ships **off**.
+Accepted (2026-08-10). Amended the same day to ship **off**, and amended again
+on 2026-08-12: the capability ships **on**.
 
-The original decision built the toggle and defaulted it to on, reasoning that
-the owner had asked for the feature for their own trusted network. The amendment
-keeps every word of the decision and changes only who has to act: a deployment
-that wants unauthenticated writes says so, rather than one that does not want
-them having to find the setting.
+Both amendments keep every word of the decision and change only who has to act.
+The first made a deployment that wants unauthenticated writes say so; this one
+makes a deployment that does not want them say so instead, with
+`TRACKVAULT_UPLOAD_ENABLED=false`, which still refuses the whole capability.
 
 The difference is what happens to somebody who reads nothing. `install-docker.sh`
 exists precisely so that a person can go from an empty directory to a running
-archive without reading this file, and the version of that story where writing
-is reachable by default is the wrong one. Nothing about the endpoint, its
-bounds or its place in the pipeline changed.
+archive without reading this file, and what they get has to be an archive they
+can add tracks to — a browser interface whose one write control is refused is
+read as broken rather than as careful. The exposure is unchanged and is still
+real; it is now a decision the operator takes rather than one they discover.
+Nothing about the endpoint, its bounds or its place in the pipeline changed.
 
 Reverses the "no upload endpoint" position taken in ADR 0003 and restated in
 ADR 0008 and ADR 0009. Nothing else those decisions made changes: the import
@@ -41,7 +43,7 @@ on a server, and the person is holding a browser.
 
 Deferring it until authentication exists made the archive harder to use for
 years in exchange for a property the deployment already does not have. The
-honest position is not "no", it is "yes, bounded, and off by default for anybody
+honest position is not "no", it is "yes, bounded, and switchable off by anybody
 who cannot make the trusted-network assumption".
 
 ## Decision
@@ -80,7 +82,7 @@ Those are different things and the interface says them differently.
 
 | Bound | Why |
 | --- | --- |
-| `TRACKVAULT_UPLOAD_ENABLED` defaults to `false` | Writing must not become reachable because a container started. Enabling it is a statement about a network |
+| `TRACKVAULT_UPLOAD_ENABLED=false` refuses the capability outright | A deployment whose network does not make an unauthenticated write acceptable turns it off, and keeps every read |
 | `import_max_bytes`, checked while reading | A limit applied after loading the body has already paid the cost it exists to prevent |
 | Declared `Content-Length` over the ceiling | Refused before a chunk is pulled |
 | One file per request | A batch endpoint is one verdict for twenty files, or this response inside a list |

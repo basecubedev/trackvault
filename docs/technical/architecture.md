@@ -1386,9 +1386,10 @@ shapes it now rather than what is missing from it:
   has been paid for, and a declared length over the ceiling before a chunk,
 * one file per request, so twenty files produce twenty verdicts,
 * the filename is display metadata and never a location,
-* `TRACKVAULT_UPLOAD_ENABLED` defaults to `false` and refuses the whole
-  capability, so a deployment that never made a statement about its network
-  does not get an unauthenticated write because a container started.
+* `TRACKVAULT_UPLOAD_ENABLED` defaults to `true`, because an archive somebody
+  cannot add a track to from the browser reads as broken; a deployment whose
+  network does not make an unauthenticated write acceptable sets it to `false`,
+  which refuses the whole capability and keeps every read.
 
 It is not authentication and does not reduce the need for it. See
 `docs/adr/0011-web-upload.md`.
@@ -1720,9 +1721,8 @@ Open on purpose, and not to be pre-empted by "preparation" code:
   nothing to tune, and it catches exactly one ride exported more than once detection
 - authentication. The archive is unauthenticated on purpose and is meant for a
   trusted network; every endpoint assumes that. The one endpoint that *writes*
-  is therefore off until an operator turns it on with
-  `TRACKVAULT_UPLOAD_ENABLED=true`; the reads are open to anyone who can reach
-  the port either way.
+  can be refused outright with `TRACKVAULT_UPLOAD_ENABLED=false`; the reads are
+  open to anyone who can reach the port either way.
 - a file system watcher, as opposed to the explicit scan
 - Android client or companion app
 - sensor schemas beyond heart rate and cadence: power, temperature, FIT
