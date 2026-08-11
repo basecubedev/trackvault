@@ -24,7 +24,9 @@ import { TrackBrowser } from './TrackBrowser'
 // drew is credited once -- is decided before any of that.
 vi.mock('../../map/minimap', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../map/minimap')>()),
-  renderTrackMinimap: vi.fn(() => Promise.resolve('data:image/png;base64,iVBORw0KGgo=')),
+  renderTrackMinimap: vi.fn(() =>
+    Promise.resolve(new Blob([new Uint8Array(128).fill(3)], { type: 'image/png' })),
+  ),
 }))
 
 // The same two for the report a row opens: a canvas and a WebGL context are

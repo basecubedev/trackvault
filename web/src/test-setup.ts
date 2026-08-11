@@ -51,6 +51,22 @@ if (typeof Blob.prototype.arrayBuffer !== 'function') {
   }
 }
 
+/**
+ * Address a blob so an `<img>` can show it, which `jsdom` also does not do.
+ *
+ * Each address is distinct, so a component that shows a picture and a component
+ * that shows a different one cannot pass a test by accident.
+ */
+let addresses = 0
+
+if (typeof URL.createObjectURL !== 'function') {
+  URL.createObjectURL = (): string => {
+    addresses += 1
+    return `blob:trackvault/${String(addresses)}`
+  }
+  URL.revokeObjectURL = (): void => {}
+}
+
 const environment = globalThis as unknown as Record<string, unknown>
 
 environment['ResizeObserver'] ??= ResizeObserverStub
