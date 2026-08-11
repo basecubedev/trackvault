@@ -1,13 +1,23 @@
-"""What the release pipeline is allowed to publish, and from where.
+"""What the pipelines are allowed to publish, under which name, and from where.
 
 The images people run are the most trusted artifact this project produces, and
-the whole access-control model for them is "only a release tag publishes". That
-is a property of two YAML files, so it is checked like any other contract.
+two of them are published:
+
+```
+:latest, :v1.2.3, :1.2.3, :1.2   a release tag, and nothing else
+:edge                            every commit that lands on main
+```
+
+The distinction is the whole access-control model. `latest` is what an unpinned
+deployment pulls and what the installer defaults to, so nothing but a release
+may write it; `edge` moves with the main branch and is the tag somebody asks for
+knowing that. Both pass the same quality gate first. That is a property of a few
+YAML files, so it is checked like any other contract.
 
 Nothing here runs GitHub Actions. What is asserted is the shape of the
-workflows: which events start them, which one is allowed to push, and that the
-release runs the *same* quality gate as the main branch rather than a copy of it
-that will eventually be an older copy.
+workflows: which events start them, which are allowed to push, which names they
+may push under, and that both run the *same* quality gate rather than a copy of
+it that will eventually be an older copy.
 """
 
 import tomllib
@@ -23,6 +33,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = PROJECT_ROOT / ".github" / "workflows"
 CI = WORKFLOWS / "ci.yml"
 RELEASE = WORKFLOWS / "release.yml"
+EDGE = WORKFLOWS / "edge.yml"
 INSTALLER = PROJECT_ROOT / "install-docker.sh"
 
 
@@ -42,6 +53,22 @@ def _project_license() -> str:
         "project"
     ]["license"]
     return identifier
+
+
+def _published_tag_patterns(path: Path) -> list[str]:
+    """Return every image tag pattern a workflow hands to the metadata action.
+
+    Read structurally rather than by searching the file, because the words
+    "latest" and "edge" appear in the comments explaining why each workflow may
+    write one and not the other -- and a contract that a comment can satisfy is
+    not a contract.
+    """
+    return [
+        str(step["with"]["tags"])
+        for job in _jobs(path).values()
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith("docker/metadata-action")
+    ]
 
 
 def _jobs(path: Path) -> dict[str, Any]:
@@ -92,7 +119,7 @@ def test_every_checkout_can_see_the_tags() -> None:
     `hatch-vcs` has nothing to read in a repository whose history was cut off
     -- so this is a build failure waiting for whoever adds the next job.
     """
-    for workflow in (CI, RELEASE):
+    for workflow in (CI, RELEASE, EDGE):
         steps = [
             step
             for job in _jobs(workflow).values()
@@ -122,10 +149,58 @@ def test_the_quality_gate_still_covers_everything_a_release_depends_on() -> None
     )
 
 
-def test_only_the_release_workflow_pushes_an_image() -> None:
-    """CI builds the image to prove it builds. It must never publish one."""
+def test_the_quality_gate_itself_never_publishes_an_image() -> None:
+    """CI builds the image to prove it builds. It must never publish one.
+
+    It is called by both publishing workflows, so a push from inside it would
+    be a push nobody chose -- including one from a pull request.
+    """
     assert "push: true" not in CI.read_text(encoding="utf-8")
     assert "docker/login-action" not in CI.read_text(encoding="utf-8")
+
+
+def test_a_commit_on_main_publishes_one_rolling_image() -> None:
+    """Every commit that lands replaces the same tag, and starts nothing else."""
+    triggers = _workflow(EDGE)["on"]
+
+    assert set(triggers) == {"push"}
+    assert triggers["push"] == {"branches": ["main"]}
+    assert [pattern.strip() for pattern in _published_tag_patterns(EDGE)] == ["type=raw,value=edge"]
+
+
+def test_the_rolling_image_waits_for_the_same_quality_gate() -> None:
+    """A rolling image nobody tested is a rolling image nobody can trust."""
+    jobs = _jobs(EDGE)
+
+    assert jobs["quality"]["uses"] == "./.github/workflows/ci.yml"
+    assert set(jobs["publish"]["needs"]) == {"quality"}
+
+
+def test_nothing_but_a_release_writes_latest() -> None:
+    """The tag an unpinned deployment pulls, and the installer's default.
+
+    A development build reaching it would be a build nobody asked for arriving
+    on somebody's machine at the next `docker compose pull`. This is the one
+    assertion that keeps the promise `install-docker.sh` prints.
+    """
+    assert not any("latest" in pattern for pattern in _published_tag_patterns(EDGE))
+    assert _published_tag_patterns(CI) == [], "the quality gate names no image tags at all"
+    assert any("latest" in pattern for pattern in _published_tag_patterns(RELEASE))
+
+
+def test_the_rolling_image_states_which_build_it_is() -> None:
+    """`edge` names a moving pointer, and must not be mistaken for a version.
+
+    `metadata-action` labels an image with the tag it wrote unless it is told
+    otherwise, which would leave every rolling image claiming to be release
+    "edge". The development version is stated instead, and the same value is
+    what the distribution inside the image is built with.
+    """
+    recipe = EDGE.read_text(encoding="utf-8")
+
+    assert "org.opencontainers.image.version=${{ steps.build.outputs.version }}" in recipe
+    assert "TRACKVAULT_VERSION=${{ steps.build.outputs.version }}" in recipe
+    assert "python -m setuptools_scm" in recipe, "the version would not be the build's own"
 
 
 def test_the_release_builds_the_image_with_the_version_the_tag_names() -> None:

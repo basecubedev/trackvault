@@ -1,12 +1,14 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
-  # The release pipeline calls this workflow rather than restating its steps.
-  # A release that ran a *copy* of the quality gate would eventually run an
-  # older copy, and the gate that matters least is the one nobody looks at.
+  # The release and edge pipelines call this workflow rather than restating its
+  # steps. A release that ran a *copy* of the quality gate would eventually run
+  # an older copy, and the gate that matters least is the one nobody looks at.
+  #
+  # There is deliberately no `push: branches: [main]` here: a commit on main is
+  # what the edge pipeline reacts to, and it calls this gate before publishing.
+  # Both triggers would run every check on the same commit twice.
   workflow_call:
 
 permissions:

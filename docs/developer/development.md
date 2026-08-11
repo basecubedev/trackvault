@@ -251,6 +251,23 @@ Two consequences worth knowing:
   uv sync --reinstall-package trackvault
   ```
 
+### The rolling build
+
+Every commit that lands on main is published as
+`ghcr.io/basecubedev/trackvault:edge`, replacing the one before it. It runs the
+same quality gate a release runs -- the edge workflow calls `ci.yml` rather than
+restating it -- and it is labelled with the development version the commit is,
+not with the name of the tag it was pushed under.
+
+`latest` stays the newest release. It is what an unpinned deployment pulls and
+what the installer defaults to, so a commit on main must never reach it;
+`tests/contract/test_release_pipeline_contract.py` is what keeps that true.
+Deploy the rolling build deliberately:
+
+```bash
+sh install-docker.sh --tag edge
+```
+
 Builds that cannot see the tags do not guess. The container build is the case
 that matters -- its context carries no `.git` -- so it is handed the version
 through `SETUPTOOLS_SCM_PRETEND_VERSION`, fed by the `TRACKVAULT_VERSION` build
