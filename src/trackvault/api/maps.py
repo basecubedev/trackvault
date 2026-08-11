@@ -252,6 +252,13 @@ class MapSourceResponse(BaseModel):
     region_id: str
     region_name: str
     source_id: str = Field(description="Stable identifier for this source in a style")
+    delivery_id: str = Field(
+        description="Content hash of the package behind this source, and the identity "
+        "its tiles are served under. Stated rather than left to be read out of the "
+        "tile template: a page keeping anything derived from a drawn basemap has to "
+        "name which basemap it drew, and parsing an address for an identity makes "
+        "the identity whatever the address looks like."
+    )
     tiles_url: str = Field(description="Same-origin tile template")
     tile_schema: str
     tile_schema_version: str
@@ -840,6 +847,7 @@ def _project_source(source: MapSource) -> MapSourceResponse:
         region_id=str(source.region_id),
         region_name=source.region_name,
         source_id=f"map-{source.delivery_id[:12]}",
+        delivery_id=source.delivery_id,
         tiles_url=f"/api/v1/maps/tiles/{source.delivery_id}/{{z}}/{{x}}/{{y}}.mvt",
         tile_schema=source.tile_schema,
         tile_schema_version=source.tile_schema_version,

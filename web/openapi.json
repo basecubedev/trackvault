@@ -1101,6 +1101,11 @@
           "bounds": {
             "$ref": "#/components/schemas/BoundsResponse"
           },
+          "delivery_id": {
+            "description": "Content hash of the package behind this source, and the identity its tiles are served under. Stated rather than left to be read out of the tile template: a page keeping anything derived from a drawn basemap has to name which basemap it drew, and parsing an address for an identity makes the identity whatever the address looks like.",
+            "title": "Delivery Id",
+            "type": "string"
+          },
           "max_zoom": {
             "title": "Max Zoom",
             "type": "integer"
@@ -1140,6 +1145,7 @@
           "region_id",
           "region_name",
           "source_id",
+          "delivery_id",
           "tiles_url",
           "tile_schema",
           "tile_schema_version",
@@ -2221,6 +2227,18 @@
           "classification": {
             "$ref": "#/components/schemas/ClassificationResponse"
           },
+          "geometry_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Content identity of the geometry this track currently has: the identity of the recording its normalized positions and instants describe. It changes when reprocessing changes the shape and stays put when a user renames the track, so anything derived from the shape can say whether it still belongs to it. Two tracks that are the same recording share it -- it names a shape, not a row. Null means the archive does not know it: a track stored before the value existed and not processed since.",
+            "title": "Geometry Sha256"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -2283,6 +2301,7 @@
           "analysis",
           "point_count",
           "segment_count",
+          "geometry_sha256",
           "source",
           "approximate_location",
           "same_recording_ids"

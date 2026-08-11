@@ -125,6 +125,14 @@ class TrackSummary:
             and instants are identical to this one's -- one ride exported twice.
             An equality rather than a similarity: it does not find the same loop
             ridden on two days, and it never guesses that it has.
+        geometry_sha256: The identity of the recording this track's geometry
+            describes, which is what ``same_recording_ids`` is decided by.
+            Carried here as well as compared there because it is the answer to a
+            second question: whether anything derived from *this* track's shape
+            still describes it. Reprocessing that changes a position changes it;
+            a title correction does not. ``None`` for a track stored before the
+            archive recorded one and never processed since -- not known, which is
+            a different statement from "no geometry".
     """
 
     track_id: int
@@ -144,6 +152,7 @@ class TrackSummary:
     user_metadata: UserTrackMetadata = EMPTY_USER_METADATA
     same_recording_ids: tuple[int, ...] = ()
     bounds: MapBounds | None = None
+    geometry_sha256: str | None = None
 
     @property
     def display_title(self) -> str | None:

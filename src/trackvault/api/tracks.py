@@ -267,6 +267,15 @@ class TrackResponse(BaseModel):
     analysis: AnalysisSummaryResponse
     point_count: int
     segment_count: int
+    geometry_sha256: str | None = Field(
+        description="Content identity of the geometry this track currently has: the "
+        "identity of the recording its normalized positions and instants describe. "
+        "It changes when reprocessing changes the shape and stays put when a user "
+        "renames the track, so anything derived from the shape can say whether it "
+        "still belongs to it. Two tracks that are the same recording share it -- it "
+        "names a shape, not a row. Null means the archive does not know it: a track "
+        "stored before the value existed and not processed since."
+    )
     source: SourceResponse
     approximate_location: ApproximateLocationResponse | None = Field(
         description="Roughly where the track was, from region rectangles. Never exact."
@@ -604,6 +613,7 @@ def _project(summary: TrackSummary, location: ApproximateLocation | None = None)
         ),
         point_count=summary.point_count,
         segment_count=summary.segment_count,
+        geometry_sha256=summary.geometry_sha256,
         same_recording_ids=list(summary.same_recording_ids),
         approximate_location=(
             None

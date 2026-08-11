@@ -1246,6 +1246,11 @@ export interface components {
         MapSourceResponse: {
             attribution: components["schemas"]["AttributionResponse"];
             bounds: components["schemas"]["BoundsResponse"];
+            /**
+             * Delivery Id
+             * @description Content hash of the package behind this source, and the identity its tiles are served under. Stated rather than left to be read out of the tile template: a page keeping anything derived from a drawn basemap has to name which basemap it drew, and parsing an address for an identity makes the identity whatever the address looks like.
+             */
+            delivery_id: string;
             /** Max Zoom */
             max_zoom: number;
             /** Min Zoom */
@@ -1838,6 +1843,11 @@ export interface components {
             /** @description Roughly where the track was, from region rectangles. Never exact. */
             approximate_location: components["schemas"]["ApproximateLocationResponse"] | null;
             classification: components["schemas"]["ClassificationResponse"];
+            /**
+             * Geometry Sha256
+             * @description Content identity of the geometry this track currently has: the identity of the recording its normalized positions and instants describe. It changes when reprocessing changes the shape and stays put when a user renames the track, so anything derived from the shape can say whether it still belongs to it. Two tracks that are the same recording share it -- it names a shape, not a row. Null means the archive does not know it: a track stored before the value existed and not processed since.
+             */
+            geometry_sha256: string | null;
             /** Id */
             id: number;
             metadata: components["schemas"]["UserMetadataResponse"];

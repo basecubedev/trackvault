@@ -1760,6 +1760,7 @@ def _summary_from(
         user_metadata=UserTrackMetadata(title=row["user_title"], note=row["user_note"]),
         same_recording_ids=siblings.get(track_id, ()),
         bounds=_bounds_of_row(row),
+        geometry_sha256=None if row["geometry_sha256"] is None else str(row["geometry_sha256"]),
     )
 
 

@@ -10,13 +10,20 @@ from collections.abc import Iterator
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
 
 from trackvault.application.import_tracks import ImportRequest
 from trackvault.config import Settings
-from trackvault.domain import TrackClassification, classify
+from trackvault.domain import (
+    TrackClassification,
+    TrackPoint,
+    TrackSegment,
+    classify,
+    recording_fingerprint,
+)
 from trackvault.infrastructure.assembly import build_services, import_limits_from
 from trackvault.infrastructure.gpx import GpxImporter
 from trackvault.main import create_app
@@ -149,6 +156,96 @@ def test_segment_boundaries_survive_the_http_projection(tmp_path: Path) -> None:
         payload = fresh.get(f"/api/v1/tracks/{outcome.track_ids[0]}/geometry").json()
 
     assert [len(segment["points"]) for segment in payload["segments"]] == [2, 1, 2]
+
+
+# --- Geometry identity ------------------------------------------------------
+#
+# A track says what its current geometry *is*, so a client holding something
+# derived from that geometry can tell whether it still describes this track. It
+# is the same value `same_recording_ids` is decided by, published rather than
+# recomputed: a second identity invented in a browser would be a second answer
+# to a question the archive already answers.
+
+
+def _segments_of(payload: dict[str, object]) -> list[TrackSegment]:
+    """Rebuild the normalized segments a geometry response describes."""
+    segments = cast(list[dict[str, list[dict[str, object]]]], payload["segments"])
+    return [
+        TrackSegment(
+            points=tuple(
+                TrackPoint(
+                    latitude=float(cast(float, point["latitude"])),
+                    longitude=float(cast(float, point["longitude"])),
+                    time=(
+                        None
+                        if point["time"] is None
+                        else datetime.fromisoformat(cast(str, point["time"]))
+                    ),
+                )
+                for point in segment["points"]
+            )
+        )
+        for segment in segments
+    ]
+
+
+def test_a_track_states_the_identity_of_the_geometry_it_currently_has(
+    archive: TestClient,
+) -> None:
+    """Sixty-four lowercase hex digits, and the same in a listing as in a detail read."""
+    listed = _recording(archive)
+    identity = listed["geometry_sha256"]
+
+    assert isinstance(identity, str)
+    assert len(identity) == 64
+    assert identity == identity.lower()
+    assert set(identity) <= set("0123456789abcdef")
+    assert archive.get(f"/api/v1/tracks/{listed['id']}").json()["geometry_sha256"] == identity
+
+
+def test_the_published_identity_is_the_identity_of_the_current_geometry(
+    archive: TestClient,
+) -> None:
+    """Not a stored label beside the shape: a projection *of* the shape.
+
+    Rebuilt here from the canonical geometry the same API answers with, so a
+    reprocessing that changes a single position changes this value with it. That
+    is the whole reason a client may key derived state on it.
+    """
+    track_id = _recording_id(archive)
+
+    geometry = archive.get(f"/api/v1/tracks/{track_id}/geometry").json()
+    listed = archive.get(f"/api/v1/tracks/{track_id}").json()
+
+    assert listed["geometry_sha256"] == recording_fingerprint(_segments_of(geometry))
+
+
+def test_two_tracks_of_different_geometry_have_different_identities(
+    archive: TestClient,
+) -> None:
+    """It describes the geometry, never the row it is stored in."""
+    tracks = archive.get("/api/v1/tracks").json()["tracks"]
+
+    identities = {track["geometry_sha256"] for track in tracks}
+
+    assert len(identities) == len(tracks) == 2
+
+
+def test_correcting_what_a_user_says_leaves_the_geometry_identity_alone(
+    archive: TestClient,
+) -> None:
+    """A renamed track is the same track, drawn the same way.
+
+    The point of publishing this at all: state derived from the *shape* must not
+    be thrown away because somebody typed a title. Only the geometry decides it.
+    """
+    track_id = _recording_id(archive)
+    before = archive.get(f"/api/v1/tracks/{track_id}").json()["geometry_sha256"]
+
+    archive.patch(f"/api/v1/tracks/{track_id}/metadata", json={"title": "A better name"})
+    archive.put(f"/api/v1/tracks/{track_id}/classification", json={"kind": "planned"})
+
+    assert archive.get(f"/api/v1/tracks/{track_id}").json()["geometry_sha256"] == before
 
 
 # --- Stable errors ----------------------------------------------------------
