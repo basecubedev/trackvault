@@ -1,5 +1,13 @@
 # syntax=docker/dockerfile:1
 
+# Which release this build is. It cannot be looked up here: the build context
+# deliberately carries no `.git` (see `.dockerignore`), so the version is handed
+# in instead of guessed. The same value writes the distribution metadata *and*
+# the image label, which is what stops the two from describing different
+# releases. An ordinary `docker compose build` passes nothing and gets an
+# honest `0.0.0+unknown` rather than a number that reads as answered.
+ARG TRACKVAULT_VERSION=0.0.0+unknown
+
 # The browser application is built here and only its output is carried forward.
 # Node is a build tool, not a runtime: the final image runs Python and serves
 # static files, so shipping a package manager, a bundler and forty thousand
@@ -42,16 +50,22 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY README.md ./
 COPY src ./src
+
+# Declared here rather than at the top of the stage so that changing the
+# version does not invalidate the dependency layer above it. `hatch-vcs` would
+# otherwise abort: there is no tag in this context to read.
+ARG TRACKVAULT_VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${TRACKVAULT_VERSION}
+
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 
 
 FROM python:3.13-slim-bookworm AS runtime
 
-# The version the build installs, and the one authority for it is
-# `pyproject.toml`. `tests/contract/test_release_metadata_contract.py` fails
-# when this default drifts from it, so the label cannot quietly describe another
-# release. Deliberately absent: `revision` and `source`. An ordinary
+# The same argument the builder stage installed the distribution with, so the
+# label and `trackvault.__version__` inside the image answer identically.
+# Deliberately absent: `revision` and `source`. An ordinary
 # `docker compose build` knows neither, and an empty label is a worse statement
 # than no label.
 ARG TRACKVAULT_VERSION=0.1.0

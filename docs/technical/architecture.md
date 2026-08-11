@@ -183,6 +183,16 @@ is a format adapter, and keeping it out of the database package is what stops
 layer but the domain may read it; the first thing that needed it further in was
 the User-Agent an outbound map download presents.
 
+The string itself is read from the installed distribution, and the distribution
+got it from the **Git tag** the build was made from -- `hatch-vcs` resolves it
+while the wheel is built. The repository therefore states no version anywhere:
+releasing is `git tag v1.2.3` and nothing else, and there is no second place
+that can disagree with the tag. A build that cannot see the tags is *told* the
+version through `SETUPTOOLS_SCM_PRETEND_VERSION` rather than guessing one; the
+container build is exactly that case, because its context deliberately carries
+no `.git`, and the argument that feeds it also writes the image label so the two
+cannot describe different releases.
+
 `assembly.py` builds the object graph both entry points share -- the HTTP
 application and the command line -- so a second, subtly different wiring cannot
 appear.
@@ -1688,6 +1698,7 @@ Exactly one component owns each concern. Everything else is a projection.
 | What an archive holds | its own manifest, including what it deliberately omits |
 | Whether an archive may be restored | `compatibility_of`, from the format version and the schema version |
 | Deployment health | `Diagnose` over one observation; infrastructure observes, the application judges |
+| Which release a build is | the Git tag it was built from, resolved into the distribution metadata |
 | Configuration | `trackvault.config` backend application settings |
 
 Consequences:

@@ -17,45 +17,20 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  # The tag is a claim about the code. This is where it is checked, before a
-  # full test run is spent on a release that would be mislabelled anyway.
-  version:
-    name: Tag matches the declared version
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.declared.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Read the version this project declares
-        id: declared
-        run: |
-          version="$(python -c 'import tomllib,pathlib;print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "pyproject.toml declares $version"
-
-      - name: Fail if the tag and the version disagree
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          declared="${{ steps.declared.outputs.version }}"
-          if [ "$tag" != "$declared" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $declared"
-            exit 1
-          fi
-          echo "tag $GITHUB_REF_NAME matches $declared"
-
   # Every gate the main branch runs, run again on the exact commit being
   # released: lint, types, tests, the frontend, the API drift check, the licence
   # audits, the browser tests and the container tests.
+  #
+  # There is no job checking the tag against a declared version, because there
+  # is no declared version to disagree with. The tag *is* the release number;
+  # `hatch-vcs` reads it out of the repository during the build.
   quality:
     name: Quality gate
-    needs: [version]
     uses: ./.github/workflows/ci.yml
 
   publish:
     name: Publish the image
-    needs: [version, quality]
+    needs: [quality]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -64,8 +39,23 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      # Full history, tags included: the version is read out of the repository
+      # rather than out of a file, and the default shallow fetch brings none.
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # `v1.2.3` names release `1.2.3`. The prefix is how a tag is recognised as
+      # a release, not part of what it names, and it is stripped once here so
+      # that the label, the metadata inside the image and the registry tags all
+      # state the same number.
+      - name: Read the version the tag names
+        id: release
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
+          echo "releasing ${VERSION#v}"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -111,7 +101,7 @@ jobs:
           context: .
           push: true
           build-args: |
-            TRACKVAULT_VERSION=${{ needs.version.outputs.version }}
+            TRACKVAULT_VERSION=${{ steps.release.outputs.version }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           # A bill of materials and a provenance statement, both attached to the

@@ -36,14 +36,6 @@ def _workflow(path: Path) -> dict[str, Any]:
     return {("on" if key is True else key): value for key, value in document.items()}
 
 
-def _project_version() -> str:
-    """Return the one version this project declares."""
-    version: str = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
-        "project"
-    ]["version"]
-    return version
-
-
 def _project_license() -> str:
     """Return the one SPDX identifier this project declares."""
     identifier: str = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
@@ -85,11 +77,32 @@ def test_the_release_runs_the_same_quality_gate_as_the_main_branch() -> None:
     assert "workflow_call" in _workflow(CI)["on"]
 
 
-def test_publishing_waits_for_the_quality_gate_and_the_version_check() -> None:
-    """Nothing reaches a registry that has not passed both."""
+def test_publishing_waits_for_the_quality_gate() -> None:
+    """Nothing reaches a registry that has not passed it."""
     publish = _jobs(RELEASE)["publish"]
 
-    assert set(publish["needs"]) == {"version", "quality"}
+    assert set(publish["needs"]) == {"quality"}
+
+
+def test_every_checkout_can_see_the_tags() -> None:
+    """The version comes from the tag, so a shallow checkout cannot build.
+
+    `actions/checkout` fetches a single commit by default and no tags with it.
+    Every job here installs the project or builds the image from it, and
+    `hatch-vcs` has nothing to read in a repository whose history was cut off
+    -- so this is a build failure waiting for whoever adds the next job.
+    """
+    for workflow in (CI, RELEASE):
+        steps = [
+            step
+            for job in _jobs(workflow).values()
+            for step in job.get("steps", [])
+            if str(step.get("uses", "")).startswith("actions/checkout")
+        ]
+
+        assert steps, f"{workflow.name} checks nothing out"
+        for step in steps:
+            assert step.get("with", {}).get("fetch-depth") == 0, f"{workflow.name}: {step}"
 
 
 def test_the_quality_gate_still_covers_everything_a_release_depends_on() -> None:
@@ -104,7 +117,7 @@ def test_the_quality_gate_still_covers_everything_a_release_depends_on() -> None
     steps = str(jobs)
     for gate in ("uv lock --check", "mypy", "pytest", "npm run licenses", "docker build"):
         assert gate in steps, gate
-    assert "git diff --exit-code -- openapi.json src/api/schema.ts" in steps, (
+    assert "git diff --exit-code -- src/api/schema.ts" in steps, (
         "the frontend API drift check is a release gate and has gone missing"
     )
 
@@ -115,13 +128,21 @@ def test_only_the_release_workflow_pushes_an_image() -> None:
     assert "docker/login-action" not in CI.read_text(encoding="utf-8")
 
 
-def test_a_release_refuses_a_tag_that_disagrees_with_the_declared_version() -> None:
-    """One version authority, checked before a full test run is spent on it."""
-    version_job = _jobs(RELEASE)["version"]
-    steps = str(version_job)
+def test_the_release_builds_the_image_with_the_version_the_tag_names() -> None:
+    """The tag is the version, so nothing else may decide what the image says.
 
-    assert "pyproject.toml" in steps
-    assert "does not match pyproject version" in steps
+    There is deliberately no reconciliation step here: with nothing to
+    reconcile a tag *cannot* disagree with a declared version, which is the
+    class of release failure this arrangement removes rather than reports.
+    """
+    recipe = RELEASE.read_text(encoding="utf-8")
+
+    assert "TRACKVAULT_VERSION=${{ github.ref_name }}" not in recipe, (
+        "a build argument is a literal string, so the image would be labelled `v1.2.3`"
+    )
+    assert 'echo "version=${VERSION#v}"' in recipe
+    assert "TRACKVAULT_VERSION=${{ steps.release.outputs.version }}" in recipe
+    assert "version" not in _jobs(RELEASE), "a version job is a second authority"
 
 
 def test_latest_is_published_only_for_a_final_release() -> None:
@@ -206,8 +227,3 @@ def test_the_installer_default_image_matches_what_the_pipeline_publishes() -> No
 
     assert 'DEFAULT_IMAGE_REPOSITORY="ghcr.io/' in script
     assert script.rstrip().count("/trackvault") >= 1
-
-
-def test_the_documented_release_version_is_the_declared_one() -> None:
-    """The version a reader is told to install is the one this build is."""
-    assert _project_version()

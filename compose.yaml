@@ -1,5 +1,10 @@
 services:
   trackvault:
+    # The release number comes from the Git tag, and the build context carries
+    # no `.git` -- so an image built from here labels itself `0.0.0+unknown`
+    # unless you say otherwise. That is deliberate: this is a development
+    # build, and a plausible number would read as a claim it cannot make. Pass
+    # one with `docker compose build --build-arg TRACKVAULT_VERSION=1.2.3`.
     build:
       context: .
     image: trackvault:dev
