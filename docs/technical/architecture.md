@@ -312,6 +312,14 @@ no layer uses `icon-image`. Every URL in a composed style is same-origin.
 Attribution comes out of the installed package's own metadata and is rendered
 beside every map that is drawn. See `docs/legal/third-party-notices.md`.
 
+A track list draws one small map per row, as a picture rather than a map
+component, and keeps the finished picture in the browser's own IndexedDB so a
+second visit does not draw it again. That store is **projection only** in the
+same sense as everything else here: it holds a derived image, it is found by
+identities the archive publishes -- the track's geometry identity and the
+content hash of each package drawn under it -- and losing it costs a redraw and
+nothing else. See `docs/technical/map-caching.md`.
+
 ### `trackvault.main`
 
 Composition root. Creates the FastAPI application and wires routers. No business

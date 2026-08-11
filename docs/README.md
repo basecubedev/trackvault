@@ -20,6 +20,7 @@ TrackVault. It stays short on purpose; everything it summarises is here in full.
 | Document | Purpose |
 | --- | --- |
 | [technical/architecture.md](technical/architecture.md) | Product definition, the `input format != domain model` invariant, layers and boundaries, canonical normalized track, raw imports and processing provenance, the GPX adapter, persistence and managed raw storage, single import authority and input paths, logging, single-source-of-truth table, deferred decisions |
+| [technical/map-caching.md](technical/map-caching.md) | The three map caches and what invalidates each: installed packages, immutable tile URLs, and the browser-local cache of rendered track minimaps -- its key, its limits, and why it is not in a backup |
 | [technical/contracts.md](technical/contracts.md) | Business invariants: track kind, classification rules and user override, evidence codes, activity, metric provenance, actual vs. planned aggregates, source metadata, duplicates, import limits and error codes, time |
 | [developer/agent-rules.md](developer/agent-rules.md) | Canonical rules for agents and contributors |
 | [developer/development.md](developer/development.md) | Setup, running it locally, the test suites and quality gates, API type generation, the licence audits, the projection benchmark |
