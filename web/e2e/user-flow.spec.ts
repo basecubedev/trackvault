@@ -49,14 +49,14 @@ test('dashboard, month, list, track, correction, and back again', async ({ page 
 
 test('the browser back button walks back through the filters', async ({ page }) => {
   await page.goto('/tracks')
-  await expect(page.getByTestId('result-count')).toContainText('4 tracks')
+  await expect(page.getByTestId('result-count')).toContainText('2 tracks')
 
   await page.locator('#activity').selectOption('cycling')
-  await expect(page.getByTestId('result-count')).toContainText('2 tracks')
+  await expect(page.getByTestId('result-count')).toContainText('1 track')
 
   await page.goBack()
 
-  await expect(page.getByTestId('result-count')).toContainText('4 tracks')
+  await expect(page.getByTestId('result-count')).toContainText('2 tracks')
   await expect(page.locator('#activity')).toHaveValue('')
 })
 
@@ -66,13 +66,14 @@ test('resetting the filters clears every one of them', async ({ page }) => {
 
   await page.getByTestId('reset-filters').click()
 
-  await expect(page.getByTestId('result-count')).toContainText('4 tracks')
+  // Back to the view somebody gets by opening the page, which is recordings.
+  await expect(page.getByTestId('result-count')).toContainText('2 tracks')
   await expect(page.getByTestId('reset-filters')).toBeDisabled()
 })
 
 test('the archive is navigable with the keyboard alone', async ({ page }) => {
   await page.goto('/tracks')
-  await expect(page.getByTestId('result-count')).toContainText('4 tracks')
+  await expect(page.getByTestId('result-count')).toContainText('2 tracks')
 
   // Tab until a track link has focus, then open it with Enter. Bounded, so a
   // regression that removes focusability fails rather than hangs.

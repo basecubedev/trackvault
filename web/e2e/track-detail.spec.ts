@@ -7,7 +7,9 @@ import { expect, test } from '@playwright/test'
  */
 
 async function openTrack(page: import('@playwright/test').Page, title: string) {
-  await page.goto('/tracks')
+  // Every kind: this opens a track by name, and half the seeded ones are not
+  // recordings. The list's own default is the subject of `track-browser`.
+  await page.goto('/tracks?kind=all')
   await page.getByRole('link', { name: title }).click()
   await expect(page.getByTestId('track-title')).toHaveText(title)
 }
@@ -73,7 +75,7 @@ test('a classification correction refreshes every view that depends on it', asyn
   await expect(page.getByTestId('metric-tracks')).toContainText('2')
   await expect(page.getByTestId('unplaced-note')).toContainText('nothing vouches for')
 
-  await page.goto('/tracks')
+  await page.goto('/tracks?kind=all')
   await page.getByRole('link', { name: 'Planned loop with a synthetic clock' }).click()
   await page.getByTestId('reset-override').click()
   await expect(page.getByTestId('effective-kind')).toHaveText('Unknown')

@@ -95,6 +95,128 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/**
+ * Which kind the browser lists, and who decides it.
+ *
+ * Opening the archive is nearly always a question about what somebody actually
+ * did, so the list starts on recordings. What matters here is that the default
+ * is *only* a default: it is decided in one place, it is visible in the filter
+ * rather than hidden behind it, it never overrules an address that says
+ * otherwise, and it costs no extra request to apply.
+ */
+describe('the kind the browser opens on', () => {
+  it('lists recordings when the address does not say', async () => {
+    const stub = show('/tracks', [
+      on('/statistics/years', availableYears()),
+      on('/api/v1/tracks', trackList([track()])),
+    ])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('track-7')).toBeInTheDocument()
+    })
+    expect(stub.requested.find((url) => url.includes('/api/v1/tracks?'))).toContain(
+      'kind=recorded',
+    )
+  })
+
+  it('says so in the filter rather than leaving it blank', async () => {
+    show('/tracks', [
+      on('/statistics/years', availableYears()),
+      on('/api/v1/tracks', trackList([])),
+    ])
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Kind')).toBeInTheDocument()
+    })
+    // A default a reader cannot see is a list that lies about what it holds.
+    expect(screen.getByLabelText<HTMLSelectElement>('Kind').value).toBe('recorded')
+  })
+
+  it('asks once, already narrowed', async () => {
+    // The reason the default is read from the address rather than written into
+    // it: a page that loaded everything and then corrected itself would cost a
+    // request, a second loading state and a visible jump.
+    const stub = show('/tracks', [
+      on('/statistics/years', availableYears()),
+      on('/api/v1/tracks', trackList([track()])),
+    ])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('track-7')).toBeInTheDocument()
+    })
+    const listings = stub.requested.filter((url) => url.includes('/api/v1/tracks?'))
+    expect(listings).toHaveLength(1)
+    expect(listings[0]).toContain('kind=recorded')
+  })
+
+  it.each(['recorded', 'planned', 'unknown'])(
+    'never overrules an address that asks for %s',
+    async (asked) => {
+      const stub = show(`/tracks?kind=${asked}`, [
+        on('/statistics/years', availableYears()),
+        on('/api/v1/tracks', trackList([])),
+      ])
+
+      await waitFor(() => {
+        expect(screen.getByLabelText<HTMLSelectElement>('Kind').value).toBe(asked)
+      })
+      const listed = stub.requested.find((url) => url.includes('/api/v1/tracks?'))
+      expect(listed).toContain(`kind=${asked}`)
+    },
+  )
+
+  it('leaves every other filter alone', async () => {
+    const stub = show('/tracks?activity=walking&year=2025', [
+      on('/statistics/years', availableYears()),
+      on('/api/v1/tracks', trackList([])),
+    ])
+
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLSelectElement>('Activity').value).toBe('walking')
+    })
+    const listed = stub.requested.find((url) => url.includes('/api/v1/tracks?')) ?? ''
+    expect(listed).toContain('kind=recorded')
+    expect(listed).toContain('activity=walking')
+    expect(listed).toContain('year=2025')
+  })
+
+  it('is still one selection away from every kind at once', async () => {
+    const stub = show('/tracks?kind=all', [
+      on('/statistics/years', availableYears()),
+      on('/api/v1/tracks', trackList([])),
+    ])
+
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLSelectElement>('Kind').value).toBe('all')
+    })
+    // `all` is a word this page uses to itself. The archive is asked the way it
+    // always was for this case: with no kind at all.
+    const listed = stub.requested.find((url) => url.includes('/api/v1/tracks?')) ?? ''
+    expect(listed).not.toContain('kind=')
+    expect(stub.requested.find((url) => url.includes('/statistics/years'))).not.toContain('scope=')
+  })
+
+  it('can be widened and narrowed again from the filter', async () => {
+    show('/tracks', [
+      on('/statistics/years', availableYears()),
+      on('/api/v1/tracks', trackList([])),
+    ])
+    await waitFor(() => {
+      expect(screen.getByLabelText('Kind')).toBeInTheDocument()
+    })
+
+    await userEvent.selectOptions(screen.getByLabelText('Kind'), 'all')
+    await waitFor(() => {
+      expect(screen.getByTestId('address')).toHaveTextContent('kind=all')
+    })
+
+    await userEvent.selectOptions(screen.getByLabelText('Kind'), 'planned')
+    await waitFor(() => {
+      expect(screen.getByTestId('address')).toHaveTextContent('kind=planned')
+    })
+  })
+})
+
 describe('the track browser', () => {
   it('sends every filter in the URL to the archive', async () => {
     const stub = show('/tracks?kind=recorded&activity=walking&year=2025&month=10&offset=25', [
@@ -142,7 +264,9 @@ describe('the track browser', () => {
     await waitFor(() => {
       expect(screen.getByTestId('reset-filters')).toBeDisabled()
     })
-    expect(screen.getByLabelText<HTMLSelectElement>('Kind').value).toBe('')
+    // Resetting removes every choice, which puts the page back on its default
+    // rather than on "everything" -- the same view somebody gets by opening it.
+    expect(screen.getByLabelText<HTMLSelectElement>('Kind').value).toBe('recorded')
     expect(screen.getByLabelText<HTMLSelectElement>('Activity').value).toBe('')
   })
 
