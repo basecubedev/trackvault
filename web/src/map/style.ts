@@ -22,6 +22,18 @@ import type { MapCoverage, MapSource } from '../api/client'
 
 export type MapTheme = 'outdoor' | 'light' | 'none'
 
+export const BASEMAP_STYLE_VERSION = 1
+/**
+ * What a basemap composed here looks like, as a number somebody has to change.
+ *
+ * A palette, a layer, a filter, a line width, a font, a zoom threshold: every
+ * edit below changes what a map drawn from this style *looks like*, and nothing
+ * about the archive's own data changes with it. Anything that kept a picture
+ * drawn by the previous build has no other way to find out -- so bump this in
+ * the same commit as the visual change, and every kept picture stops being
+ * reused without anybody hunting for it.
+ */
+
 export const MAP_THEMES: readonly { id: MapTheme; label: string }[] = [
   { id: 'outdoor', label: 'Outdoor' },
   { id: 'light', label: 'Light' },

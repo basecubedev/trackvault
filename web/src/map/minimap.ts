@@ -39,8 +39,24 @@ export const MINIMAP_HEIGHT = 96
 /** The theme a preview draws in. Muted enough that the track is the subject. */
 export const MINIMAP_THEME: MapTheme = 'outdoor'
 
-const PADDING_PIXELS = 6
-const MAX_ZOOM = 14
+export const MINIMAP_PADDING = 6
+export const MINIMAP_MAX_ZOOM = 14
+
+export const MINIMAP_RENDER_VERSION = 1
+/**
+ * What this module draws, as a number somebody has to change on purpose.
+ *
+ * Everything above is a value a cache key can read. This stands for everything
+ * below that is not: the two track lines, their colours and widths, which
+ * events the camera waits for. Change any of that and a picture drawn by the
+ * previous build is no longer a picture this build would produce -- so bump
+ * this in the same commit, and every kept rendering falls out of use by itself.
+ *
+ * Deliberately a constant rather than a hash of the source. A digest of this
+ * file would change for a renamed local and stay the same for a colour moved
+ * into `style.ts`, which is precisely backwards.
+ */
+
 const CONCURRENT_RENDERS = 2
 const RENDER_TIMEOUT_MS = 15_000
 
@@ -86,7 +102,7 @@ export async function renderTrackMinimap({
       attributionControl: false,
       fadeDuration: 0,
       bounds,
-      fitBoundsOptions: { padding: PADDING_PIXELS, maxZoom: MAX_ZOOM, duration: 0 },
+      fitBoundsOptions: { padding: MINIMAP_PADDING, maxZoom: MINIMAP_MAX_ZOOM, duration: 0 },
       // Without this the canvas is cleared before anything can read it back,
       // which is the whole point of building this map.
       canvasContextAttributes: { preserveDrawingBuffer: true },
