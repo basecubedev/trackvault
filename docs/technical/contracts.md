@@ -459,6 +459,332 @@ version, creator, external links and a sorted summary of the extension namespace
 document used. It stays format-independent -- a FIT importer fills the same
 fields and gets none of its own.
 
+## Track analysis
+
+*Implemented as `gpx_view.domain.analysis`, `gpx_view.application.AnalyzeTrack`
+and `gpx_view.application.InstalledAnalysis`.*
+
+> Derived metrics are rebuildable and never source authority.
+
+```
+raw import  ->  normalized track  ->  analysis
+ authority        authority          rebuildable
+```
+
+Analysis reads the canonical normalized geometry and nothing else. Its entry
+point takes segments, so no parser, source application or exchange format is
+reachable from it, and a future FIT adapter reaches the same numbers without the
+analysis knowing it exists.
+
+Nothing in the analysis path modifies what it read. Outlier detection produces an
+analysis decision, never a deletion.
+
+### Analysis versioning
+
+> Analysis semantics require an explicit version bump.
+
+`AnalysisProfile` names the distance, movement and elevation algorithms with
+their versions, plus a metric schema version. Every stored result records it, so
+a changed algorithm produces numbers that can be told apart from the old ones
+rather than replacing them silently. An internal refactoring with identical
+output is not a bump.
+
+### What each metric means
+
+| Metric | Definition |
+| --- | --- |
+| `distance_m` | horizontal geodesic distance between consecutive positions, summed **within** segments |
+| `elevation_min_m`, `elevation_max_m` | extremes of the raw observations |
+| `elevation_gain_m`, `elevation_loss_m` | ascent and descent of the filtered profile |
+| `elapsed_duration_s` | first temporal observation to last, in traversal order |
+| `moving_duration_s` | observed time going somewhere |
+| `stopped_duration_s` | observed time not going anywhere |
+| `unobserved_gap_duration_s` | time nothing was recorded for |
+| `unattributed_duration_s` | elapsed time none of the other three could claim |
+| `average_speed_mps` | distance over elapsed duration |
+| `moving_average_speed_mps` | distance covered while moving, over moving duration |
+| `maximum_speed_mps` | highest speed **sustained** across the analysis window, projected over HTTP as `maximum_sustained_speed_mps` |
+
+Values are SI, and the unit is part of the name. Enforced invariants:
+
+- A segment boundary is never bridged, and elevation never enters distance.
+- Distance consults no timestamp, so planned geometry has a length.
+- `moving + stopped + unobserved + unattributed == elapsed`. An equality: time
+  that no rule can classify is *named* rather than dropped, because a
+  decomposition that does not add up is how lost time hides.
+- An interval with `dt <= 0` produces no speed and is excluded. Nothing takes an
+  absolute value and nothing divides by zero.
+- Movement is decided from the widest positional spread across the window, never
+  from where the window ended up. A walked loop, an out-and-back and a
+  switchback all return to themselves, and none of them is a pause.
+- The spread is read at **two scales**. A still receiver's cloud is bounded --
+  three minutes are no wider than thirty seconds -- while a walker's spread
+  grows at the rate they advance, and that difference is the only thing that
+  separates slow movement from noise. A single threshold could not, so it made
+  the unstated claim that nothing below 0.5 m/s is movement. Steady progression
+  well below that is movement now, bounded noise is still a stop, and a stretch
+  neither scale can separate from noise is `unattributed` rather than decided.
+  What the archive claims to detect is bounded and stated: net progress below
+  `SLOW_MOVEMENT_SPEED_MPS`, and any path staying inside the receiver's own
+  envelope, are admitted as undecidable.
+- Ascent is measured to the turning point the profile reached, so
+  `gain(reversed) == loss(original)` exactly. Direction of travel is not a
+  property of the ground.
+- Maximum speed is a *sustained* speed. A three-second sprint is averaged down,
+  which is the price of a single bad fix not becoming a headline.
+
+> Silence is not a rest.
+
+A gap in a recording can be a break, a paused app, a flat battery or a lost fix,
+and the data cannot tell them apart. That time is `unobserved`. A stop is claimed
+only where positions kept arriving and showed no movement.
+
+> Missing metrics are not zero metrics.
+
+An underivable metric is absent from the stored set and `null` over HTTP. A
+planned route has no moving time, and `0` would claim it was travelled and nobody
+moved.
+
+### Temporal evidence
+
+> Timestamp presence is not observed movement.
+
+A planner writes instants onto a route it computed; a recorder writes instants
+onto positions it measured. The files are structurally the same and so is the
+arithmetic, so `moving_duration_s: 10296` reads as somebody's afternoon either
+way. `TemporalEvidence` says which it is, and it is derived from evidence of
+**measurement** -- never from the presence of a timestamp, the exporting
+application, or the detected track kind:
+
+| Evidence observed | Temporal evidence |
+| --- | --- |
+| receiver quality or a measured heading | `observed` |
+| turn-by-turn navigation instructions | `estimated` |
+| anything else, or no instants at all | `unknown` |
+
+Measurement outranks planning: an application that records while it navigates
+produces both, and it really was measuring. `unknown` is permanent and first
+class -- it is not a weaker `observed` and never becomes one by default. It is
+read from the *detected* evidence, so a user correcting a track's kind does not
+make its synthetic clock real.
+
+> Analysis derives everything; eligibility is decided separately.
+
+Nothing is withheld. A planned route genuinely has a derived route speed, and
+hiding it would be its own kind of lie. What the numbers may be *presented* as is
+two independent gates:
+
+```
+actual metrics   effective kind == RECORDED
+actual timing    effective kind == RECORDED  AND  temporal evidence == OBSERVED
+```
+
+A recording whose instants nothing vouches for still contributes its distance --
+geometry needs no clock -- and contributes no moving time.
+
+Over HTTP the two halves are reported apart, as `geometry` and `timed_path`, and
+the timed half always carries its `basis`. There is no path through the response
+that reaches a duration without passing the statement that qualifies it.
+
+### Persisted analysis integrity
+
+> Persisted derived state is validated before it is interpreted.
+
+SQLite is the authority, which is why what comes out of it is untrusted input: a
+row may come from a version that is gone, a failing disk, or a defect since
+fixed. Every read fails closed.
+
+| Surprise | Reaction |
+| --- | --- |
+| run row that cannot be interpreted | reads as absent |
+| metric value that could not have been derived | condemns its whole run |
+| quality flag this build cannot name | condemns its whole run |
+| metric *name* this build does not know | skipped |
+
+The last two differ deliberately. A value this build does not need says nothing
+about the rows beside it; a caveat it cannot render is a caveat it would be
+dropping silently.
+
+Currency is decided from the same validation, so `analyze --outdated` repairs the
+damage rather than reporting it forever. A damaged analysis reports as `invalid`
+rather than as `missing`: "nothing derived yet" and "something is wrong with what
+was" call for different reactions. Service health is unaffected -- one damaged
+row is a data problem, not an unhealthy process.
+
+### One availability answer, three read surfaces
+
+> A stale number is not a headline.
+
+A track is read three ways -- in a listing, through its own analysis resource,
+and as part of a total -- and all three project one value:
+
+```
+current   the installed algorithms produced the metrics from the geometry a reader sees
+outdated  metrics exist, from algorithms or geometry that have moved on
+missing   nothing has ever been derived
+invalid   something was derived and cannot be interpreted
+```
+
+`InstalledAnalysis.availability` decides it, once. Damage is checked before
+currency: a run whose profile is *also* unreadable is damage rather than an old
+algorithm, and "re-run the analysis" is a different instruction from "a row is
+broken".
+
+Consequences the listing had to be corrected for:
+
+- A row carries a metric only while its analysis is `current`. In the other
+  three states the metric is `null`, because a headline number is a claim about
+  what the track *is*, not about what was once derived from it. The last thing
+  derived stays readable through the track's own analysis resource, which says
+  what it is.
+- `longest_first` means longest *according to a current analysis*. A track with
+  no current distance sorts last, in front of the track identity tie-breaker.
+- Tracks can be filtered by availability state, and the filter is applied in the
+  same statement that counts and pages, so `total` counts the filtered selection
+  rather than the archive.
+
+The repository is handed the *values* of the installed profile as query
+parameters and compares them. It does not hold a second table of what is
+installed: an algorithm change must not have to be made twice, because the
+second place is the one nobody remembers.
+
+### Analysis currency
+
+Metrics are current only when a successful run applied the installed profile
+**and** read the generation a reader currently sees. Never analysed, older
+algorithms and newer geometry are all "outdated", answered by one authority.
+
+A classification override outdates nothing -- it changes which totals a track
+reaches, not how long it is. A failed reprocess outdates nothing either: the
+generation a reader sees did not change.
+
+Publication is atomic and conditional on the generation, so no reader sees a new
+distance beside an old duration, and metrics derived from geometry nobody can see
+never become current. Old runs are kept.
+
+## Actual and planned aggregation
+
+*Implemented as `gpx_view.application.GetYearStatistics` and
+`GetMonthlyStatistics`.*
+
+> Actual and planned aggregates must never be conflated, and `UNKNOWN` belongs to
+> neither.
+
+```
+Recorded  10 km
+Planned  100 km
+Unknown   50 km
+
+actual total = 10 km
+```
+
+Membership is decided by the **effective** track kind, read at query time, so a
+user correction moves a track between the sets immediately with nothing
+recalculated. There is no combined scope: a number that adds planned routes to
+travelled distances is about neither.
+
+### The activity date
+
+> Activity date must not be inferred from import time.
+
+```
+import received_at    when the archive learned about a track  -> not an activity date
+metadata export time  when the file was written               -> not an activity date
+first trackpoint time                                         -> the timeline
+```
+
+A 2025 recording imported in 2026 is a 2025 activity.
+
+> Timestamp presence is not calendar placement.
+
+The first position's instant is the track's **timeline**, and a timeline becomes
+an **activity calendar date** only when its instants were shown to have been
+measured:
+
+```
+timeline time            the instants the track's own positions carry
+activity calendar time   the claim that this happened in this period
+```
+
+`supports_actual_calendar_placement` decides it, from the temporal evidence and
+from nothing else. A route planner writes plausible instants onto geometry
+nobody travelled, and a recording stripped of its receiver metadata looks
+identical from here; placing either in a month puts a real distance into a
+period it has nothing to do with, and nothing about the resulting total looks
+wrong.
+
+It deliberately does **not** read the track kind. A user correcting a route to
+`RECORDED` is saying what the track is, not that its clock was measured, and
+letting the correction reach this answer would make an override a way to
+manufacture a date. The correction still moves the track between the actual,
+planned and unknown sets -- that is what it is for.
+
+Tracks with no calendar placement are reported *beside* the year rather than
+inside it, and split, because the two halves are different facts:
+
+| Reported as | Means |
+| --- | --- |
+| `unplaced.without_date` | the track carries no instants at all |
+| `unplaced.with_unverified_date` | it carries instants nothing showed to be measured |
+
+The listing's `year` and `month` filters select the same set the totals do:
+asking for a period is asking when something happened, so a track whose clock
+nothing measured is not in it. Clicking a bar in a monthly chart therefore
+reaches exactly the tracks that bar counted. The timeline itself is never
+withheld -- every track reports `started_at`, `ended_at` and the `basis` that
+qualifies them.
+
+### The aggregation timezone
+
+A month is a local month, so `GPX_VIEW_TIMEZONE` decides its boundaries and every
+statistics response names the zone it used. The default is `UTC` rather than the
+host zone, and an unknown zone fails at start-up rather than falling back.
+
+An empty period totals zero, because there was nothing to total and the track
+count says so. A period holding tracks but no value for a metric reports `null`
+for that metric.
+
+### Only current analyses are totalled
+
+> Default statistics never mix analysis profile versions.
+
+After a profile bump the archive holds two kinds of number: some produced by the
+algorithms this build applies and some by the previous ones. Adding them produces
+a figure that measures neither, and nothing about it looks wrong. Only tracks
+whose analysis is current contribute, decided by the same `InstalledAnalysis`
+that `analyze --outdated` selects with -- one authority, so what a total leaves
+out and what a batch run picks up cannot drift apart. There is no `allow_mixed`
+option; offering one would make it the number people quote.
+
+Refusing to answer would be worse than mixing, so the total is of the current
+ones and the response says how much of the period it covers:
+
+| Field | Meaning |
+| --- | --- |
+| `track_count` | tracks the period and scope hold |
+| `analysed_track_count` | how many of them contributed, having a `current` analysis |
+| `tracks_without_analysis` | `missing` -- nothing has ever been derived |
+| `tracks_with_outdated_analysis` | `outdated` -- analysed by algorithms or geometry that moved on |
+| `tracks_with_invalid_analysis` | `invalid` -- a stored analysis that cannot be interpreted |
+| `tracks_with_failed_analysis` | newest attempt failed, whatever it left behind |
+| `tracks_without_observed_timing` | contributed a distance but no time |
+
+The first four are the four availability states, so they partition the period
+exactly:
+
+```
+analysed + missing + outdated + invalid == track_count
+```
+
+They stay separate because they need different actions: one is a track waiting
+to be analysed, one is a re-run, one is damage. `tracks_with_failed_analysis` is
+orthogonal and overlaps all four rather than replacing any of them -- a track
+can hold current metrics from an earlier run and a failed newest attempt at
+once, so it is deliberately outside the equality above.
+
+Durations are summed only over tracks whose instants were shown to be measured,
+which is the temporal-evidence gate applied to an aggregate.
+
 ## Vendor and format extensions
 
 - Known extensions may later be normalized into business fields.
@@ -535,8 +861,14 @@ unsupported_format        invalid_gpx              unsafe_xml
 import_too_large          too_many_tracks          too_many_track_segments
 too_many_track_points     invalid_coordinate       invalid_timestamp
 raw_storage_failed        raw_storage_missing      raw_storage_corrupt
-persistence_failed        track_not_found
+persistence_failed        track_not_found          analysis_failed
 ```
+
+`analysis_failed` is the one code that leaves its subject intact: the track keeps
+its geometry and whatever metrics an earlier run produced, and the next
+`analyze --outdated` retries it. A metric that is simply unavailable is **not**
+an error -- a planned route having no moving time is a normal state, reported as
+absence rather than as a failure.
 
 The three storage codes are three different problems for whoever has to fix them.
 `raw_storage_missing` is recoverable -- offering the same bytes again restores the
@@ -570,6 +902,7 @@ normalized into any track field, because an export date months after the activit
 would otherwise fall into the wrong month of a future statistic. The raw import
 keeps it.
 
-Which timezone instants are *displayed* or bucketed in -- and therefore which
-month a late-evening activity counts towards -- is a separate decision that comes
-with the statistics feature.
+Which timezone instants are bucketed in -- and therefore which month a
+late-evening activity counts towards -- is `GPX_VIEW_TIMEZONE`. Instants stay
+stored in UTC; the setting decides boundaries and nothing else, and every
+statistics response names the zone it used.

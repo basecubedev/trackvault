@@ -200,6 +200,59 @@ ALTER TABLE processing_runs ADD COLUMN classifier_version TEXT;
 """
 
 
+# Metrics are typed columns in a narrow table rather than a JSON blob per run.
+# A blob would make "sum the distance of every recorded track in March" a full
+# scan and a parse, and it would let a metric's unit or meaning drift silently
+# because nothing declares them.
+#
+# `track_metrics` is `WITHOUT ROWID`: the primary key *is* the row, and every
+# read of it is by that key.
+#
+# `current_analysis_run_id` names the current derived generation the way
+# `raw_imports.active_processing_run_id` names the current normalized one. It is
+# nullable and starts null everywhere: no existing track has been analysed, and
+# there is nothing to back-fill it from.
+_SCHEMA_5 = """
+CREATE TABLE analysis_runs (
+    id                         INTEGER PRIMARY KEY,
+    track_id                   INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    processing_run_id          INTEGER NOT NULL REFERENCES processing_runs(id) ON DELETE CASCADE,
+    distance_algorithm         TEXT    NOT NULL,
+    distance_algorithm_version INTEGER NOT NULL,
+    movement_algorithm         TEXT    NOT NULL,
+    movement_algorithm_version INTEGER NOT NULL,
+    elevation_algorithm        TEXT    NOT NULL,
+    elevation_algorithm_version INTEGER NOT NULL,
+    metric_schema_version      INTEGER NOT NULL,
+    analyzed_at                TEXT    NOT NULL,
+    status                     TEXT    NOT NULL,
+    error_code                 TEXT
+);
+
+CREATE INDEX ix_analysis_runs_track ON analysis_runs(track_id);
+
+CREATE TABLE track_metrics (
+    analysis_run_id INTEGER NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
+    metric          TEXT    NOT NULL,
+    value           REAL    NOT NULL,
+    unit            TEXT    NOT NULL,
+    provenance      TEXT    NOT NULL,
+    PRIMARY KEY (analysis_run_id, metric)
+) WITHOUT ROWID;
+
+CREATE TABLE analysis_quality_flags (
+    analysis_run_id INTEGER NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
+    position        INTEGER NOT NULL,
+    flag            TEXT    NOT NULL,
+    PRIMARY KEY (analysis_run_id, position)
+) WITHOUT ROWID;
+
+ALTER TABLE tracks ADD COLUMN current_analysis_run_id INTEGER REFERENCES analysis_runs(id);
+
+CREATE INDEX ix_tracks_started_at ON tracks(started_at);
+"""
+
+
 def _migrate_to_1(connection: sqlite3.Connection) -> None:
     """Create the first productive schema: imports, runs, tracks and geometry."""
     _execute_all(connection, _SCHEMA_1)
@@ -260,11 +313,31 @@ def _migrate_to_4(connection: sqlite3.Connection) -> None:
     _execute_all(connection, _SCHEMA_4)
 
 
+def _migrate_to_5(connection: sqlite3.Connection) -> None:
+    """Give tracks derived metrics, and let them say what produced them.
+
+    Analysis output is rebuildable state, not source authority, which is exactly
+    why it has to be versioned: an elevation filter or a movement rule will
+    change, and the old numbers must not pass for the new ones. Every run
+    therefore records its whole analysis profile and the processing run whose
+    geometry it read.
+
+    Nothing is back-filled. No track has been analysed before this migration,
+    and a metric invented here would be a number nobody derived.
+
+    ``ix_tracks_started_at`` serves the statistics queries: a year is a bounded
+    window over that column, so an aggregate never scans the archive and never
+    touches a single position.
+    """
+    _execute_all(connection, _SCHEMA_5)
+
+
 MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_to_1,
     _migrate_to_2,
     _migrate_to_3,
     _migrate_to_4,
+    _migrate_to_5,
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)

@@ -13,12 +13,30 @@ forbids diagnostics becoming a side channel for private movement data, and a
 status page is diagnostics.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from gpx_view.application.ports import TrackRepository
+from gpx_view.application.analysis import InstalledAnalysis
+from gpx_view.application.ports import AnalysisSnapshot, TrackRepository
 from gpx_view.application.processing import InstalledProcessing
 from gpx_view.domain import ProcessingProfile, ProcessingStatus
+from gpx_view.domain.analysis import AnalysisProfile
+
+
+def _latest_analysis_error(analyses: Sequence[AnalysisSnapshot]) -> str | None:
+    """Return the newest analysis failure among a source's tracks, if any.
+
+    A source may hold several candidates, and one of them failing to analyse is
+    what an operator needs to see. Which one it was is a question for the track
+    view; that something failed belongs here.
+    """
+    failures = [
+        analysis.latest_run.error_code
+        for analysis in analyses
+        if analysis.latest_run is not None and not analysis.latest_run.succeeded
+    ]
+    return failures[-1] if failures else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +61,15 @@ class ProcessingStatusReport:
             normal answer -- a successful run may find nothing importable.
         is_outdated: Whether regenerating this source would change what readers
             see. The one authority, shared with ``reprocess --outdated``.
+        analysed_track_count: How many of those tracks currently have metrics.
+        outdated_analysis_count: How many of them ``analyze --outdated`` would
+            cover. Reported here rather than in a second diagnostics view: an
+            operator asking what happened to a source should not need to know
+            that normalization and analysis are separate lifecycles to find out
+            that one of them is behind.
+        analysis_profile: The analysis this build applies.
+        latest_analysis_error_code: Why the newest failed analysis attempt
+            failed, when one of this source's tracks has one.
     """
 
     raw_import_sha256: str
@@ -56,15 +83,26 @@ class ProcessingStatusReport:
     latest_error_code: str | None
     track_count: int
     is_outdated: bool
+    analysed_track_count: int
+    outdated_analysis_count: int
+    analysis_profile: AnalysisProfile
+    latest_analysis_error_code: str | None
 
 
 class GetProcessingStatus:
     """Answers what happened to one source, and whether it is still current."""
 
-    def __init__(self, *, repository: TrackRepository, processing: InstalledProcessing) -> None:
-        """Wire the query to its repository and to the currency authority."""
+    def __init__(
+        self,
+        *,
+        repository: TrackRepository,
+        processing: InstalledProcessing,
+        analysis: InstalledAnalysis,
+    ) -> None:
+        """Wire the query to its repository and to both currency authorities."""
         self._repository = repository
         self._processing = processing
+        self._analysis = analysis
 
     def __call__(self, sha256: str) -> ProcessingStatusReport | None:
         """Return the report for one source, or ``None`` if the archive has none.
@@ -83,6 +121,12 @@ class GetProcessingStatus:
         current = snapshot.current_run
         installed = self._installed_for(current.importer if current else None)
         latest = snapshot.latest_run
+        own_tracks = set(self._repository.track_ids_for(sha256))
+        analyses = [
+            analysis
+            for analysis in self._repository.analysis_snapshots()
+            if analysis.track_id in own_tracks
+        ]
         return ProcessingStatusReport(
             raw_import_sha256=snapshot.raw_import_sha256,
             current_run_id=snapshot.current_run_id,
@@ -95,6 +139,14 @@ class GetProcessingStatus:
             latest_error_code=None if latest is None else latest.error_code,
             track_count=snapshot.track_count,
             is_outdated=not self._processing.is_current(current),
+            analysed_track_count=sum(
+                1 for analysis in analyses if analysis.current_run is not None
+            ),
+            outdated_analysis_count=sum(
+                1 for analysis in analyses if not self._analysis.is_current(analysis)
+            ),
+            analysis_profile=self._analysis.profile,
+            latest_analysis_error_code=_latest_analysis_error(analyses),
         )
 
     def _installed_for(self, importer: str | None) -> ProcessingProfile | None:

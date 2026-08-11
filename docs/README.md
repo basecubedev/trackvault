@@ -10,6 +10,8 @@
 | [adr/0003-import-and-persistence-model.md](adr/0003-import-and-persistence-model.md) | The first production import slice: raw imports vs. processing runs, the normalized model, evidence-based classification, SQLite, managed raw storage, one import use case |
 | [adr/0004-processing-generations-and-candidate-identity.md](adr/0004-processing-generations-and-candidate-identity.md) | Stable candidate identity, the current normalized generation, explicit reprocessing, verified raw storage, and why an external link decides no track kind |
 | [adr/0005-processing-currency-and-local-filesystem-authority.md](adr/0005-processing-currency-and-local-filesystem-authority.md) | The processing profile and `--outdated`, raw-import integrity and repair, namespace-aware extension schemas, the import-directory open boundary, and permissions for private data |
+| [adr/0006-track-analysis-and-statistics.md](adr/0006-track-analysis-and-statistics.md) | The analysis layer: source-agnostic metric derivation, the `AnalysisProfile`, the four statements about time, actual/planned/unknown aggregation and the aggregation timezone |
+| [adr/0007-temporal-evidence-and-analysis-integrity.md](adr/0007-temporal-evidence-and-analysis-integrity.md) | Temporal evidence and actual-timing eligibility, the movement and elevation algorithm corrections, full time attribution, statistics that never mix profiles, validated persisted analysis, and the bounded track listing |
 
 Three documents are protected by executable contract tests in `tests/contract/`:
 

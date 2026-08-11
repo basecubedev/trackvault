@@ -36,6 +36,7 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 
+from gpx_view.application.analyze import AnalyzeTrack
 from gpx_view.application.errors import ImportErrorCode, TrackImportError
 from gpx_view.application.normalization import NormalizeRawImport
 from gpx_view.application.ports import RawImportStore, TrackRepository
@@ -81,11 +82,20 @@ class ReprocessRawImport:
         raw_store: RawImportStore,
         repository: TrackRepository,
         normalize: NormalizeRawImport,
+        analyze: AnalyzeTrack | None = None,
     ) -> None:
-        """Wire the use case to its ports."""
+        """Wire the use case to its ports.
+
+        ``analyze`` is the same optional, best-effort step the import path
+        takes. A successful reprocess produces new geometry and therefore
+        outdates the old metrics, so deriving them again here is what stops a
+        regeneration from quietly leaving every statistic describing geometry
+        that no longer exists.
+        """
         self._raw_store = raw_store
         self._repository = repository
         self._normalize = normalize
+        self._analyze = analyze
 
     def outdated_sources(self) -> tuple[str, ...]:
         """Return the sources whose current generation the installed processing outdates.
@@ -147,4 +157,6 @@ class ReprocessRawImport:
         result = self._normalize(raw_import, content)
         if not result.succeeded:
             return ReprocessOutcome(ReprocessStatus.FAILED, sha256, (), result.error_code)
+        if self._analyze is not None:
+            self._analyze.best_effort(result.track_ids)
         return ReprocessOutcome(ReprocessStatus.REPROCESSED, sha256, result.track_ids)

@@ -18,6 +18,7 @@ from gpx_view.application.import_tracks import (
     ImportTracks,
 )
 from gpx_view.application.normalization import NormalizeRawImport
+from gpx_view.application.ports import TrackQuery
 from gpx_view.domain import Activity, EvidenceCode, InputChannel, ProcessingStatus, TrackKind
 from gpx_view.infrastructure.database import SqliteTrackStore
 from gpx_view.infrastructure.filesystem import FilesystemRawImportStore
@@ -262,7 +263,7 @@ def test_importing_the_same_bytes_twice_is_idempotent(
 
     assert second.status is ImportStatus.DUPLICATE
     assert second.track_ids == first.track_ids
-    assert len(store.list_tracks()) == 1
+    assert len(store.list_tracks(TrackQuery()).tracks) == 1
     assert len(list(raw_store.root.rglob("*.raw"))) == 1
 
 
@@ -273,7 +274,7 @@ def test_a_different_filename_is_still_the_same_content(
     run(pipeline, "recorded-measurements.gpx", original_filename="one.gpx")
     run(pipeline, "recorded-measurements.gpx", original_filename="two.gpx")
 
-    (summary,) = store.list_tracks()
+    (summary,) = store.list_tracks(TrackQuery()).tracks
     assert summary.raw_import_sha256
 
 
@@ -284,7 +285,7 @@ def test_different_content_produces_separate_archive_entries(
     run(pipeline, "recorded-measurements.gpx")
     run(pipeline, "generic-external-link.gpx")
 
-    assert len(store.list_tracks()) == 2
+    assert len(store.list_tracks(TrackQuery()).tracks) == 2
 
 
 # --- Failures stay recoverable ----------------------------------------------
@@ -309,7 +310,7 @@ def test_a_file_we_cannot_read_fails_with_a_stable_code(
 
     assert outcome.status is ImportStatus.FAILED
     assert outcome.error_code is expected
-    assert store.list_tracks() == ()
+    assert store.list_tracks(TrackQuery()).tracks == ()
 
 
 def test_a_failed_import_keeps_its_source_evidence(

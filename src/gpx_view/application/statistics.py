@@ -1,0 +1,426 @@
+"""Year and month totals, built from per-track metrics.
+
+Two rules shape every number here.
+
+**Actual and planned are separate sets.** They are selected by the *effective*
+track kind, so a user correction moves a track from one to the other with
+nothing recalculated -- distance came from geometry the correction did not
+touch. `UNKNOWN` is a third set and is never silently folded into either:
+
+```
+Recorded  10 km
+Planned  100 km
+Unknown   50 km
+
+actual total = 10 km
+```
+
+**A month is a local month.** Which one a late evening falls into depends on the
+configured zone -- 23:30 UTC on 31 January is already February in Berlin -- so
+the boundaries are computed in that zone and the archive is queried in UTC. The
+conversion happens here rather than in SQL because a zone's offset is not a
+constant: doing the arithmetic with a fixed offset is exactly how a
+daylight-saving transition moves a track into the wrong month.
+
+Nothing here reads a position. A total is a sum over one row per track, which is
+what keeps a yearly query the same cost whether the archive holds a thousand
+tracks or a thousand tracks of a million points each.
+"""
+
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
+from zoneinfo import ZoneInfo
+
+from gpx_view.application.analysis import InstalledAnalysis
+from gpx_view.application.calendar import MONTHS_IN_YEAR, period_window
+from gpx_view.application.ports import (
+    AnalysisAvailability,
+    TrackAggregationRow,
+    TrackRepository,
+)
+from gpx_view.domain import Activity, TemporalEvidence, TrackKind
+from gpx_view.domain.analysis import MetricName
+
+
+class AggregationScope(StrEnum):
+    """Which set of tracks a total covers.
+
+    There is deliberately no "everything" scope. A number that adds routes
+    somebody planned to distances somebody travelled is not a statistic about
+    either, and making it the default would make it the one people quote.
+
+    Attributes:
+        RECORDED: Tracks whose effective kind is ``RECORDED`` -- what actually
+            happened.
+        PLANNED: Tracks whose effective kind is ``PLANNED``.
+        UNKNOWN: Tracks whose kind could not be decided. Their own category, so
+            that a data-quality view is possible without them contaminating the
+            other two.
+    """
+
+    RECORDED = "recorded"
+    PLANNED = "planned"
+    UNKNOWN = "unknown"
+
+    @property
+    def kind(self) -> TrackKind:
+        """Return the effective track kind this scope selects."""
+        return _SCOPE_KINDS[self]
+
+
+_SCOPE_KINDS = {
+    AggregationScope.RECORDED: TrackKind.RECORDED,
+    AggregationScope.PLANNED: TrackKind.PLANNED,
+    AggregationScope.UNKNOWN: TrackKind.UNKNOWN,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class PeriodTotals:
+    """What a set of tracks adds up to.
+
+    A total is ``None`` when the period holds tracks but none of them carried
+    that metric -- a planned route has no moving time, and reporting zero would
+    claim it was travelled and nobody moved. An **empty** period is different:
+    it totals zero because there was nothing to total, and ``track_count`` says
+    so unambiguously. That distinction is what lets a caller render twelve
+    months without inventing the empty ones.
+
+    Attributes:
+        track_count: Tracks in the period and scope, whatever state their
+            analysis is in.
+        analysed_track_count: How many of them actually contributed. Together
+            with ``track_count`` this is what stops a partial total from reading
+            as a complete one: eight of ten is a different statement from ten.
+        tracks_without_analysis: No analysis has ever been published for them.
+            Nothing to contribute yet, and nothing wrong either.
+        tracks_with_outdated_analysis: Analysed, by algorithms or from geometry
+            that have since moved on. Their numbers exist and are deliberately
+            not added: a total that mixed two algorithm versions would be a
+            measurement of neither. ``analyze --outdated`` is the fix.
+        tracks_with_invalid_analysis: Holding a stored analysis the archive
+            cannot interpret. Kept apart from ``tracks_without_analysis``
+            because the two call for different reactions: one is a track waiting
+            to be analysed, the other is damage. The first three counters plus
+            ``analysed_track_count`` add up to ``track_count`` exactly -- they
+            are the four availability states, and every track is in one.
+        tracks_with_failed_analysis: Whose newest attempt failed. Counted
+            separately because it overlaps the other two rather than replacing
+            them -- a track can hold perfectly current metrics from an earlier
+            run and a failure from the newest one.
+        tracks_without_observed_timing: Whose instants nothing showed to be
+            measured, so they contributed a distance but no time. Reported so
+            that a moving total smaller than the track count explains itself.
+        distance_m: Total distance in metres.
+        elapsed_duration_s: Total elapsed duration in seconds.
+        moving_duration_s: Total moving duration in seconds.
+        elevation_gain_m: Total ascent in metres.
+    """
+
+    track_count: int
+    analysed_track_count: int
+    tracks_without_analysis: int
+    tracks_with_outdated_analysis: int
+    tracks_with_invalid_analysis: int
+    tracks_with_failed_analysis: int
+    tracks_without_observed_timing: int
+    distance_m: float | None
+    elapsed_duration_s: float | None
+    moving_duration_s: float | None
+    elevation_gain_m: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class UnplacedTotals:
+    """What a scope holds that belongs to no calendar period.
+
+    Split rather than pooled, because the two halves call for different
+    reactions and only one of them is a data-quality problem:
+
+    Attributes:
+        without_date: Tracks carrying no temporal observation at all. A planned
+            route usually. It has a length and no date, and both are true at
+            once.
+        with_unverified_date: Tracks that carry instants nothing showed to be
+            measured. They *look* dated -- a file says October -- and that claim
+            is exactly what cannot be checked, so they are kept out of the
+            period rather than quietly summed into it.
+    """
+
+    without_date: "PeriodTotals"
+    with_unverified_date: "PeriodTotals"
+
+
+@dataclass(frozen=True, slots=True)
+class MonthTotals:
+    """One month of a year, and what it holds."""
+
+    month: int
+    totals: PeriodTotals
+
+
+@dataclass(frozen=True, slots=True)
+class YearStatistics:
+    """One year's totals, in one scope.
+
+    Attributes:
+        year: The year, in the aggregation timezone.
+        scope: Which set of tracks the totals cover.
+        activity: The activity the totals were narrowed to, if any.
+        timezone: The zone the year's boundaries were drawn in. Reported so that
+            a number is explainable to whoever reads it.
+        totals: What the year adds up to -- over the tracks whose activity date
+            the archive can vouch for.
+        unplaced: Tracks in scope that belong to no year at all, reported beside
+            it rather than inside it, and split by *why* they have no period.
+    """
+
+    year: int
+    scope: AggregationScope
+    activity: Activity | None
+    timezone: str
+    totals: PeriodTotals
+    unplaced: UnplacedTotals
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlyStatistics:
+    """A year broken into its twelve months.
+
+    Attributes:
+        year: The year, in the aggregation timezone.
+        scope: Which set of tracks the totals cover.
+        activity: The activity the totals were narrowed to, if any.
+        timezone: The zone the month boundaries were drawn in.
+        months: Twelve buckets, always, in calendar order. A month with no
+            activity is present and empty.
+    """
+
+    year: int
+    scope: AggregationScope
+    activity: Activity | None
+    timezone: str
+    months: tuple[MonthTotals, ...]
+
+
+class _Aggregator:
+    """Shared machinery for the year and month queries.
+
+    Both answer the same question over the same rows and differ only in how they
+    group them, so the window arithmetic and the summation live once. Two copies
+    would be two places for a month boundary to be drawn differently.
+    """
+
+    def __init__(
+        self, repository: TrackRepository, timezone: str, analysis: InstalledAnalysis
+    ) -> None:
+        """Wire the query to its repository, its aggregation zone and currency."""
+        self._repository = repository
+        self._timezone = timezone
+        self._zone = ZoneInfo(timezone)
+        self._analysis = analysis
+
+    @property
+    def timezone(self) -> str:
+        """Return the zone boundaries are drawn in."""
+        return self._timezone
+
+    def rows_of(
+        self, year: int, scope: AggregationScope, activity: Activity | None
+    ) -> tuple[TrackAggregationRow, ...]:
+        """Return the tracks of one local year that a scope and filter select.
+
+        Only the ones the year can vouch for: a period selection is a claim
+        about when something happened, and a clock nothing measured cannot
+        support it.
+
+        The window comes from the one calendar authority, so the year a total
+        covers and the year a listing filters to are the same instants -- and
+        the last supported year is a window rather than an arithmetic overflow.
+        """
+        start, end = period_window(year, None, self._zone)
+        return _selected(self._repository.placed_aggregation_rows(start, end), scope, activity)
+
+    def unplaced(self, scope: AggregationScope, activity: Activity | None) -> UnplacedTotals:
+        """Return what a scope holds that belongs to no period, split by why.
+
+        The split is read from whether a row carries an instant at all. Both
+        halves came back from one query, because "has no calendar period" is one
+        condition and asking it twice would be two chances to disagree.
+        """
+        rows = _selected(self._repository.unplaced_aggregation_rows(), scope, activity)
+        return UnplacedTotals(
+            without_date=_totals([row for row in rows if row.started_at is None], self._analysis),
+            with_unverified_date=_totals(
+                [row for row in rows if row.started_at is not None], self._analysis
+            ),
+        )
+
+    def month_of(self, row: TrackAggregationRow) -> int:
+        """Return the local month a track's activity started in."""
+        started = row.started_at
+        if started is None:  # pragma: no cover - dated rows always carry one
+            raise ValueError("a dated aggregation row must carry a start instant")
+        return started.astimezone(self._zone).month
+
+
+class GetYearStatistics:
+    """Answers what one year adds up to, in one scope."""
+
+    def __init__(
+        self, *, repository: TrackRepository, timezone: str, analysis: InstalledAnalysis
+    ) -> None:
+        """Wire the query to its repository, its zone and the currency authority.
+
+        The same ``InstalledAnalysis`` that ``analyze --outdated`` selects with,
+        so what a total leaves out and what a batch run picks up are one answer
+        rather than two that drift.
+        """
+        self._aggregator = _Aggregator(repository, timezone, analysis)
+        self._analysis = analysis
+
+    def __call__(
+        self,
+        year: int,
+        *,
+        scope: AggregationScope = AggregationScope.RECORDED,
+        activity: Activity | None = None,
+    ) -> YearStatistics:
+        """Return one year's totals.
+
+        Args:
+            year: The year, read in the configured aggregation timezone.
+            scope: Which set of tracks to total. Recorded by default, because
+                "what did I actually do" is the question being asked.
+            activity: Narrow the totals to one activity, or ``None`` for all.
+        """
+        return YearStatistics(
+            year=year,
+            scope=scope,
+            activity=activity,
+            timezone=self._aggregator.timezone,
+            totals=_totals(self._aggregator.rows_of(year, scope, activity), self._analysis),
+            unplaced=self._aggregator.unplaced(scope, activity),
+        )
+
+
+class GetMonthlyStatistics:
+    """Answers what each month of one year adds up to, in one scope."""
+
+    def __init__(
+        self, *, repository: TrackRepository, timezone: str, analysis: InstalledAnalysis
+    ) -> None:
+        """Wire the query to its repository, its zone and the currency authority."""
+        self._aggregator = _Aggregator(repository, timezone, analysis)
+        self._analysis = analysis
+
+    def __call__(
+        self,
+        year: int,
+        *,
+        scope: AggregationScope = AggregationScope.RECORDED,
+        activity: Activity | None = None,
+    ) -> MonthlyStatistics:
+        """Return twelve monthly totals, including the empty months.
+
+        Every month is present whether or not anything happened in it. A caller
+        that had to fill the gaps would be a second place deciding what an empty
+        month means, and it would decide it differently.
+        """
+        buckets: dict[int, list[TrackAggregationRow]] = {
+            month: [] for month in range(1, MONTHS_IN_YEAR + 1)
+        }
+        for row in self._aggregator.rows_of(year, scope, activity):
+            buckets[self._aggregator.month_of(row)].append(row)
+
+        return MonthlyStatistics(
+            year=year,
+            scope=scope,
+            activity=activity,
+            timezone=self._aggregator.timezone,
+            months=tuple(
+                MonthTotals(month=month, totals=_totals(rows, self._analysis))
+                for month, rows in buckets.items()
+            ),
+        )
+
+
+def _selected(
+    rows: Iterable[TrackAggregationRow],
+    scope: AggregationScope,
+    activity: Activity | None,
+) -> tuple[TrackAggregationRow, ...]:
+    """Return the rows one scope and activity filter select.
+
+    The kind is compared against the *effective* one the repository projected,
+    which is what makes an override take effect at query time.
+    """
+    return tuple(
+        row
+        for row in rows
+        if row.effective_kind is scope.kind and (activity is None or row.activity is activity)
+    )
+
+
+_CURRENT = AnalysisAvailability.CURRENT
+
+
+def _totals(rows: Sequence[TrackAggregationRow], analysis: InstalledAnalysis) -> PeriodTotals:
+    """Sum one set of tracks into a period total.
+
+    Only tracks whose analysis is *current* contribute a number. A stored result
+    produced by algorithms this build no longer applies is not wrong, it is
+    simply not comparable with one that is, and adding the two would produce a
+    figure that measures neither. What the others are is counted instead, so the
+    shortfall is visible rather than silent -- and counted through the same
+    availability authority a listing row and a detail view project, so the three
+    cannot reach three different words for one track.
+    """
+    states = [analysis.availability(row.analysis) for row in rows]
+    current = [row for row, state in zip(rows, states, strict=True) if state is _CURRENT]
+    timed = [row for row in current if row.temporal_evidence is TemporalEvidence.OBSERVED]
+    return PeriodTotals(
+        track_count=len(rows),
+        analysed_track_count=len(current),
+        tracks_without_analysis=states.count(AnalysisAvailability.MISSING),
+        tracks_with_outdated_analysis=states.count(AnalysisAvailability.OUTDATED),
+        tracks_with_invalid_analysis=states.count(AnalysisAvailability.INVALID),
+        tracks_with_failed_analysis=sum(
+            1
+            for row in rows
+            if row.analysis.latest_run is not None and not row.analysis.latest_run.succeeded
+        ),
+        tracks_without_observed_timing=len(current) - len(timed),
+        distance_m=_sum(rows, current, MetricName.DISTANCE),
+        elapsed_duration_s=_sum(rows, timed, MetricName.ELAPSED_DURATION),
+        moving_duration_s=_sum(rows, timed, MetricName.MOVING_DURATION),
+        elevation_gain_m=_sum(rows, current, MetricName.ELEVATION_GAIN),
+    )
+
+
+def _sum(
+    rows: Sequence[TrackAggregationRow],
+    contributing: Sequence[TrackAggregationRow],
+    name: MetricName,
+) -> float | None:
+    """Return the total of one metric, or ``None`` when nothing carried it.
+
+    An **empty period** totals zero: there was nothing to add, and
+    ``track_count`` already says so. A period that holds tracks but no usable
+    value for this metric is a different statement, and zero would be the wrong
+    one -- it would claim the tracks were measured and came out at nothing.
+
+    ``contributing`` is the subset allowed to answer: the tracks whose analysis
+    is current, narrowed further to those with observed instants where the
+    metric needs a clock. ``rows`` is still consulted, because whether the
+    period was empty is a question about all of it.
+
+    The raw values are summed at full precision. Rounding is a presentation
+    decision, and rounding before a sum is how a thousand small errors become
+    one visible one.
+    """
+    if not rows:
+        return 0.0
+    values = [row.metrics[name].value for row in contributing if name in row.metrics]
+    return sum(values) if values else None

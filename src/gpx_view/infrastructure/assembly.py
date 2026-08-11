@@ -11,6 +11,8 @@ hierarchy.
 from dataclasses import dataclass
 
 from gpx_view.application import ImportLimits
+from gpx_view.application.analysis import InstalledAnalysis
+from gpx_view.application.analyze import AnalyzeTrack
 from gpx_view.application.import_tracks import ImportTracks
 from gpx_view.application.normalization import NormalizeRawImport
 from gpx_view.application.processing_status import GetProcessingStatus
@@ -44,6 +46,8 @@ class TrackServices:
         reprocess: Regenerating the normalized data of a source already held.
         processing_status: What happened to one source, and whether the
             installed processing outdates it.
+        analyze: The single canonical analysis use case, and the selection of
+            what needs analysing again.
     """
 
     settings: Settings
@@ -52,6 +56,7 @@ class TrackServices:
     import_tracks: ImportTracks
     reprocess: ReprocessRawImport
     processing_status: GetProcessingStatus
+    analyze: AnalyzeTrack
 
     def prepare_storage(self) -> None:
         """Bring the database up to the current schema before serving anything."""
@@ -75,6 +80,10 @@ def build_services(settings: Settings) -> TrackServices:
         clock=clock,
         limits=import_limits_from(settings),
     )
+    # One analysis use case, shared by the command line, the import path and the
+    # reprocessing path. Two would be two answers to "how long is this track",
+    # and the second one is the one nobody reruns when an algorithm changes.
+    analyze = AnalyzeTrack(repository=store, clock=clock, analysis=InstalledAnalysis())
     return TrackServices(
         settings=settings,
         store=store,
@@ -84,16 +93,20 @@ def build_services(settings: Settings) -> TrackServices:
             repository=store,
             clock=clock,
             normalize=normalize,
+            analyze=analyze,
         ),
         reprocess=ReprocessRawImport(
             raw_store=raw_store,
             repository=store,
             normalize=normalize,
+            analyze=analyze,
         ),
         processing_status=GetProcessingStatus(
             repository=store,
             # The same object that stamps a run judges whether it is current, so
             # what wrote the version and what reads it cannot be two opinions.
             processing=normalize.processing,
+            analysis=analyze.installed,
         ),
+        analyze=analyze,
     )

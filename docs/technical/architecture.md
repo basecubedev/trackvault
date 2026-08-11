@@ -80,16 +80,21 @@ infrastructure corners (`xml`, `sqlite3`, `pathlib`, `os`, `json`, `csv`, `http`
 Current content: `TrackKind`, `Activity`, `MetricProvenance`, `EvidenceCode`,
 `ClassificationResult`, `TrackClassification`, the `classify` rules, `TrackPoint`,
 `TrackSegment`, `ImportedTrack`, `NormalizedTrack`, `SourceMetadata`, `RawImport`,
-`InputChannel`, `ProcessingRun`, `ProcessingStatus`, `ProcessingProfile` and
-`is_processing_current`.
+`InputChannel`, `ProcessingRun`, `ProcessingStatus`, `ProcessingProfile`,
+`is_processing_current`, and the `analysis/` package: `AnalysisProfile`,
+`MetricName`, `MetricUnit`, `MetricValue`, `AnalysisQuality`, `TrackAnalysis` and
+`analyze_track` with the distance, movement and elevation algorithms.
 
 ### `gpx_view.application`
 
 Owns use cases and business orchestration. Implemented: `ImportTracks` (the single
 canonical import authority), `ReprocessRawImport` (regenerating normalized data
-from a source already held, and selecting which sources need it),
-`GetProcessingStatus` (what happened to one source) and `TrackQueries` (list,
-read, geometry, override, reset). Still planned: `CalculateStatistics`.
+from a source already held, and selecting which sources need it), `AnalyzeTrack`
+(the single canonical analysis authority, and the selection of what needs
+analysing again), `GetProcessingStatus` (what happened to one source),
+`GetTrackAnalysis` (what one track's metrics amount to), `GetYearStatistics` and
+`GetMonthlyStatistics` (actual, planned and unknown totals), and `TrackQueries`
+(list, read, geometry, override, reset).
 
 Importing and reprocessing share one `NormalizeRawImport`: detect, normalize,
 classify, append a run, become the current generation. They differ only in where
@@ -98,9 +103,10 @@ would be a second import pipeline, and it would be the copy that runs less often
 -- the one nobody notices going wrong.
 
 It also owns the ports -- `TrackImporter`, `TrackRepository`, `RawImportStore`,
-`Clock` -- the import limits, the public error codes, and `InstalledProcessing`:
-the one statement of what processing this build applies, and therefore the one
-place that answers whether a stored generation is still current.
+`Clock` -- the import limits, the public error codes, `InstalledProcessing` and
+`InstalledAnalysis`: the one statement of what processing and what analysis this
+build applies, and therefore the one place each that answers whether a stored
+generation, or a stored set of metrics, is still current.
 
 It orchestrates domain rules and ports, and knows no concrete parser. It must not
 import FastAPI, `gpx_view.api` or concrete infrastructure adapters, and no GPX,
@@ -138,9 +144,23 @@ GET    /healthz
 GET    /api/v1/tracks
 GET    /api/v1/tracks/{track_id}
 GET    /api/v1/tracks/{track_id}/geometry
+GET    /api/v1/tracks/{track_id}/analysis
 PUT    /api/v1/tracks/{track_id}/classification
 DELETE /api/v1/tracks/{track_id}/classification
+GET    /api/v1/statistics/year/{year}
+GET    /api/v1/statistics/year/{year}/monthly
 ```
+
+Metrics are a resource of their own rather than a field on the track. They have
+their own lifecycle -- missing, outdated or freshly derived while the track
+itself never changed -- and folding that status into the track would make "this
+track exists" mean two things again. The track listing still carries a compact
+analysis summary, so a list view costs one request rather than one per row.
+
+Units are in the field names (`distance_m`, `moving_duration_s`) and an
+underivable metric is `null`, never `0`. Statistics are asked for by `scope`
+(`recorded`, `planned`, `unknown`) with no combined default, and every response
+names the timezone its buckets were drawn in.
 
 Errors answer one stable envelope:
 
@@ -175,6 +195,12 @@ logic.
 
 The only configuration mechanism, reading `GPX_VIEW_*` environment variables via
 `pydantic-settings`. No business logic, no second config system.
+
+`GPX_VIEW_TIMEZONE` is the IANA zone month and year boundaries are drawn in. It
+defaults to `UTC` rather than to the host zone -- a container inherits whatever
+its image carries, and a local-time default would make the same archive report
+different monthly totals on two machines. An unknown zone fails at start-up
+instead of falling back silently.
 
 ## Canonical normalized track
 
@@ -531,7 +557,22 @@ track_external_links
 track_extension_namespaces
 track_segments
 track_points
+analysis_runs                   append-only history per track, each stating the
+                                analysis profile it applied and the processing
+                                run whose geometry it read
+track_metrics                   one typed row per derived value, with its unit
+                                and its provenance
+analysis_quality_flags          what was wrong with the data a run worked from
 ```
+
+Metrics are typed rows rather than a JSON blob: summing a month would otherwise
+become a scan and a parse, and a value whose unit nothing declares is a value
+whose meaning drifts. Only metrics that were derived are written -- a row per
+name would mean storing a filler for every unavailable one, and a stored zero
+cannot be told apart from a derived one.
+
+`tracks.current_analysis_run_id` names the current derived generation exactly as
+`raw_imports.active_processing_run_id` names the current normalized one.
 
 Rules the schema encodes:
 
@@ -645,6 +686,241 @@ overwriting that silently would replace one surprise with a worse one. The
 container is unaffected: a named volume arrives owned by the non-root runtime
 user, and what the archive creates inside it is private.
 
+## Track analysis
+
+> Derived metrics are rebuildable and never source authority.
+
+```
+raw import  ->  normalized track  ->  analysis
+ authority        authority          rebuildable
+```
+
+Analysis turns the current normalized generation into numbers. Its entry point
+takes segments and nothing else:
+
+```python
+analyze_track(segments: Sequence[TrackSegment]) -> TrackAnalysis
+```
+
+That signature *is* the source-agnostic guarantee. No parser, source application
+or exchange format is reachable from a tuple of segments, so a future FIT
+adapter reaches the same numbers without this code knowing it exists. The
+architecture contract checks that the package imports no format module and no
+outer layer, and that no route imports a calculation.
+
+Nothing in the analysis path writes back into what it read. Outlier detection
+produces an analysis *decision*, never a deletion: the geometry stays intact so
+a better algorithm can revisit exactly the same data.
+
+### Analysis versioning
+
+`AnalysisProfile` names the distance, movement and elevation algorithms with
+their versions, plus a metric schema version, and every stored result records
+it. An elevation filter or a movement rule will change, and without that record
+nobody could tell which of two numbers came from which rule.
+
+*Implemented as `gpx_view.domain.analysis.AnalysisProfile` and
+`gpx_view.application.InstalledAnalysis`.*
+
+### What is calculated
+
+| Metric | Definition |
+| --- | --- |
+| `distance_m` | horizontal geodesic distance between consecutive positions, summed **within** segments |
+| `elevation_min_m`, `elevation_max_m` | extremes of the raw observations |
+| `elevation_gain_m`, `elevation_loss_m` | ascent and descent of the *filtered* profile |
+| `elapsed_duration_s` | first temporal observation to last |
+| `moving_duration_s` | observed time going somewhere |
+| `stopped_duration_s` | observed time not going anywhere |
+| `unobserved_gap_duration_s` | time nothing was recorded for |
+| `unattributed_duration_s` | elapsed time none of the other three could claim |
+| `average_speed_mps` | distance over elapsed duration |
+| `moving_average_speed_mps` | distance covered while moving, over moving duration |
+| `maximum_speed_mps` | highest speed sustained across the analysis window |
+
+Values are SI and their unit is in the name. Friendlier units are a presentation
+decision made later and elsewhere.
+
+Three rules decide the hard cases, and each exists because the obvious
+calculation is wrong:
+
+- **A segment boundary is never bridged**, and elevation never enters distance.
+  Distance consults no timestamp, so a planned route has a length like anything
+  else.
+- **Silence is not a rest, and no time goes missing.**
+  `moving + stopped + unobserved + unattributed == elapsed`, an equality. A stop
+  is claimed only where positions kept arriving and showed no movement; a paused
+  recording, a flat battery and a rest are indistinguishable, so that time is
+  `unobserved`; and time no rule can classify is *named* rather than dropped.
+  The gap threshold scales to the track's own sampling, because a fixed one
+  would call a five-minute-sampled track one long gap.
+- **Noise is not terrain, a bad fix is not a sprint, a loop is not a pause, and
+  slow is not stopped.** Movement is decided from the widest positional *spread*
+  the window covers -- not from where the window ended up, which is zero for
+  every path that returns to itself and would report a walked circuit as
+  standing still. The spread is measured at **two scales**, because one scale
+  cannot separate slow progress from receiver noise: over thirty seconds they
+  look alike, and over three minutes a still receiver's cloud is no wider while
+  a walker's has grown sixfold. The wander a still receiver produces anyway is
+  subtracted before a rate is taken, so what is left is a statement about
+  progress. A stretch neither scale can separate from noise is reported as
+  `unattributed` rather than decided. One threshold pair for every activity; an
+  interval too fast for the track's own median is excluded and ends the window
+  stretch, so it cannot reach its neighbours either. Ascent comes from a rolling
+  median plus a five-metre
+  deadband measured to the turning point the profile reached, so reversing a
+  track swaps its ascent and descent exactly; summing raw positive differences
+  instead would grow with the sampling rate rather than with the terrain.
+- **A timestamp is not a measurement.** Temporal evidence -- `observed`,
+  `estimated`, `unknown` -- is derived from evidence that something was
+  *measuring*, never from the presence of an instant or the exporting
+  application. Every clock-dependent metric is still derived and is never
+  presented without it; only a recorded track with observed instants may have
+  its durations called actual activity timing.
+
+**Missing is never zero.** An underivable metric is absent from the stored set
+and `null` in the API. A planned route has no moving time, and `0` would claim
+it was travelled and nobody moved. A small set of quality flags says what was
+wrong when something is absent.
+
+**Stored analysis is untrusted input.** A run row that cannot be interpreted, a
+metric value that could not have been derived and a quality flag this build
+cannot name all fail closed: the analysis reads as absent, is never current, and
+reaches no caller as a traceback. A metric *name* this build does not know is
+skipped instead -- a value nobody needs says nothing about the rows beside it.
+The repair is always available, because the geometry the metrics came from was
+never touched.
+
+### Analysis currency
+
+Stored metrics are current only when a successful run applied the installed
+profile **and** read the generation a reader currently sees:
+
+```
+never analysed    -> outdated
+older algorithms  -> outdated
+newer geometry    -> outdated
+```
+
+A classification override outdates nothing: it changes which totals a track
+reaches, not how long it is. A *failed* reprocess outdates nothing either -- the
+generation a reader sees did not change, so neither did its metrics.
+
+Publication is one transaction and is conditional on the generation. A reprocess
+that commits while an analysis is running has already moved the track on, so the
+update matches nothing and metrics describing geometry nobody can see never
+become current. The run is still recorded. That is the concurrency contract, and
+it needs no lock. Old runs are kept: history is not rewritten here either.
+
+A successful import or reprocess derives metrics for what it produced, best
+effort. Losing them costs one `analyze --outdated`; letting an analysis defect
+abort an import would lose source evidence, which is the one thing the archive
+cannot reconstruct. Analysis is therefore its own lifecycle with its own status,
+and "track available, analysis absent" is a normal simultaneous state.
+
+## Statistics
+
+Actual, planned and unknown are three separate sets, selected by the
+**effective** track kind:
+
+```
+Recorded  10 km
+Planned  100 km
+Unknown   50 km
+
+actual total = 10 km
+```
+
+There is deliberately no combined scope: a number that adds routes somebody
+planned to distances somebody travelled is about neither, and offering it as the
+default would make it the one people quote. Because the effective kind is read
+at query time, a user correction moves a track between the sets immediately and
+nothing is derived again.
+
+### Periods and the aggregation timezone
+
+A month is a *local* month -- 23:30 UTC on 31 January is already February in
+Berlin -- so `GPX_VIEW_TIMEZONE` decides the boundaries and every response names
+the zone it used. The window is computed in that zone, the archive is queried in
+UTC, and the bucketing happens in Python: an offset is not a constant, and doing
+that arithmetic in SQL with a fixed one is how a daylight-saving transition
+moves a track into the wrong month.
+
+A track's period comes from its own positions:
+
+```
+import received_at    when the archive learned about it     -> not an activity date
+metadata export time  when the file was written             -> not an activity date
+first trackpoint time                                       -> the timeline
+```
+
+And a timeline is not yet a date. `timeline time` is what the positions carry;
+`activity calendar time` is the claim that this happened then, and only instants
+that were shown to have been *measured* support it -- a planner's synthetic
+clock and a recording stripped of its receiver metadata are structurally
+identical. `supports_actual_calendar_placement` reads the temporal evidence and
+nothing else, so a user correcting a track's kind moves it between the scopes
+without dating it.
+
+A track with no calendar placement has a length and belongs to no month. It is
+reported *beside* the year rather than assigned to 1970 or to the import date,
+split into `unplaced.without_date` and `unplaced.with_unverified_date`: no
+instants at all and instants nothing vouches for are different facts, and only
+the second one looks like a date until somebody checks. The listing's `year` and
+`month` filters apply the same rule, so clicking a bar reaches exactly the
+tracks that bar counted.
+
+An empty period totals zero -- there was nothing to total, and `track_count`
+says so. A period that holds tracks but no value for a metric reports `null` for
+it.
+
+### Only current analyses are totalled
+
+After a profile bump the archive holds numbers from two algorithm generations,
+and adding them produces a figure that measures neither. Only tracks whose
+analysis is current contribute, decided by the same `InstalledAnalysis` that
+`analyze --outdated` selects with -- one authority, so a total and a batch run
+cannot disagree about what is stale. There is no `allow_mixed` option.
+
+Refusing to answer would be worse, so the total is of the current ones and says
+how much of the period it covers: `analysed_track_count` beside `track_count`,
+with `tracks_without_analysis`, `tracks_with_outdated_analysis` and
+`tracks_with_invalid_analysis` separating the three shortfalls. Those four
+partition the period exactly -- they are the four availability states, and every
+track is in one. `tracks_with_failed_analysis` is orthogonal and overlaps them
+all rather than replacing any: a track can hold current metrics from an earlier
+run and a failed newest attempt at once.
+
+Durations are summed only over tracks whose instants were shown to be measured,
+counted by `tracks_without_observed_timing`.
+
+### Cost
+
+No aggregate reads a position. A year is one indexed range over
+`tracks.started_at` plus one batched metric lookup, so the cost depends on how
+many tracks the archive holds and not on how long they are.
+
+A track listing is a **page**: bounded by a server maximum no query string can
+raise, filtered by effective kind, activity, year, month and analysis
+availability, and ordered by import date, activity date or current distance --
+all in SQL, so a page costs the page rather than the archive. Every ordering
+ends in the track identity, because a row that moves between two pages is a row
+the reader sees twice or not at all, and undated tracks sort last in both
+chronological directions rather than wherever `NULL` falls.
+
+The availability filter is applied in the same statement that counts and pages.
+Deciding it afterwards in Python would page first and hide second, which is a
+page of the wrong size under a total of the wrong number. The rule itself still
+has one owner: the application hands the repository the *values* of the
+installed profile, and the repository compares them the way it already projects
+`effective_kind` from the classification -- a projection, never a second
+authority.
+
+`tests/integration/test_statistics_performance.py` asserts that neither a yearly
+total nor a track listing touches `track_points`, that neither issues a query
+per track, and -- at the query-plan level -- that the year window is served by
+its index rather than by a scan.
+
 ## Vendor and format extensions
 
 GPX supports extensions, and other formats carry vendor-specific fields.
@@ -702,6 +978,9 @@ CLI           → parser C → DB
 | `gpx-view reprocess --failed` | implemented |
 | `gpx-view reprocess --outdated` | implemented |
 | `gpx-view processing-status <sha256>` | implemented |
+| `gpx-view analyze <track_id>` | implemented |
+| `gpx-view analyze --outdated` | implemented |
+| `gpx-view analyze --all` | implemented |
 | HTTP upload | **not implemented** -- deliberately, see below |
 | Future API import | not implemented |
 
@@ -845,10 +1124,14 @@ Exactly one component owns each concern. Everything else is a projection.
 | Detected classification | the classifier result, with confidence, evidence and method version |
 | Effective classification | an explicit user override if present, otherwise the detected kind |
 | Activity | explicit source metadata or the user, never a guess |
+| Analysis algorithms | the installed `AnalysisProfile` |
+| Per-track derived metrics | the current successful `AnalysisRun` for the current processing generation |
 | Calculated statistics | the analysis layer, computed from the canonical normalized track |
 | Metric meaning | the metric's provenance: measured, derived or estimated, never silently discarded |
+| Actual aggregate membership | the effective `TrackKind` |
 | Actual aggregates | tracks whose effective kind is `RECORDED` |
 | Planned aggregates | tracks whose effective kind is `PLANNED` |
+| Month and year bucket | the canonical activity timestamp plus the configured aggregation timezone |
 | Source metadata | evidence and provenance information, never business authority |
 | Import | the single canonical `ImportTrack` use case |
 | HTTP representation | projection only |
@@ -867,10 +1150,12 @@ Consequences:
 
 Open on purpose, and not to be pre-empted by "preparation" code:
 
-- analysis algorithms: distance, moving time, pause detection, elevation
-  smoothing, elevation gain, speed profiles
-- monthly and yearly statistics, and the display timezone they will need
 - frontend technology, map library and charts
+- analysis algorithms beyond the first versions: 3D path length, grade, splits,
+  personal records, streaks and lifetime totals
+- digital elevation model correction, which needs a network dependency
+- planned duration as an explicitly estimated metric
+- week-based or custom statistics periods, and a per-request timezone override
 - FIT, TCX, KML and GeoJSON adapters -- the boundary is proven, the adapters are
   not written, and no dummy adapter stands in for them
 - semantic duplicate detection
@@ -880,5 +1165,6 @@ Open on purpose, and not to be pre-empted by "preparation" code:
 - sensor schemas: heart rate, cadence, power, temperature, FIT developer fields
 
 See `docs/adr/0001-project-foundation.md`,
-`docs/adr/0002-source-agnostic-track-model.md` and
+`docs/adr/0002-source-agnostic-track-model.md`,
+`docs/adr/0006-track-analysis-and-statistics.md` and
 `docs/technical/contracts.md`.

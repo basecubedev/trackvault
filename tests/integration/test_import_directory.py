@@ -14,6 +14,7 @@ import pytest
 
 from gpx_view.application import ImportErrorCode
 from gpx_view.application.import_tracks import ImportStatus
+from gpx_view.application.ports import TrackQuery
 from gpx_view.cli import EXIT_DISABLED, EXIT_FAILED, EXIT_OK, main
 from gpx_view.config import Settings
 from gpx_view.domain import InputChannel
@@ -52,7 +53,7 @@ def test_every_file_in_the_directory_reaches_the_one_use_case(tmp_path: Path, in
     results = scan_import_directory(inbox, services.import_tracks)
 
     assert [name for name, _ in results] == sorted(path.name for path in inbox.iterdir())
-    assert len(services.store.list_tracks()) == 2
+    assert len(services.store.list_tracks(TrackQuery()).tracks) == 2
 
 
 def test_a_broken_file_does_not_stop_the_others(tmp_path: Path, inbox: Path) -> None:
@@ -87,7 +88,7 @@ def test_scanning_twice_imports_nothing_new(tmp_path: Path, inbox: Path) -> None
     second = dict(scan_import_directory(inbox, services.import_tracks))
 
     assert all(outcome.status is ImportStatus.DUPLICATE for outcome in second.values())
-    assert len(services.store.list_tracks()) == 2
+    assert len(services.store.list_tracks(TrackQuery()).tracks) == 2
 
 
 def test_the_channel_is_recorded_on_the_raw_import(tmp_path: Path, inbox: Path) -> None:
@@ -139,7 +140,7 @@ def test_an_oversized_file_is_refused_without_being_read_whole(tmp_path: Path, i
     assert all(
         outcome.error_code is ImportErrorCode.IMPORT_TOO_LARGE for outcome in results.values()
     )
-    assert services.store.list_tracks() == ()
+    assert services.store.list_tracks(TrackQuery()).tracks == ()
 
 
 def test_an_unreadable_file_is_skipped_rather_than_fatal(
@@ -190,7 +191,7 @@ def test_the_command_line_imports_named_files(tmp_path: Path) -> None:
     code = main(["import", str(FIXTURES / "recorded-measurements.gpx")], settings=settings)
 
     assert code == EXIT_OK
-    assert len(SqliteTrackStore(settings.database_path).list_tracks()) == 1
+    assert len(SqliteTrackStore(settings.database_path).list_tracks(TrackQuery()).tracks) == 1
 
 
 def test_the_command_line_reports_a_failure(tmp_path: Path) -> None:
@@ -205,7 +206,7 @@ def test_the_command_line_scan_uses_the_configured_directory(tmp_path: Path, inb
     settings = _settings(tmp_path, inbox)
 
     assert main(["scan"], settings=settings) == EXIT_FAILED  # the inbox holds a broken file
-    assert len(SqliteTrackStore(settings.database_path).list_tracks()) == 2
+    assert len(SqliteTrackStore(settings.database_path).list_tracks(TrackQuery()).tracks) == 2
 
 
 def test_scanning_without_a_configured_directory_says_so(tmp_path: Path) -> None:

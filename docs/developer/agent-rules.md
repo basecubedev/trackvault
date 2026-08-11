@@ -51,8 +51,11 @@ authority table. In short:
 | Detected classification | the classifier result, with confidence, evidence and method version |
 | Effective classification | an explicit user override if present, otherwise the detected kind |
 | Calculated statistics | the analysis layer, from the canonical normalized track |
+| Analysis algorithms | the installed `AnalysisProfile` |
+| Per-track derived metrics | the current successful `AnalysisRun` for the current processing generation |
 | Actual aggregates | tracks whose effective kind is `RECORDED` |
 | Planned aggregates | tracks whose effective kind is `PLANNED` |
+| Month and year bucket | the canonical activity timestamp plus the configured aggregation timezone |
 | Source metadata | evidence and provenance information, never business authority |
 | Import | the single canonical `ImportTrack` use case |
 | HTTP representation | projection only |
@@ -133,6 +136,66 @@ Full detail in `docs/technical/contracts.md`. Non-negotiable:
   elements are interpreted on the namespaced name, from a small table of schemas
   this project has evidence for. An element that merely shares a local name
   decides nothing, and an unknown namespace never fails a parse either.
+- **Derived metrics are rebuildable and never source authority.** Analysis reads
+  the current normalized track and produces a cache of it. It never modifies the
+  geometry it read -- an outlier is an analysis decision, not a deletion -- and a
+  failed analysis never costs a track its import or the metrics it already had.
+- **Analysis semantics require explicit version bumps.** A changed distance,
+  movement or elevation algorithm, or a changed metric meaning, is a new
+  `AnalysisProfile` version. Stored metrics that cannot say which algorithms
+  produced them make every later "is this still right?" unanswerable. Metrics
+  are also bound to the processing generation they were derived from: new
+  geometry outdates them, a user override does not. An algorithm change that
+  alters a user-visible number is such a change, however small the diff looks.
+- **Synthetic timestamps must not silently become observed activity metrics.**
+  A timestamp proves that something wrote a time, not that anybody moved.
+  Temporal evidence is derived from evidence of *measurement* -- never from the
+  presence of an instant, the exporting application or the detected track kind
+  -- and a clock-dependent metric is never presented without it. Analysis still
+  derives every number the data supports; what is gated is the claim, not the
+  calculation.
+- **Statistics must not silently mix analysis algorithm versions.** A default
+  total covers only tracks whose analysis is current, and says how many of the
+  period it left out and why. Adding two algorithm generations produces a figure
+  that measures neither, and there is no option to ask for one.
+- **Every read surface says the same thing about an analysis.** A listing row, a
+  track's own analysis resource and a total project one value -- `current`,
+  `outdated`, `missing` or `invalid` -- decided in one place. A metric is
+  presented as the track's own only while it is `current`; a stale or damaged
+  number is the last thing that was derived, which is a different claim. An
+  ordering by distance means the current distance, and a filter on availability
+  is applied where the page is counted, not after it is cut.
+- **Persisted derived state is validated before it is interpreted.** The
+  database is the authority, which is exactly why what comes back out of it is
+  untrusted input: it may come from a version that is gone, a failing disk or a
+  defect since fixed. Deserialisation fails closed -- unreadable derived state
+  is never current, never reaches a total, and never surfaces as a traceback.
+- **Prefer metamorphic invariants to numeric snapshots.** For an algorithm,
+  state the relation that must hold when the input is transformed in a way that
+  should not change the answer -- reversed, resampled, shifted, offset. A pinned
+  "this fixture produces 483.4" breaks on every legitimate improvement and says
+  nothing about the cases nobody thought to pin.
+- **Actual and planned aggregates must never be conflated.** They are separate
+  sets, selected by the *effective* kind, and `UNKNOWN` stays excluded from both
+  rather than being assigned to one. There is no combined default: a total that
+  adds planned routes to travelled distances is about neither.
+- **Missing metrics are not zero metrics.** An underivable value is absent, and
+  `null` over HTTP. A planned route reports no moving time; `0` would claim it
+  was travelled and nobody moved. An empty *period* may still total zero -- its
+  track count says it is empty.
+- **Activity date must not be inferred from import time.** A track's month and
+  year come from its own positions. The import instant is when the archive
+  learned about it and a document's export time is when the file was written;
+  neither is an activity date, and a track without timestamps belongs to no
+  month rather than to 1970.
+- **Timestamp presence is not calendar placement.** A track's instants are its
+  *timeline*; the claim that the activity happened in a given period is a
+  separate, stronger statement, and only instants shown to have been measured
+  support it. A planner's synthetic clock and a stripped recording look
+  identical, so a track without that evidence belongs to no month -- it is
+  reported beside the period, with its length intact, and separately from a
+  track that carries no instants at all. A kind override never changes this: it
+  says what a track is, not that its clock was measured.
 
 ## 6. Architecture boundaries
 

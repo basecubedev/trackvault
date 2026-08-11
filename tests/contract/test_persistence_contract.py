@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from gpx_view.application import ImportErrorCode, TrackImportError
-from gpx_view.application.ports import RawArtifactState
+from gpx_view.application.ports import RawArtifactState, TrackQuery
 from gpx_view.domain import (
     NORMALIZATION_SCHEMA_VERSION,
     Activity,
@@ -230,7 +230,7 @@ def test_the_same_bytes_never_become_two_track_sets(store: SqliteTrackStore) -> 
     second = store.record_import(_raw(), _run(version="2"), [_track()])
 
     assert first == second
-    assert len(store.list_tracks()) == 1
+    assert len(store.list_tracks(TrackQuery()).tracks) == 1
 
 
 def test_different_bytes_are_different_imports(store: SqliteTrackStore) -> None:
@@ -238,7 +238,10 @@ def test_different_bytes_are_different_imports(store: SqliteTrackStore) -> None:
     store.record_import(_raw(SHA), _run(SHA), [_track(title="First")])
     store.record_import(_raw(OTHER_SHA), _run(OTHER_SHA), [_track(title="Second")])
 
-    assert {summary.raw_import_sha256 for summary in store.list_tracks()} == {SHA, OTHER_SHA}
+    assert {summary.raw_import_sha256 for summary in store.list_tracks(TrackQuery()).tracks} == {
+        SHA,
+        OTHER_SHA,
+    }
 
 
 # --- Normalized rows --------------------------------------------------------
@@ -332,7 +335,7 @@ def test_a_failed_run_keeps_the_raw_import_and_names_the_reason(
     assert run is not None
     assert run.status is ProcessingStatus.FAILED
     assert run.error_code == ImportErrorCode.INVALID_GPX.value
-    assert store.list_tracks() == ()
+    assert store.list_tracks(TrackQuery()).tracks == ()
 
 
 def test_a_failing_transaction_leaves_nothing_behind(store: SqliteTrackStore) -> None:
@@ -345,7 +348,7 @@ def test_a_failing_transaction_leaves_nothing_behind(store: SqliteTrackStore) ->
 
     assert raised.value.code is ImportErrorCode.PERSISTENCE_FAILED
     assert store.find_raw_import(SHA) is None
-    assert store.list_tracks() == ()
+    assert store.list_tracks(TrackQuery()).tracks == ()
 
 
 # --- Reprocessing and the user override -------------------------------------
@@ -706,7 +709,7 @@ def test_a_schema_1_database_migrates_to_the_latest_schema(tmp_path: Path) -> No
 
     assert store.migrate() == SCHEMA_VERSION
 
-    (summary,) = store.list_tracks()
+    (summary,) = store.list_tracks(TrackQuery()).tracks
     assert summary.title == "Old track"
     assert summary.point_count == 1
     assert summary.effective_kind is TrackKind.RECORDED
@@ -789,7 +792,7 @@ def test_a_schema_2_database_migrates_to_the_latest_schema(tmp_path: Path) -> No
 
     assert store.migrate() == SCHEMA_VERSION
 
-    (summary,) = store.list_tracks()
+    (summary,) = store.list_tracks(TrackQuery()).tracks
     assert summary.title == "Old track"
     assert summary.source.external_links == (
         "https://example.test/one",
@@ -833,7 +836,7 @@ def test_a_migrated_track_says_its_identity_was_reconstructed(tmp_path: Path) ->
 
     store.migrate()
 
-    (summary,) = store.list_tracks()
+    (summary,) = store.list_tracks(TrackQuery()).tracks
     assert summary.source_key == f"{LEGACY_SOURCE_KEY_PREFIX}0"
 
 
@@ -851,7 +854,7 @@ def test_reprocessing_gives_a_migrated_track_its_real_identity(tmp_path: Path) -
 
     store.record_import(_raw(), _run(version="2"), [_track(title="Old track", source_key="trk:0")])
 
-    (summary,) = store.list_tracks()
+    (summary,) = store.list_tracks(TrackQuery()).tracks
     assert summary.source_key == "trk:0"
     assert summary.effective_kind is TrackKind.RECORDED
 
@@ -900,3 +903,80 @@ def test_a_failed_migration_leaves_the_database_at_its_old_version(
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
     assert "half_done" not in tables
+
+
+def _fill_schema_4(path: Path) -> None:
+    """Put one track into a schema-4 database, under the names that schema used."""
+    connection = sqlite3.connect(path, isolation_level=None)
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "INSERT INTO raw_imports "
+            "(sha256, size_bytes, original_filename, received_at, media_type, input_channel, "
+            "active_processing_run_id) "
+            "VALUES (?, 512, 'old.gpx', ?, 'application/gpx+xml', 'local_file', 1)",
+            (SHA, _as_stored(NOW)),
+        )
+        connection.execute(
+            "INSERT INTO processing_runs (id, raw_import_sha256, importer, importer_version, "
+            "normalization_schema_version, processed_at, status, error_code, classifier, "
+            "classifier_version) "
+            "VALUES (1, ?, 'gpx', '1', 2, ?, 'succeeded', NULL, 'evidence-weights', '2')",
+            (SHA, _as_stored(NOW)),
+        )
+        connection.execute(
+            "INSERT INTO tracks (id, raw_import_sha256, source_key, source_index, "
+            "processing_run_id, title, activity, exchange_format, format_version, creator, "
+            "started_at, ended_at, point_count, segment_count) "
+            "VALUES (1, ?, 'trk:0', 0, 1, 'Old track', 'walking', 'gpx', '1.1', 'Old', ?, ?, 1, 1)",
+            (SHA, _as_stored(START), _as_stored(START)),
+        )
+        connection.execute(
+            "INSERT INTO track_classifications "
+            "(track_id, detected_kind, confidence, method, method_version) "
+            "VALUES (1, 'unknown', 0.0, 'evidence-weights', '2')"
+        )
+        connection.execute("INSERT INTO track_segments (id, track_id, position) VALUES (1, 1, 0)")
+        connection.execute(
+            "INSERT INTO track_points (segment_id, position, latitude, longitude, elevation, "
+            "recorded_at) VALUES (1, 0, 51.0, 7.0, 40.0, ?)",
+            (_as_stored(START),),
+        )
+        connection.execute("COMMIT")
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("version", range(1, SCHEMA_VERSION))
+def test_every_intermediate_schema_migrates_to_the_latest(tmp_path: Path, version: int) -> None:
+    """No deployment is stranded on a version somebody stopped upgrading from.
+
+    The tail of migrations is run from wherever a database happens to be, so a
+    build that skipped several releases arrives at the same schema as one that
+    upgraded every time.
+    """
+    path = tmp_path / f"schema-{version}.sqlite3"
+    _database_at(path, version)
+    store = SqliteTrackStore(path)
+
+    assert store.migrate() == SCHEMA_VERSION
+    assert store.schema_version() == SCHEMA_VERSION
+
+
+def test_a_database_without_analysis_gains_it_without_losing_a_track(tmp_path: Path) -> None:
+    """Adding derived metrics leaves the data they will be derived from alone.
+
+    Nothing is back-filled either: no track was analysed before the migration,
+    and a metric invented here would be a number nobody derived.
+    """
+    path = tmp_path / "schema-4.sqlite3"
+    _database_at(path, 4)
+    _fill_schema_4(path)
+    store = SqliteTrackStore(path)
+
+    assert store.migrate() == SCHEMA_VERSION
+
+    (summary,) = store.list_tracks(TrackQuery()).tracks
+    assert summary.title == "Old track"
+    assert store.current_analysis(summary.track_id) is None
+    assert store.analysis_run_count(summary.track_id) == 0

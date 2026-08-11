@@ -510,3 +510,77 @@ def test_every_adapter_package_is_reachable_only_through_infrastructure() -> Non
         )
     }
     assert all(name.startswith("gpx_view.infrastructure") for name in wiring), wiring
+
+
+ANALYSIS_PACKAGE = PACKAGE_ROOT / "domain" / "analysis"
+
+
+@pytest.mark.contract
+@pytest.mark.analysis
+def test_the_analysis_package_exists_inside_the_domain() -> None:
+    """Analysis is a business rule, not an adapter concern.
+
+    Its home decides what it can reach: inside the domain, the stdlib-only and
+    format-free rules apply to it automatically rather than by promise.
+    """
+    assert ANALYSIS_PACKAGE.is_dir()
+    assert (ANALYSIS_PACKAGE / "__init__.py").is_file()
+
+
+@pytest.mark.contract
+@pytest.mark.analysis
+def test_analysis_imports_no_exchange_format_and_no_outer_layer() -> None:
+    """The source-agnostic guarantee, made structural rather than promised.
+
+    A future FIT adapter must reach the same numbers as the GPX one, and the
+    only way to be sure is that analysis cannot see either. It reads normalized
+    geometry and nothing else -- no parser, no repository, no route, no
+    settings.
+    """
+    for module in sorted(ANALYSIS_PACKAGE.rglob("*.py")):
+        for imported in _imported_modules(module):
+            root = _root_module(imported)
+            assert root not in FORMAT_MODULES, f"{_module_name(module)} imports {imported}"
+            assert not imported.startswith(
+                (
+                    "gpx_view.infrastructure",
+                    "gpx_view.application",
+                    "gpx_view.api",
+                    "gpx_view.config",
+                )
+            ), f"{_module_name(module)} imports {imported}"
+
+
+@pytest.mark.contract
+@pytest.mark.analysis
+def test_analysis_names_no_exchange_format_or_vendor() -> None:
+    """A metric that mentions a format is a metric that will grow a special case.
+
+    `distance` means the same thing whether the positions arrived as GPX, FIT or
+    TCX. The day it does not, statistics stop being comparable across sources,
+    which is the whole reason the normalization boundary exists.
+    """
+    for module in sorted(ANALYSIS_PACKAGE.rglob("*.py")):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        defined = {name.lower() for name in _defined_names(tree)}
+        assert not _vendor_hits(" ".join(defined)), _module_name(module)
+        for name in defined:
+            assert not any(name.startswith(fmt) or name.endswith(fmt) for fmt in FORMAT_NAMES), (
+                f"{_module_name(module)} defines {name}"
+            )
+
+
+@pytest.mark.contract
+@pytest.mark.analysis
+def test_no_route_derives_a_metric_of_its_own() -> None:
+    """Analysis has one authority, and a route is a projection.
+
+    A distance computed in a route would be a second answer to a question that
+    already has one -- and the answer nobody reruns when the algorithm changes.
+    """
+    for module in _layer_modules("api"):
+        for imported in _imported_modules(module):
+            assert imported != "gpx_view.domain.analysis.analyze", _module_name(module)
+            assert not imported.endswith((".distance", ".movement", ".elevation")), (
+                f"{_module_name(module)} imports {imported}"
+            )

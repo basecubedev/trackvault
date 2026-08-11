@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from gpx_view.application.ports import TrackSummary
+from gpx_view.application.ports import TrackQuery, TrackSummary
 from gpx_view.domain import (
     NORMALIZATION_SCHEMA_VERSION,
     ClassificationResult,
@@ -126,12 +126,12 @@ def _track(title: str, kind: TrackKind = TrackKind.UNKNOWN) -> NormalizedTrack:
 
 def _titles(store: SqliteTrackStore) -> tuple[str | None, ...]:
     """Return the titles a reader currently sees, in listing order."""
-    return tuple(summary.title for summary in store.list_tracks())
+    return tuple(summary.title for summary in store.list_tracks(TrackQuery()).tracks)
 
 
 def _by_title(store: SqliteTrackStore, title: str) -> TrackSummary | None:
     """Return the currently visible track with that title, or ``None``."""
-    return next((s for s in store.list_tracks() if s.title == title), None)
+    return next((s for s in store.list_tracks(TrackQuery()).tracks if s.title == title), None)
 
 
 # --- The current generation is exactly one successful run's candidates -------
@@ -195,7 +195,11 @@ def test_a_user_correction_stays_with_the_candidate_it_was_made_on(
 
     store.record_import(_raw(), _run("2"), [_track("X"), _track("A"), _track("B")])
 
-    corrected = [s.title for s in store.list_tracks() if s.classification.override is not None]
+    corrected = [
+        s.title
+        for s in store.list_tracks(TrackQuery()).tracks
+        if s.classification.override is not None
+    ]
     assert corrected == ["B"], "the correction moved to a different logical candidate"
 
 
@@ -209,7 +213,7 @@ def test_reordered_candidates_keep_their_own_classification(store: SqliteTrackSt
         _raw(), _run("2"), [_track("B", TrackKind.PLANNED), _track("A", TrackKind.RECORDED)]
     )
 
-    kinds = {s.title: s.detected_kind for s in store.list_tracks()}
+    kinds = {s.title: s.detected_kind for s in store.list_tracks(TrackQuery()).tracks}
     assert kinds == {"A": TrackKind.RECORDED, "B": TrackKind.PLANNED}
 
 

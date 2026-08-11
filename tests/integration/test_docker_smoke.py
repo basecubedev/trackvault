@@ -138,7 +138,7 @@ def test_the_container_writes_and_keeps_data_as_a_non_root_user(
     assert ".raw" in stored
 
     before = httpx2.get(TRACKS_URL, timeout=5.0).json()
-    assert before["count"] == 1
+    assert before["total"] == 1
     track = before["tracks"][0]
     assert track["title"] == "Synthetic morning walk"
 
@@ -166,6 +166,10 @@ def test_the_data_directory_is_owned_by_the_runtime_user(
 
     assert owner == _exec("id", "-u").strip()
     assert _exec("stat", "-c", "%a", "/data").strip() != "777"
+
+
+_CONTAINER_SHA = hashlib.sha256((FIXTURES / "recorded-measurements.gpx").read_bytes()).hexdigest()
+"""Identity of the fixture the container scenarios import."""
 
 
 def _import_the_reference(name: str = "recorded-measurements.gpx") -> str:
@@ -234,3 +238,76 @@ def test_the_container_reports_and_repairs_an_outdated_generation(
     assert "importer:       1 -> installed" in outdated
     assert "outdated:       no" in repaired
     assert _exec("gpx-view", "reprocess", "--outdated") == "nothing to reprocess\n"
+
+
+@pytest.mark.integration
+@pytest.mark.analysis
+@pytest.mark.statistics
+def test_analysis_and_statistics_survive_recreating_the_container(
+    compose_stack: None,  # noqa: ARG001
+) -> None:
+    """Derived metrics live in the volume, not in the container.
+
+    A container is disposable and its filesystem is not a place to keep
+    anything. What is checked is the whole promise of the deployment: import,
+    analyse and total inside one container, replace the container, and get the
+    same numbers back from the same volume.
+    """
+    _import_the_reference()
+
+    before_track = httpx2.get(TRACKS_URL, timeout=10.0).json()["tracks"][0]
+    before_year = httpx2.get(
+        f"{BASE_URL}/api/v1/statistics/year/2026?scope=recorded", timeout=10.0
+    ).json()
+
+    assert before_track["analysis"]["status"] == "current"
+    assert before_track["analysis"]["distance_m"] > 0.0
+
+    _compose("up", "-d", "--force-recreate")
+    _wait_until_healthy()
+
+    after_track = httpx2.get(TRACKS_URL, timeout=10.0).json()["tracks"][0]
+    after_year = httpx2.get(
+        f"{BASE_URL}/api/v1/statistics/year/2026?scope=recorded", timeout=10.0
+    ).json()
+    analysis = httpx2.get(
+        f"{BASE_URL}/api/v1/tracks/{after_track['id']}/analysis", timeout=10.0
+    ).json()
+
+    assert after_track["analysis"] == before_track["analysis"]
+    assert after_year["totals"] == before_year["totals"]
+    assert analysis["status"] == "current"
+    assert _exec("gpx-view", "analyze", "--outdated") == "nothing to analyze\n"
+
+
+@pytest.mark.integration
+@pytest.mark.analysis
+def test_the_container_reanalyses_what_an_algorithm_change_outdates(
+    compose_stack: None,  # noqa: ARG001
+) -> None:
+    """The operator upgrade path for analysis, inside its own deployment.
+
+    A different analysis profile is simulated by rewriting what a run recorded
+    -- which is exactly what makes stored metrics outdated -- so proving the
+    path needs no second build. The stored version is moved *up*, which is the
+    downgrade case: an older deployment must not report numbers a newer one
+    wrote as current, or it would never regenerate them.
+    """
+    _import_the_reference()
+    assert "analysis outdated: no" in _exec("gpx-view", "processing-status", _CONTAINER_SHA)
+
+    _exec(
+        "python",
+        "-c",
+        "import sqlite3\n"
+        "connection = sqlite3.connect('/data/gpx-view.sqlite3')\n"
+        'connection.execute("UPDATE analysis_runs SET elevation_algorithm_version = 2")\n'
+        "connection.commit()\n",
+    )
+    outdated = _exec("gpx-view", "processing-status", _CONTAINER_SHA)
+    _exec("gpx-view", "analyze", "--outdated")
+    repaired = _exec("gpx-view", "processing-status", _CONTAINER_SHA)
+
+    assert "analysis outdated: yes" in outdated
+    assert "analysis outdated: no" in repaired
+    assert _exec("gpx-view", "analyze", "--outdated") == "nothing to analyze\n"

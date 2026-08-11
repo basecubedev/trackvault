@@ -36,6 +36,7 @@ import logging
 from dataclasses import dataclass
 from enum import StrEnum
 
+from gpx_view.application.analyze import AnalyzeTrack
 from gpx_view.application.errors import ImportErrorCode, TrackImportError
 from gpx_view.application.importing import ImportLimits
 from gpx_view.application.normalization import NormalizeRawImport
@@ -126,12 +127,22 @@ class ImportTracks:
         repository: TrackRepository,
         clock: Clock,
         normalize: NormalizeRawImport,
+        analyze: AnalyzeTrack | None = None,
     ) -> None:
-        """Wire the use case to its ports."""
+        """Wire the use case to its ports.
+
+        ``analyze`` is optional and best effort. Wiring it here rather than into
+        each input path is what keeps a scanned sync folder, a command-line
+        import and a future API import producing the same thing: a track that is
+        immediately worth a statistic. Leaving it out gives an archive whose
+        metrics are derived only on demand, which is a deployment choice rather
+        than a different pipeline.
+        """
         self._raw_store = raw_store
         self._repository = repository
         self._clock = clock
         self._normalize = normalize
+        self._analyze = analyze
 
     @property
     def limits(self) -> ImportLimits:
@@ -173,7 +184,19 @@ class ImportTracks:
         result = self._normalize(raw_import, content)
         if not result.succeeded:
             return ImportOutcome(ImportStatus.FAILED, sha256, (), result.error_code)
+        self._derive_metrics(result.track_ids)
         return ImportOutcome(ImportStatus.IMPORTED, sha256, result.track_ids)
+
+    def _derive_metrics(self, track_ids: tuple[int, ...]) -> None:
+        """Derive the metrics of what was just imported, if that is wired.
+
+        A separate lifecycle with its own status, deliberately: the import has
+        already succeeded by the time this runs, and nothing here can change
+        that. An analysis that fails leaves a track that is complete, readable
+        and reachable by ``analyze --outdated``.
+        """
+        if self._analyze is not None:
+            self._analyze.best_effort(track_ids)
 
     def _already_known(self, sha256: str, content: bytes) -> ImportOutcome:
         """Answer an offer of bytes the archive has a record of.

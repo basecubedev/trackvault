@@ -10,6 +10,7 @@ process holds the write lock -- the HTTP server and a command-line import may ru
 against the same file.
 """
 
+import logging
 import sqlite3
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -17,11 +18,27 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from gpx_view.application import ImportErrorCode, TrackImportError
-from gpx_view.application.ports import ProcessingSnapshot, TrackSummary
+from gpx_view.application.ports import (
+    MAX_PAGE_SIZE,
+    AnalysisAvailability,
+    AnalysisRun,
+    AnalysisSnapshot,
+    AnalysisStatus,
+    ProcessingSnapshot,
+    StoredAnalysis,
+    TrackAggregationRow,
+    TrackOrder,
+    TrackPage,
+    TrackQuery,
+    TrackSummary,
+)
 from gpx_view.domain import (
+    MEASUREMENT_EVIDENCE_CODES,
     Activity,
     ClassificationResult,
+    EvidenceCode,
     InputChannel,
+    MetricProvenance,
     NormalizedTrack,
     ProcessingRun,
     ProcessingStatus,
@@ -31,6 +48,15 @@ from gpx_view.domain import (
     TrackKind,
     TrackPoint,
     TrackSegment,
+    temporal_evidence_of,
+)
+from gpx_view.domain.analysis import (
+    AnalysisProfile,
+    AnalysisQuality,
+    MetricName,
+    MetricUnit,
+    MetricValue,
+    TrackAnalysis,
 )
 from gpx_view.infrastructure.database.migrations import (
     LEGACY_SOURCE_KEY_PREFIX,
@@ -38,6 +64,8 @@ from gpx_view.infrastructure.database.migrations import (
     apply_migrations,
 )
 from gpx_view.infrastructure.private_data import create_private_directory, create_private_file
+
+logger = logging.getLogger(__name__)
 
 BUSY_TIMEOUT_MILLISECONDS = 5000
 
@@ -408,32 +436,48 @@ class SqliteTrackStore:
 
     # --- queries --------------------------------------------------------
 
-    def list_tracks(self) -> tuple[TrackSummary, ...]:
-        """Return the current tracks, newest imported source first.
+    @property
+    def max_page_size(self) -> int:
+        """Return the largest page this store will return."""
+        return MAX_PAGE_SIZE
 
-        The declared order is implemented rather than approximated: newest raw
-        import first, then the candidates of that source in the order the
-        document presents them. The track identity is the final tie-breaker, so
-        two sources received in the same instant still list deterministically.
+    def list_tracks(self, query: TrackQuery) -> TrackPage:
+        """Return one page of the current tracks, filtered and ordered in SQL.
 
-        Sorting by activity date is a different feature and belongs to whoever
-        asks for it, not to the storage default.
+        The total is counted over the same restriction as the page, in a second
+        statement rather than by measuring the page: a total that ignored the
+        filter, or that only counted what came back, would make every pager
+        built on it wrong.
         """
+        limit = max(1, min(query.limit, MAX_PAGE_SIZE))
+        offset = max(0, query.offset)
+        count_text, count_values = _count_statement(query)
+        page_text, page_values = _page_statement(query)
         with self.connection() as connection:
-            rows = connection.execute(
-                _SUMMARY_QUERY + " ORDER BY i.received_at DESC, t.source_index ASC, t.id ASC"
-            ).fetchall()
-            return tuple(self._summaries(connection, rows))
+            total = int(connection.execute(count_text, count_values).fetchone()[0])
+            rows = connection.execute(page_text, (*page_values, limit, offset)).fetchall()
+            tracks = self._summaries(connection, rows)
+        return TrackPage(tracks=tracks, total=total, limit=limit, offset=offset)
 
-    def get_track(self, track_id: int) -> TrackSummary | None:
+    def get_track(
+        self, track_id: int, installed_analysis: AnalysisProfile | None = None
+    ) -> TrackSummary | None:
         """Return one current track without its geometry.
 
         A candidate that a later run stopped producing is history, and history is
         a different question from "show me this track". Answering it here would
         mix the two into one endpoint, so this reports absence instead.
+
+        Args:
+            track_id: Identity of the track.
+            installed_analysis: The algorithms this build applies, so that the
+                summary can say what the track's stored metrics amount to.
+                ``None`` means nothing counts as current, which is the same
+                fail-closed answer the domain's own currency check gives.
         """
+        text, values = _summary_statement(installed_analysis)
         with self.connection() as connection:
-            rows = connection.execute(_SUMMARY_QUERY + " WHERE t.id = ?", (track_id,)).fetchall()
+            rows = connection.execute(f"{text} WHERE t.id = ?", (*values, track_id)).fetchall()
             summaries = self._summaries(connection, rows)
         return summaries[0] if summaries else None
 
@@ -447,7 +491,20 @@ class SqliteTrackStore:
         evidence = _grouped(connection, "track_evidence", "code", ids)
         links = _grouped(connection, "track_external_links", "url", ids)
         namespaces = _grouped(connection, "track_extension_namespaces", "namespace", ids)
-        return tuple(_summary_from(row, evidence, links, namespaces) for row in rows)
+        # One batched lookup for the whole page rather than one per track. A
+        # listing that costs a query per row is what an N+1 is, and it appears
+        # exactly here -- where the convenient code would loop. Only the current
+        # analyses are read: the others have nothing a row is allowed to show.
+        metrics, _ = _metrics_for_runs(
+            connection,
+            [
+                int(row["current_analysis_run_id"])
+                for row in rows
+                if row["current_analysis_run_id"] is not None
+                and row["analysis_availability"] == AnalysisAvailability.CURRENT.value
+            ],
+        )
+        return tuple(_summary_from(row, evidence, links, namespaces, metrics) for row in rows)
 
     def get_geometry(self, track_id: int) -> tuple[TrackSegment, ...] | None:
         """Return the segments of one stored track, in source order."""
@@ -498,12 +555,261 @@ class SqliteTrackStore:
             )
             return True
 
+    # --- analysis -------------------------------------------------------
+
+    def record_analysis(self, run: AnalysisRun, analysis: TrackAnalysis | None) -> int:
+        """Store one analysis attempt in a single transaction."""
+        try:
+            with self._transaction() as connection:
+                run_id = self._insert_analysis_run(connection, run)
+                if analysis is not None:
+                    self._insert_metrics(connection, run_id, analysis)
+                if run.status is AnalysisStatus.SUCCEEDED:
+                    self._publish_analysis(connection, run, run_id)
+                return run_id
+        except sqlite3.Error as error:
+            raise TrackImportError(ImportErrorCode.PERSISTENCE_FAILED) from error
+        except (TypeError, ValueError, AttributeError) as error:
+            raise TrackImportError(ImportErrorCode.PERSISTENCE_FAILED) from error
+
+    @staticmethod
+    def _publish_analysis(connection: sqlite3.Connection, run: AnalysisRun, run_id: int) -> None:
+        """Make this run's metrics current, unless the geometry moved on.
+
+        The generation is part of the ``WHERE`` clause rather than of a check
+        before it. A reprocess that committed while this analysis ran has
+        already changed ``processing_run_id``, and the update then matches
+        nothing -- so metrics derived from geometry no reader can see never
+        become the answer for geometry they do not describe. The run itself
+        stays recorded; it simply does not win.
+        """
+        connection.execute(
+            "UPDATE tracks SET current_analysis_run_id = ? WHERE id = ? AND processing_run_id = ?",
+            (run_id, run.track_id, run.processing_run_id),
+        )
+
+    @staticmethod
+    def _insert_analysis_run(connection: sqlite3.Connection, run: AnalysisRun) -> int:
+        """Append an analysis run and return its identity."""
+        profile = run.profile
+        cursor = connection.execute(
+            "INSERT INTO analysis_runs (track_id, processing_run_id, distance_algorithm, "
+            "distance_algorithm_version, movement_algorithm, movement_algorithm_version, "
+            "elevation_algorithm, elevation_algorithm_version, metric_schema_version, "
+            "analyzed_at, status, error_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                run.track_id,
+                run.processing_run_id,
+                profile.distance_algorithm,
+                profile.distance_algorithm_version,
+                profile.movement_algorithm,
+                profile.movement_algorithm_version,
+                profile.elevation_algorithm,
+                profile.elevation_algorithm_version,
+                profile.metric_schema_version,
+                _as_text(run.analyzed_at),
+                run.status.value,
+                run.error_code,
+            ),
+        )
+        return int(cursor.lastrowid or 0)
+
+    @staticmethod
+    def _insert_metrics(
+        connection: sqlite3.Connection, run_id: int, analysis: TrackAnalysis
+    ) -> None:
+        """Write the metrics and the quality flags of one run.
+
+        Only metrics that were derived are written. A row per name would mean
+        storing a filler value for every unavailable metric, and a stored zero
+        is indistinguishable from a measured one.
+        """
+        connection.executemany(
+            "INSERT INTO track_metrics (analysis_run_id, metric, value, unit, provenance) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                (run_id, name.value, metric.value, metric.unit.value, metric.provenance.value)
+                for name, metric in analysis.metrics.items()
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO analysis_quality_flags (analysis_run_id, position, flag) VALUES (?, ?, ?)",
+            [(run_id, position, flag.value) for position, flag in enumerate(analysis.quality)],
+        )
+
+    def current_analysis(self, track_id: int) -> StoredAnalysis | None:
+        """Return the metrics a track currently has, or ``None``.
+
+        ``None`` also answers "there is a stored analysis and it cannot be
+        interpreted". That is deliberate: handing over half of a set whose other
+        half is impossible would put an unexplainable number in front of a user.
+        Whether the archive is holding damage or simply nothing is a question
+        the snapshot answers, and the application layer asks it there.
+        """
+        with self.connection() as connection:
+            row = connection.execute(
+                _ANALYSIS_RUN_QUERY
+                + " JOIN tracks t ON t.current_analysis_run_id = a.id WHERE t.id = ?",
+                (track_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            run_id = int(row["id"])
+            run = _readable_analysis_run(row)
+            metrics = _metrics_of(connection, run_id)
+            quality = _quality_of(connection, run_id)
+            if run is None or metrics is None or quality is None:
+                return None
+            return StoredAnalysis(run_id=run_id, run=run, metrics=metrics, quality=quality)
+
+    def analysis_snapshot(self, track_id: int) -> AnalysisSnapshot | None:
+        """Return what one current track's analysis amounts to, or ``None``."""
+        with self.connection() as connection:
+            row = connection.execute(
+                _ANALYSIS_SNAPSHOT_QUERY + " AND t.id = ?", (track_id,)
+            ).fetchone()
+            return None if row is None else self._snapshot(connection, [row])[0]
+
+    def analysis_snapshots(self) -> tuple[AnalysisSnapshot, ...]:
+        """Return the same for every current track, oldest imported source first."""
+        with self.connection() as connection:
+            rows = connection.execute(
+                _ANALYSIS_SNAPSHOT_QUERY
+                + " ORDER BY i.received_at ASC, t.source_index ASC, t.id ASC"
+            ).fetchall()
+            return self._snapshot(connection, rows)
+
+    @staticmethod
+    def _snapshot(
+        connection: sqlite3.Connection, rows: Sequence[sqlite3.Row]
+    ) -> tuple[AnalysisSnapshot, ...]:
+        """Turn snapshot rows into snapshots, withholding what cannot be read.
+
+        The stored output is validated here rather than at presentation time, so
+        that one authority answers "is this current?" for damage in the run row
+        and damage in the metrics alike -- and so that ``analyze --outdated``
+        offers to repair both.
+        """
+        unreadable = _unreadable_runs(
+            connection, [int(row["cur_id"]) for row in rows if row["cur_id"] is not None]
+        )
+        return tuple(
+            _analysis_snapshot_from(row, without_current=row["cur_id"] in unreadable)
+            for row in rows
+        )
+
+    def analysis_run_count(self, track_id: int) -> int:
+        """Return how many analysis runs a track has accumulated."""
+        with self.connection() as connection:
+            return int(
+                connection.execute(
+                    "SELECT count(*) FROM analysis_runs WHERE track_id = ?", (track_id,)
+                ).fetchone()[0]
+            )
+
+    # --- aggregation ----------------------------------------------------
+
+    def placed_aggregation_rows(
+        self, since: datetime, until: datetime | None
+    ) -> tuple[TrackAggregationRow, ...]:
+        """Return the current tracks a window can vouch for as having happened in it.
+
+        Two conditions, not one. The activity date has to fall in the window,
+        *and* the instants it comes from have to have been measured -- a
+        plausible clock on geometry nobody travelled is not a date, and adding
+        its distance to a month is how a total about nothing gets built.
+
+        Instants are stored as UTC ISO-8601 strings in one fixed shape, so the
+        range compares lexicographically exactly as it compares chronologically,
+        and ``ix_tracks_started_at`` serves it. A yearly total therefore reads
+        one bounded set of rows and never touches a position.
+
+        An ``until`` of ``None`` is an open upper bound, which is what the last
+        supported year has: there is no instant after it to compare against.
+        """
+        anchored, anchor_values = _calendar_anchored()
+        window = " AND t.started_at >= ?" + ("" if until is None else " AND t.started_at < ?")
+        instants: tuple[object, ...] = (
+            (_as_text(since),) if until is None else (_as_text(since), _as_text(until))
+        )
+        return self._aggregation_rows(f"{window} AND ({anchored})", (*instants, *anchor_values))
+
+    def unplaced_aggregation_rows(self) -> tuple[TrackAggregationRow, ...]:
+        """Return the current tracks that belong to no calendar period at all.
+
+        Two populations under one heading, told apart afterwards by whether the
+        row carries an instant: a track with no times, and a track whose times
+        nothing showed to be measured. Both have a length and no period, and
+        both are reported beside a year rather than inside one.
+        """
+        anchored, anchor_values = _calendar_anchored()
+        return self._aggregation_rows(
+            f" AND (t.started_at IS NULL OR NOT ({anchored}))", anchor_values
+        )
+
+    def _aggregation_rows(
+        self, restriction: str, parameters: tuple[object, ...]
+    ) -> tuple[TrackAggregationRow, ...]:
+        """Return the aggregation base rows a restriction selects.
+
+        The restriction is built from this module's own fragments. No
+        caller-supplied value reaches the query text; every value is bound.
+        """
+        with self.connection() as connection:
+            rows = connection.execute(
+                _AGGREGATION_QUERY + restriction + " ORDER BY t.id", parameters
+            ).fetchall()
+            run_ids = [
+                int(row["analysis_run_id"]) for row in rows if row["analysis_run_id"] is not None
+            ]
+            metrics, _ = _metrics_for_runs(connection, run_ids)
+            unreadable = _unreadable_runs(connection, run_ids)
+            # One batched lookup for every track's evidence rather than one per
+            # track: the timing basis is per track metadata, and a yearly total
+            # must not turn into a query per row for it.
+            evidence = (
+                _grouped(connection, "track_evidence", "code", [int(row["id"]) for row in rows])
+                if rows
+                else {}
+            )
+        return tuple(
+            TrackAggregationRow(
+                track_id=int(row["id"]),
+                effective_kind=TrackKind(row["override_kind"] or row["detected_kind"]),
+                activity=Activity(row["activity"]),
+                started_at=_as_instant(row["started_at"]),
+                temporal_evidence=temporal_evidence_of(evidence.get(int(row["id"]), ())),
+                # A run whose metrics could not be read is presented as no
+                # current run at all, so the one currency authority reaches the
+                # same verdict it would for damage in the run row itself and an
+                # impossible distance can never be summed into somebody's year.
+                analysis=_analysis_snapshot_from(
+                    row,
+                    track_id=int(row["id"]),
+                    without_current=row["analysis_run_id"] in unreadable,
+                ),
+                metrics=(
+                    {}
+                    if row["analysis_run_id"] is None
+                    else metrics.get(int(row["analysis_run_id"]), {})
+                ),
+            )
+            for row in rows
+        )
+
 
 # Only the current generation is a track. A row whose processing run is no longer
 # the raw import's active one is history: the candidate it describes was not
 # produced by the run that currently speaks for its source, so it is not
 # something a reader may act on. The row stays -- with its user override -- for
 # the day the same candidate reappears.
+#
+# The analysis run is joined too, because what a track's stored metrics amount to
+# is part of every read of it. Classifying that in the same statement is what
+# keeps a filtered, ordered page costing the page: deciding it afterwards in
+# Python would mean either paging before filtering, which reports the wrong
+# total, or reading the archive to page it, which is the thing pagination exists
+# against.
 _CURRENT_GENERATION = """
   FROM tracks t
   JOIN raw_imports i
@@ -511,18 +817,25 @@ _CURRENT_GENERATION = """
    AND i.active_processing_run_id = t.processing_run_id
   JOIN track_classifications c ON c.track_id = t.id
   LEFT JOIN track_classification_overrides o ON o.track_id = t.id
+  LEFT JOIN analysis_runs cur ON cur.id = t.current_analysis_run_id
 """
 
-_SUMMARY_QUERY = (
-    """
+_SUMMARY_COLUMNS = """
 SELECT t.id, t.raw_import_sha256, t.source_index, t.source_key, t.title, t.activity,
        t.exchange_format, t.format_version, t.creator, t.started_at, t.ended_at,
        t.point_count, t.segment_count, i.received_at AS raw_received_at,
        c.detected_kind, c.confidence, c.method, c.method_version,
-       o.override_kind
+       o.override_kind, t.current_analysis_run_id
 """
-    + _CURRENT_GENERATION
-)
+
+# The distance of the current analysis, joined so that a listing can be ordered
+# by it in SQL. A left join, because a track that has not been analysed still
+# appears in the list -- it simply has no length to sort by, and sorts last.
+_DISTANCE_JOIN = """
+  LEFT JOIN track_metrics m
+    ON m.analysis_run_id = t.current_analysis_run_id
+   AND m.metric = ?
+"""
 
 
 _RUN_COLUMNS = (
@@ -598,6 +911,586 @@ def _joined_run(row: sqlite3.Row, alias: str) -> ProcessingRun | None:
         classifier=row[f"{alias}_classifier"],
         classifier_version=row[f"{alias}_classifier_version"],
     )
+
+
+_ANALYSIS_RUN_COLUMNS = (
+    "track_id",
+    "processing_run_id",
+    "distance_algorithm",
+    "distance_algorithm_version",
+    "movement_algorithm",
+    "movement_algorithm_version",
+    "elevation_algorithm",
+    "elevation_algorithm_version",
+    "metric_schema_version",
+    "analyzed_at",
+    "status",
+    "error_code",
+)
+
+_ANALYSIS_RUN_SELECTION = ", ".join(f"a.{column}" for column in _ANALYSIS_RUN_COLUMNS)
+
+# The interpolated part is this module's own column list. No caller-supplied
+# value reaches the query text; the one parameter it takes is bound.
+_ANALYSIS_RUN_QUERY = f"SELECT a.id, {_ANALYSIS_RUN_SELECTION} FROM analysis_runs a"  # noqa: S608
+
+
+def _aliased_analysis_columns(alias: str) -> str:
+    """Return one analysis run's columns, prefixed so two runs fit in one row."""
+    columns = ", ".join(f"{alias}.{column} AS {alias}_{column}" for column in _ANALYSIS_RUN_COLUMNS)
+    return f"{alias}.id AS {alias}_id, {columns}"
+
+
+# The current derived generation and the newest attempt, in one row, for every
+# track a reader can see. The join to `raw_imports` is what restricts it to the
+# current normalized generation: a candidate a later run stopped producing keeps
+# its rows but is history, and history is not analysed.
+#
+# The interpolated parts are this module's own column lists. No caller-supplied
+# value reaches the query text.
+_ANALYSIS_SNAPSHOT_QUERY = f"""
+SELECT t.id AS track_id, t.processing_run_id,
+       {_aliased_analysis_columns("cur")},
+       {_aliased_analysis_columns("lat")}
+  FROM tracks t
+  JOIN raw_imports i
+    ON i.sha256 = t.raw_import_sha256
+   AND i.active_processing_run_id = t.processing_run_id
+  LEFT JOIN analysis_runs cur ON cur.id = t.current_analysis_run_id
+  LEFT JOIN analysis_runs lat ON lat.id = (
+      SELECT id FROM analysis_runs WHERE track_id = t.id ORDER BY id DESC LIMIT 1)
+ WHERE 1 = 1
+"""  # noqa: S608
+
+
+def _analysis_profile_from(row: sqlite3.Row, prefix: str = "") -> AnalysisProfile:
+    """Rebuild the analysis profile one run recorded."""
+    return AnalysisProfile(
+        distance_algorithm=str(row[f"{prefix}distance_algorithm"]),
+        distance_algorithm_version=int(row[f"{prefix}distance_algorithm_version"]),
+        movement_algorithm=str(row[f"{prefix}movement_algorithm"]),
+        movement_algorithm_version=int(row[f"{prefix}movement_algorithm_version"]),
+        elevation_algorithm=str(row[f"{prefix}elevation_algorithm"]),
+        elevation_algorithm_version=int(row[f"{prefix}elevation_algorithm_version"]),
+        metric_schema_version=int(row[f"{prefix}metric_schema_version"]),
+    )
+
+
+def _analysis_run_from(row: sqlite3.Row, prefix: str = "") -> AnalysisRun:
+    """Rebuild one analysis run from its row.
+
+    Raises:
+        ValueError: If the row does not describe a run this build can interpret.
+            Every caller here turns that into an absent run rather than letting
+            it out; the exception exists so that the domain's own invariants do
+            the checking rather than a second copy of them.
+    """
+    analyzed_at = _as_instant(row[f"{prefix}analyzed_at"])
+    if analyzed_at is None:
+        raise ValueError("a stored analysis run must carry an analysed timestamp")
+    return AnalysisRun(
+        track_id=int(row[f"{prefix}track_id"]),
+        processing_run_id=int(row[f"{prefix}processing_run_id"]),
+        profile=_analysis_profile_from(row, prefix),
+        analyzed_at=analyzed_at,
+        status=AnalysisStatus(row[f"{prefix}status"]),
+        error_code=row[f"{prefix}error_code"],
+    )
+
+
+def _readable_analysis_run(row: sqlite3.Row, prefix: str = "") -> AnalysisRun | None:
+    """Rebuild one analysis run, or report that it cannot be interpreted.
+
+    Persisted derived state is untrusted input. A row can come from a version
+    that is gone, a failing disk or a defect since fixed, and interpreting one
+    that does not make sense is worse than admitting it: a profile version this
+    build cannot parse must never be mistaken for the installed one.
+
+    An unreadable run therefore reads as *absent*, which is the fail-closed
+    direction -- the track shows as needing analysis again, and the geometry it
+    would be derived from was never touched.
+    """
+    try:
+        return _analysis_run_from(row, prefix)
+    except (ValueError, TypeError):
+        logger.warning("analysis.unreadable_run column_prefix=%r", prefix)
+        return None
+
+
+def _joined_analysis_run(row: sqlite3.Row, alias: str) -> AnalysisRun | None:
+    """Rebuild one of the two runs a snapshot row carries, if it is readable."""
+    if row[f"{alias}_id"] is None:
+        return None
+    return _readable_analysis_run(row, f"{alias}_")
+
+
+def _analysis_snapshot_from(
+    row: sqlite3.Row, *, track_id: int | None = None, without_current: bool = False
+) -> AnalysisSnapshot:
+    """Rebuild one track's analysis snapshot from its joined row.
+
+    The identity is passed in where the row names the track's column something
+    else -- the aggregation query selects ``t.id`` because it also carries the
+    classification -- rather than aliasing one query to suit the other.
+
+    ``without_current`` withholds a run the caller has already found unusable
+    for a reason this row cannot see, such as a metric it could not read. The
+    identity stays, which is what keeps "damaged" distinguishable from "never
+    analysed".
+    """
+    return AnalysisSnapshot(
+        track_id=int(row["track_id"]) if track_id is None else track_id,
+        processing_run_id=int(row["processing_run_id"]),
+        current_run_id=None if row["cur_id"] is None else int(row["cur_id"]),
+        current_run=None if without_current else _joined_analysis_run(row, "cur"),
+        latest_run_id=None if row["lat_id"] is None else int(row["lat_id"]),
+        latest_run=_joined_analysis_run(row, "lat"),
+    )
+
+
+def _metric_value(name: MetricName, row: sqlite3.Row) -> MetricValue:
+    """Rebuild one stored metric, rejecting values it could never have had.
+
+    ``MetricValue`` already refuses NaN and infinity, which poison every later
+    aggregation silently. The sign is checked here because only the name knows
+    it: a distance, a duration and a speed cannot be negative, while an altitude
+    below sea level is an ordinary Tuesday by the Dead Sea.
+
+    Raises:
+        ValueError: If the row does not describe a value this metric can hold.
+    """
+    value = float(row["value"])
+    if value < 0.0 and not name.may_be_negative:
+        raise ValueError(f"{name.value} cannot be negative")
+    return MetricValue(
+        value=value,
+        unit=MetricUnit(row["unit"]),
+        provenance=MetricProvenance(row["provenance"]),
+    )
+
+
+def _metrics_of(
+    connection: sqlite3.Connection, run_id: int
+) -> dict[MetricName, MetricValue] | None:
+    """Return the metrics one analysis run produced, or ``None`` if unreadable.
+
+    Two different kinds of surprise, deliberately handled differently.
+
+    A stored *name* this build does not know is skipped. A metric a later
+    release added, or an older one removed, says nothing about the rows beside
+    it, and refusing the whole set over it would lose metrics that are still
+    perfectly meaningful.
+
+    A stored *value* that could not have been derived -- infinite, or negative
+    where the metric has no negative -- condemns the whole run. It is evidence
+    that something wrote rows this build cannot account for, and a set where one
+    number is impossible is not a set where the others have been shown to be
+    fine.
+    """
+    rows = connection.execute(
+        "SELECT metric, value, unit, provenance FROM track_metrics WHERE analysis_run_id = ?",
+        (run_id,),
+    ).fetchall()
+    metrics: dict[MetricName, MetricValue] = {}
+    for row in rows:
+        try:
+            name = MetricName(row["metric"])
+        except ValueError:
+            continue
+        try:
+            metrics[name] = _metric_value(name, row)
+        except (ValueError, TypeError):
+            logger.warning("analysis.unreadable_metric run=%d", run_id)
+            return None
+    return metrics
+
+
+def _quality_of(connection: sqlite3.Connection, run_id: int) -> tuple[AnalysisQuality, ...] | None:
+    """Return the quality flags one run recorded, or ``None`` if unreadable.
+
+    Unlike an unknown metric name, an unknown flag is not skipped. A flag says
+    *what was wrong with the data these numbers came from*, so one this build
+    cannot render is a caveat it would be dropping silently -- and presenting
+    numbers without their caveat is the failure this vocabulary exists against.
+    """
+    rows = connection.execute(
+        "SELECT flag FROM analysis_quality_flags WHERE analysis_run_id = ? ORDER BY position",
+        (run_id,),
+    ).fetchall()
+    try:
+        return tuple(AnalysisQuality(row["flag"]) for row in rows)
+    except ValueError:
+        logger.warning("analysis.unreadable_quality_flag run=%d", run_id)
+        return None
+
+
+# One row per current track, carrying only what an aggregate needs: no geometry,
+# no evidence, no source metadata. The effective kind is projected here from the
+# detected result and the override rather than stored, which is what lets a user
+# correction move a track between the actual and planned totals without a single
+# metric being derived again.
+_AGGREGATION_QUERY = f"""
+SELECT t.id, t.activity, t.started_at, t.processing_run_id,
+       c.detected_kind, o.override_kind,
+       t.current_analysis_run_id AS analysis_run_id,
+       {_aliased_analysis_columns("cur")},
+       {_aliased_analysis_columns("lat")}
+  FROM tracks t
+  JOIN raw_imports i
+    ON i.sha256 = t.raw_import_sha256
+   AND i.active_processing_run_id = t.processing_run_id
+  JOIN track_classifications c ON c.track_id = t.id
+  LEFT JOIN track_classification_overrides o ON o.track_id = t.id
+  LEFT JOIN analysis_runs cur ON cur.id = t.current_analysis_run_id
+  LEFT JOIN analysis_runs lat ON lat.id = (
+      SELECT id FROM analysis_runs WHERE track_id = t.id ORDER BY id DESC LIMIT 1)
+ WHERE 1 = 1
+"""  # noqa: S608
+
+# A listing filters on the effective kind, which is the override where there is
+# one and the detected kind otherwise. Projected in SQL rather than compared in
+# Python, so that the filter, the count and the page all agree and a correction
+# moves a track between the sets with nothing recalculated.
+_EFFECTIVE_KIND = "coalesce(o.override_kind, c.detected_kind)"
+
+
+def _placeholders(values: Sequence[object]) -> str:
+    """Return one bind placeholder per value."""
+    return ",".join("?" * len(values))
+
+
+def _calendar_anchored() -> tuple[str, tuple[object, ...]]:
+    """Return the SQL that selects tracks whose timing may date them, and its values.
+
+    A projection of :func:`~gpx_view.domain.temporal_evidence.temporal_evidence_of`
+    reaching `OBSERVED`, in the same sense that ``_EFFECTIVE_KIND`` projects the
+    classification: the codes come from the domain, and the storage layer only
+    asks whether a track carries them.
+
+    It has to be a projection rather than a Python pass, because "which tracks
+    belong to this month" decides a *count* as well as a page, and a filter
+    applied after paging reports the wrong total.
+    """
+    codes = MEASUREMENT_EVIDENCE_CODES
+    sql = f"""
+        EXISTS (SELECT 1 FROM track_evidence ce
+                 WHERE ce.track_id = t.id AND ce.code = ?)
+    AND EXISTS (SELECT 1 FROM track_evidence me
+                 WHERE me.track_id = t.id AND me.code IN ({_placeholders(codes)}))
+    """  # noqa: S608
+    return sql, (EvidenceCode.TIMESTAMPS_PRESENT.value, *codes)
+
+
+def _readable_analysis() -> tuple[str, tuple[object, ...]]:
+    """Return the SQL that decides whether a stored analysis can be interpreted.
+
+    A projection of the rules the Python rebuild applies -- in exactly the sense
+    that ``_EFFECTIVE_KIND`` is a projection of ``TrackClassification``. Every
+    vocabulary it compares against is read from the domain enums that own it, so
+    the storage layer applies the rule without holding a second copy of what the
+    rule *is*: adding a quality flag or a unit changes the enum and this follows.
+
+    It exists because "invalid" has to be filterable and countable in the same
+    statement that pages the rows. Deciding it afterwards in Python would put a
+    correct verdict behind a wrong ``total``.
+    """
+    statuses = tuple(status.value for status in AnalysisStatus)
+    units = tuple(unit.value for unit in MetricUnit)
+    provenances = tuple(item.value for item in MetricProvenance)
+    names = tuple(name.value for name in MetricName)
+    signed = tuple(name.value for name in MetricName if name.may_be_negative)
+    flags = tuple(flag.value for flag in AnalysisQuality)
+    # Only bind placeholders are interpolated; every vocabulary value is bound.
+    sql = f"""
+        cur.status IN ({_placeholders(statuses)})
+    AND (cur.status <> ? OR cur.error_code IS NULL)
+    AND (cur.status <> ? OR coalesce(cur.error_code, '') <> '')
+    AND cur.analyzed_at IS NOT NULL
+    AND datetime(cur.analyzed_at) IS NOT NULL
+    AND cur.analyzed_at LIKE '%+00:00'
+    AND trim(coalesce(cur.distance_algorithm, '')) <> ''
+    AND trim(coalesce(cur.movement_algorithm, '')) <> ''
+    AND trim(coalesce(cur.elevation_algorithm, '')) <> ''
+    AND cur.distance_algorithm_version >= 1
+    AND cur.movement_algorithm_version >= 1
+    AND cur.elevation_algorithm_version >= 1
+    AND cur.metric_schema_version >= 1
+    AND NOT EXISTS (
+        SELECT 1 FROM track_metrics dm
+         WHERE dm.analysis_run_id = cur.id
+           AND dm.metric IN ({_placeholders(names)})
+           AND (typeof(dm.value) NOT IN ('integer', 'real')
+             OR NOT (dm.value > -1e308 AND dm.value < 1e308)
+             OR dm.unit NOT IN ({_placeholders(units)})
+             OR dm.provenance NOT IN ({_placeholders(provenances)})
+             OR (dm.value < 0 AND dm.metric NOT IN ({_placeholders(signed)}))))
+    AND NOT EXISTS (
+        SELECT 1 FROM analysis_quality_flags qf
+         WHERE qf.analysis_run_id = cur.id
+           AND qf.flag NOT IN ({_placeholders(flags)}))
+    """  # noqa: S608
+    values = (
+        *statuses,
+        AnalysisStatus.SUCCEEDED.value,
+        AnalysisStatus.FAILED.value,
+        *names,
+        *units,
+        *provenances,
+        *signed,
+        *flags,
+    )
+    return sql, values
+
+
+def _matches_installed_analysis(profile: AnalysisProfile | None) -> tuple[str, tuple[object, ...]]:
+    """Return the SQL that decides whether a stored analysis is the installed one.
+
+    The seven values come from the caller. The storage layer is allowed to
+    compare them; it is not allowed to know what they are, because then an
+    algorithm change would have to be made twice and the second place is the one
+    nobody remembers.
+
+    ``None`` means this build installs no analysis, and nothing can then be
+    current -- the same fail-closed answer
+    :func:`~gpx_view.domain.analysis.profile.is_analysis_profile_current` gives.
+    """
+    if profile is None:
+        return "0 = 1", ()
+    sql = """
+        cur.status = ?
+    AND cur.processing_run_id = t.processing_run_id
+    AND cur.distance_algorithm = ? AND cur.distance_algorithm_version = ?
+    AND cur.movement_algorithm = ? AND cur.movement_algorithm_version = ?
+    AND cur.elevation_algorithm = ? AND cur.elevation_algorithm_version = ?
+    AND cur.metric_schema_version = ?
+    """
+    values: tuple[object, ...] = (
+        AnalysisStatus.SUCCEEDED.value,
+        profile.distance_algorithm,
+        profile.distance_algorithm_version,
+        profile.movement_algorithm,
+        profile.movement_algorithm_version,
+        profile.elevation_algorithm,
+        profile.elevation_algorithm_version,
+        profile.metric_schema_version,
+    )
+    return sql, values
+
+
+def _availability(profile: AnalysisProfile | None) -> tuple[str, tuple[object, ...]]:
+    """Return the SQL that classifies one row's stored analysis, and its values.
+
+    ```
+    no current run             -> missing
+    a run that cannot be read  -> invalid
+    a run from other rules     -> outdated
+    otherwise                  -> current
+    ```
+
+    The same four states, in the same order of precedence, as
+    :meth:`gpx_view.application.analysis.InstalledAnalysis.availability`. Damage
+    is checked before currency deliberately: a run whose profile is *also*
+    unreadable is damage rather than an old algorithm, and telling somebody to
+    re-run an analysis is a different instruction from telling them a row is
+    broken.
+    """
+    readable, readable_values = _readable_analysis()
+    current, current_values = _matches_installed_analysis(profile)
+    sql = (
+        "CASE WHEN t.current_analysis_run_id IS NULL THEN ?"
+        f" WHEN NOT ({readable}) THEN ?"
+        f" WHEN {current} THEN ? ELSE ? END"
+    )
+    values = (
+        AnalysisAvailability.MISSING.value,
+        *readable_values,
+        AnalysisAvailability.INVALID.value,
+        *current_values,
+        AnalysisAvailability.CURRENT.value,
+        AnalysisAvailability.OUTDATED.value,
+    )
+    return sql, values
+
+
+def _summary_statement(profile: AnalysisProfile | None) -> tuple[str, tuple[object, ...]]:
+    """Return the statement that reads track summaries, and the values it binds."""
+    availability, values = _availability(profile)
+    return (
+        f"{_SUMMARY_COLUMNS}, {availability} AS analysis_availability{_CURRENT_GENERATION}",
+        values,
+    )
+
+
+def _count_statement(query: TrackQuery) -> tuple[str, tuple[object, ...]]:
+    """Return the statement counting what a listing's filter selected."""
+    restriction, values = _listing_restriction(query)
+    return f"SELECT count(*){_CURRENT_GENERATION} WHERE 1 = 1{restriction}", values
+
+
+def _page_statement(query: TrackQuery) -> tuple[str, tuple[object, ...]]:
+    """Return the statement that reads one page of a listing, and its values.
+
+    Assembled rather than concatenated from constants because the availability
+    projection carries bound values, and those have to arrive in the order the
+    fragments do. Only this module's own fragments reach the statement text.
+    """
+    text, values = _summary_statement(query.installed_analysis)
+    bound = list(values)
+    if query.order is TrackOrder.LONGEST_FIRST:
+        # The distance is joined only where the analysis is current, so the
+        # ordering compares lengths this build would derive today. A stale
+        # 20 km is what the track measured under algorithms that have been
+        # corrected since, and sorting by it answers a question nobody asked.
+        readable, readable_values = _readable_analysis()
+        matches, matches_values = _matches_installed_analysis(query.installed_analysis)
+        text += f"{_DISTANCE_JOIN}   AND ({readable})\n   AND ({matches})\n"
+        bound += [MetricName.DISTANCE.value, *readable_values, *matches_values]
+    restriction, restriction_values = _listing_restriction(query)
+    bound += restriction_values
+    text += " WHERE 1 = 1" + restriction + _LISTING_ORDER[query.order] + " LIMIT ? OFFSET ?"
+    return text, tuple(bound)
+
+
+# Every ordering ends in the track identity. Two rows that compare equal on the
+# sort key would otherwise come back in an arbitrary order, and a row that moves
+# between two pages is a row the reader sees twice or not at all.
+#
+# `started_at IS NULL` first in the chronological orderings sorts the undated
+# tracks last in *both* directions. Letting NULL fall where SQLite puts it would
+# make a planned route look like the oldest thing in the archive.
+_LISTING_ORDER = {
+    TrackOrder.IMPORTED_NEWEST_FIRST: (
+        " ORDER BY i.received_at DESC, t.source_index ASC, t.id ASC"
+    ),
+    TrackOrder.ACTIVITY_NEWEST_FIRST: (
+        " ORDER BY t.started_at IS NULL, t.started_at DESC, t.id ASC"
+    ),
+    TrackOrder.ACTIVITY_OLDEST_FIRST: (
+        " ORDER BY t.started_at IS NULL, t.started_at ASC, t.id ASC"
+    ),
+    TrackOrder.LONGEST_FIRST: (" ORDER BY m.value IS NULL, m.value DESC, t.id ASC"),
+}
+
+
+def _listing_restriction(query: TrackQuery) -> tuple[str, tuple[object, ...]]:
+    """Return the SQL restriction one listing query asks for, and its values.
+
+    Only this module's own fragments reach the statement text. Every value the
+    caller supplied is bound.
+
+    The analysis-status filter belongs here rather than to a pass over the page,
+    so that the count and the rows are restricted by one statement. Filtering
+    afterwards would page first and hide second, which is a page of the wrong
+    size under a total of the wrong number.
+    """
+    clauses: list[str] = []
+    values: list[object] = []
+    if query.effective_kind is not None:
+        clauses.append(f" AND {_EFFECTIVE_KIND} = ?")
+        values.append(query.effective_kind.value)
+    if query.activity is not None:
+        clauses.append(" AND t.activity = ?")
+        values.append(query.activity.value)
+    if query.started_at_or_after is not None:
+        clauses.append(" AND t.started_at >= ?")
+        values.append(_as_text(query.started_at_or_after))
+    if query.started_before is not None:
+        clauses.append(" AND t.started_at < ?")
+        values.append(_as_text(query.started_before))
+    if query.analysis_status is not None:
+        availability, availability_values = _availability(query.installed_analysis)
+        clauses.append(f" AND ({availability}) = ?")
+        values.extend(availability_values)
+        values.append(query.analysis_status.value)
+    if query.calendar_anchored:
+        anchored, anchor_values = _calendar_anchored()
+        clauses.append(f" AND ({anchored})")
+        values.extend(anchor_values)
+    return "".join(clauses), tuple(values)
+
+
+_PARAMETER_BATCH = 500
+"""How many run identities go into one ``IN`` clause.
+
+SQLite bounds the number of bound parameters per statement, and an archive with
+a very busy year would otherwise walk into that limit at the worst moment.
+"""
+
+
+def _metrics_for_runs(
+    connection: sqlite3.Connection, run_ids: Sequence[int]
+) -> tuple[dict[int, dict[MetricName, MetricValue]], set[int]]:
+    """Return the metrics of many analysis runs, in batched queries.
+
+    One query per track would make a yearly total a few hundred round trips
+    through the driver for data that fits in one result set.
+
+    A run holding a value it could not have produced is left out entirely, on
+    the same reasoning as the single-run reader, and named in the second return
+    value so that a caller can tell "this run is damaged" from "this run has not
+    been written yet".
+    """
+    metrics: dict[int, dict[MetricName, MetricValue]] = {}
+    unreadable: set[int] = set()
+    for start in range(0, len(run_ids), _PARAMETER_BATCH):
+        batch = run_ids[start : start + _PARAMETER_BATCH]
+        placeholders = ",".join("?" * len(batch))
+        rows = connection.execute(
+            "SELECT analysis_run_id, metric, value, unit, provenance FROM track_metrics "  # noqa: S608
+            f"WHERE analysis_run_id IN ({placeholders})",
+            tuple(batch),
+        ).fetchall()
+        for row in rows:
+            run_id = int(row["analysis_run_id"])
+            try:
+                name = MetricName(row["metric"])
+            except ValueError:
+                continue
+            try:
+                metrics.setdefault(run_id, {})[name] = _metric_value(name, row)
+            except (ValueError, TypeError):
+                logger.warning("analysis.unreadable_metric run=%d", run_id)
+                unreadable.add(run_id)
+    for run_id in unreadable:
+        metrics.pop(run_id, None)
+    return metrics, unreadable
+
+
+def _runs_with_unreadable_quality(
+    connection: sqlite3.Connection, run_ids: Sequence[int]
+) -> set[int]:
+    """Return the runs carrying a quality flag this build cannot name."""
+    unreadable: set[int] = set()
+    known = {flag.value for flag in AnalysisQuality}
+    for start in range(0, len(run_ids), _PARAMETER_BATCH):
+        batch = run_ids[start : start + _PARAMETER_BATCH]
+        placeholders = ",".join("?" * len(batch))
+        rows = connection.execute(
+            "SELECT analysis_run_id, flag FROM analysis_quality_flags "  # noqa: S608
+            f"WHERE analysis_run_id IN ({placeholders})",
+            tuple(batch),
+        ).fetchall()
+        unreadable.update(
+            int(row["analysis_run_id"]) for row in rows if str(row["flag"]) not in known
+        )
+    return unreadable
+
+
+def _unreadable_runs(connection: sqlite3.Connection, run_ids: Sequence[int]) -> set[int]:
+    """Return the runs whose stored output this build cannot interpret.
+
+    Currency has to account for this, not just the presentation. A run whose
+    metrics are unreadable is one ``analyze --outdated`` must pick up, and it
+    only does that if the authority it asks already knows the run is unusable --
+    otherwise the archive reports damage it never offers to repair.
+
+    Two batched queries whatever the number of runs, so a diagnostics view over
+    a large archive stays a constant number of round trips.
+    """
+    if not run_ids:
+        return set()
+    _, unreadable = _metrics_for_runs(connection, run_ids)
+    return unreadable | _runs_with_unreadable_quality(connection, run_ids)
 
 
 def _grouped(
@@ -680,10 +1573,18 @@ def _summary_from(
     evidence: dict[int, tuple[str, ...]],
     links: dict[int, tuple[str, ...]],
     namespaces: dict[int, tuple[str, ...]],
+    metrics: dict[int, dict[MetricName, MetricValue]],
 ) -> TrackSummary:
-    """Rebuild a track summary from its row and its side tables."""
+    """Rebuild a track summary from its row and its side tables.
+
+    Metrics reach the summary only while the analysis they came from is current.
+    A stale or damaged value is not what the track *is*, and a listing row reads
+    as a statement about the track rather than about its analysis history.
+    """
     track_id = int(row["id"])
     override = row["override_kind"]
+    analysis_run_id = row["current_analysis_run_id"]
+    availability = AnalysisAvailability(row["analysis_availability"])
     return TrackSummary(
         track_id=track_id,
         raw_import_sha256=str(row["raw_import_sha256"]),
@@ -711,6 +1612,12 @@ def _summary_from(
             creator=row["creator"],
             external_links=links.get(track_id, ()),
             extension_namespaces=namespaces.get(track_id, ()),
+        ),
+        analysis=availability,
+        metrics=(
+            metrics.get(int(analysis_run_id), {})
+            if availability is AnalysisAvailability.CURRENT and analysis_run_id is not None
+            else {}
         ),
     )
 

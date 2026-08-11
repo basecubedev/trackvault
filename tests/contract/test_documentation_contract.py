@@ -29,6 +29,12 @@ ARCHITECTURE_ANCHORS = (
     "immutable source evidence",
     "projection only",
     "single source of truth",
+    "track analysis",
+    "analysis currency",
+    "aggregation timezone",
+    "only current analyses are totalled",
+    "a timestamp is not a measurement",
+    "stored analysis is untrusted input",
     "deliberately deferred",
 )
 
@@ -49,6 +55,16 @@ CONTRACTS_ANCHORS = (
     "semantically different output must not claim the same version",
     "a known database record does not prove its managed raw artifact is healthy",
     "an unknown namespace is metadata, not semantic authority",
+    "derived metrics are rebuildable and never source authority",
+    "analysis semantics require an explicit version bump",
+    "silence is not a rest",
+    "missing metrics are not zero metrics",
+    "activity date must not be inferred from import time",
+    "actual and planned aggregates must never be conflated",
+    "timestamp presence is not observed movement",
+    "analysis derives everything; eligibility is decided separately",
+    "persisted derived state is validated before it is interpreted",
+    "default statistics never mix analysis profile versions",
 )
 
 
@@ -95,7 +111,15 @@ def test_deferred_decisions_are_named_rather_than_implemented(deferred: str) -> 
 @pytest.mark.contract
 @pytest.mark.parametrize(
     "anchor",
-    ["gpx 1.1 and gpx 1.0", "import port", "persistence", "managed raw storage", "input paths"],
+    [
+        "gpx 1.1 and gpx 1.0",
+        "import port",
+        "persistence",
+        "managed raw storage",
+        "input paths",
+        "analysis versioning",
+        "what is calculated",
+    ],
 )
 def test_the_architecture_documents_the_implemented_pipeline(anchor: str) -> None:
     """What was built is described where the boundaries are described."""

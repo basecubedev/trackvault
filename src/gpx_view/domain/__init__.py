@@ -25,10 +25,19 @@ from gpx_view.domain.processing import (
 )
 from gpx_view.domain.raw_import import InputChannel, RawImport
 from gpx_view.domain.source_metadata import SourceMetadata
+from gpx_view.domain.temporal_evidence import (
+    MEASUREMENT_EVIDENCE_CODES,
+    TemporalEvidence,
+    supports_actual_calendar_placement,
+    supports_actual_metrics,
+    supports_actual_timing,
+    temporal_evidence_of,
+)
 from gpx_view.domain.track import ImportedTrack, NormalizedTrack
 from gpx_view.domain.track_kind import TrackKind
 
 __all__ = [
+    "MEASUREMENT_EVIDENCE_CODES",
     "NORMALIZATION_SCHEMA_VERSION",
     "Activity",
     "ClassificationResult",
@@ -42,6 +51,7 @@ __all__ = [
     "ProcessingStatus",
     "RawImport",
     "SourceMetadata",
+    "TemporalEvidence",
     "TrackClassification",
     "TrackKind",
     "TrackPoint",
@@ -49,4 +59,8 @@ __all__ = [
     "classify",
     "in_canonical_order",
     "is_processing_current",
+    "supports_actual_calendar_placement",
+    "supports_actual_metrics",
+    "supports_actual_timing",
+    "temporal_evidence_of",
 ]

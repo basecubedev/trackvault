@@ -41,6 +41,9 @@ class ImportErrorCode(StrEnum):
             evidence.
         PERSISTENCE_FAILED: The normalized result could not be stored.
         TRACK_NOT_FOUND: The requested track does not exist.
+        ANALYSIS_FAILED: Metrics could not be derived from a track's geometry.
+            The track itself is unaffected: it keeps its geometry and whatever
+            metrics an earlier run had already produced.
     """
 
     UNSUPPORTED_FORMAT = "unsupported_format"
@@ -57,6 +60,7 @@ class ImportErrorCode(StrEnum):
     RAW_STORAGE_CORRUPT = "raw_storage_corrupt"
     PERSISTENCE_FAILED = "persistence_failed"
     TRACK_NOT_FOUND = "track_not_found"
+    ANALYSIS_FAILED = "analysis_failed"
 
 
 class TrackImportError(Exception):

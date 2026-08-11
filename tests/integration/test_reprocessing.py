@@ -13,6 +13,7 @@ import pytest
 
 from gpx_view.application import ImportErrorCode
 from gpx_view.application.import_tracks import ImportRequest
+from gpx_view.application.ports import TrackQuery
 from gpx_view.application.reprocess import ReprocessStatus
 from gpx_view.cli import EXIT_FAILED, EXIT_OK, main
 from gpx_view.config import Settings
@@ -87,11 +88,11 @@ def test_reprocessing_keeps_the_source_byte_identical(services: TrackServices) -
 def test_reprocessing_keeps_the_candidate_identity(services: TrackServices) -> None:
     """The same source describes the same candidates, whoever reads it."""
     sha256 = _import(services, "multiple-tracks.gpx")
-    before = [track.source_key for track in services.store.list_tracks()]
+    before = [track.source_key for track in services.store.list_tracks(TrackQuery()).tracks]
 
     services.reprocess(sha256)
 
-    assert [track.source_key for track in services.store.list_tracks()] == before
+    assert [track.source_key for track in services.store.list_tracks(TrackQuery()).tracks] == before
 
 
 def test_a_user_correction_survives_reprocessing(services: TrackServices) -> None:
@@ -102,7 +103,7 @@ def test_a_user_correction_survives_reprocessing(services: TrackServices) -> Non
 
     services.reprocess(sha256)
 
-    (summary,) = services.store.list_tracks()
+    (summary,) = services.store.list_tracks(TrackQuery()).tracks
     assert summary.detected_kind is TrackKind.RECORDED
     assert summary.effective_kind is TrackKind.PLANNED
     assert summary.classification.is_overridden
@@ -128,14 +129,14 @@ def test_a_corrupt_raw_artifact_never_becomes_a_new_generation(
     derived from it.
     """
     sha256 = _import(services, "recorded-measurements.gpx")
-    before = services.store.list_tracks()
+    before = services.store.list_tracks(TrackQuery()).tracks
     services.raw_store.path_for(sha256).write_bytes(b"<gpx>not what this hash names</gpx>")
 
     outcome = services.reprocess(sha256)
 
     assert outcome.status is ReprocessStatus.FAILED
     assert outcome.error_code is ImportErrorCode.RAW_STORAGE_CORRUPT
-    assert services.store.list_tracks() == before
+    assert services.store.list_tracks(TrackQuery()).tracks == before
 
 
 def test_a_source_that_could_not_be_read_can_be_reprocessed_later(
@@ -148,7 +149,7 @@ def test_a_source_that_could_not_be_read_can_be_reprocessed_later(
     reprocessing is where the second one is acted on.
     """
     sha256 = _import(services, "not-gpx.xml")
-    assert services.store.list_tracks() == ()
+    assert services.store.list_tracks(TrackQuery()).tracks == ()
 
     duplicate = services.import_tracks(ImportRequest(content=_content("not-gpx.xml")))
     outcome = services.reprocess(sha256)

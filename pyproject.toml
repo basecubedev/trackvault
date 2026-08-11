@@ -90,6 +90,8 @@ markers = [
     "persistence: exercises the SQLite store or the raw import storage",
     "storage: exercises the managed raw import storage authority",
     "reprocessing: exercises reprocessing and the current normalized generation",
+    "analysis: exercises the track analysis algorithms and their versioning",
+    "statistics: exercises actual/planned aggregation and the statistics queries",
     "local_tracks: requires private local reference files under ./import-tracks (opt-in)",
 ]
 

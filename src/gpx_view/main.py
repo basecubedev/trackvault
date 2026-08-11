@@ -11,7 +11,10 @@ from fastapi import FastAPI
 
 from gpx_view import __version__
 from gpx_view.api.health import router as health_router
+from gpx_view.api.statistics import router as statistics_router
 from gpx_view.api.tracks import router as tracks_router
+from gpx_view.application.analysis import GetTrackAnalysis
+from gpx_view.application.statistics import GetMonthlyStatistics, GetYearStatistics
 from gpx_view.application.track_queries import TrackQueries
 from gpx_view.config import Settings, get_settings
 from gpx_view.infrastructure.assembly import build_services
@@ -37,7 +40,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         """Bring storage up to the current schema before serving requests."""
         services.prepare_storage()
-        app.state.track_queries = TrackQueries(services.store, SystemClock())
+        app.state.track_queries = TrackQueries(
+            services.store,
+            SystemClock(),
+            services.settings.timezone,
+            # The same currency authority the analysis resource and the totals
+            # ask, so a listing row cannot call current what a detail view calls
+            # stale.
+            services.analyze.installed,
+        )
+        app.state.track_analysis = GetTrackAnalysis(
+            repository=services.store,
+            # The same authority the command line and the batch selection use,
+            # so a track the API calls current is one `analyze --outdated`
+            # leaves alone.
+            analysis=services.analyze.installed,
+        )
+        # Statistics leave out exactly what `analyze --outdated` picks up,
+        # because both ask this one object. Two authorities would let a
+        # total quietly include what a batch run considers stale.
+        app.state.year_statistics = GetYearStatistics(
+            repository=services.store,
+            timezone=services.settings.timezone,
+            analysis=services.analyze.installed,
+        )
+        app.state.monthly_statistics = GetMonthlyStatistics(
+            repository=services.store,
+            timezone=services.settings.timezone,
+            analysis=services.analyze.installed,
+        )
         yield
 
     app = FastAPI(
@@ -49,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.services = services
     app.include_router(health_router)
     app.include_router(tracks_router)
+    app.include_router(statistics_router)
     return app
 
 

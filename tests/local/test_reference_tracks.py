@@ -27,6 +27,7 @@ vocabulary.
 """
 
 import hashlib
+import math
 import stat
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -36,9 +37,12 @@ from pathlib import Path
 import pytest
 
 from gpx_view.application import ImportLimits
+from gpx_view.application.analysis import InstalledAnalysis
+from gpx_view.application.analyze import AnalyzeStatus
 from gpx_view.application.import_tracks import ImportRequest, ImportStatus
-from gpx_view.application.ports import RawArtifactState, TrackSummary
+from gpx_view.application.ports import RawArtifactState, TrackQuery, TrackSummary
 from gpx_view.application.reprocess import ReprocessStatus
+from gpx_view.application.statistics import AggregationScope, GetYearStatistics
 from gpx_view.config import Settings
 from gpx_view.domain import (
     Activity,
@@ -48,11 +52,15 @@ from gpx_view.domain import (
     ProcessingRun,
     ProcessingStatus,
     SourceMetadata,
+    TemporalEvidence,
     TrackClassification,
     TrackKind,
     TrackPoint,
     TrackSegment,
+    supports_actual_calendar_placement,
+    supports_actual_timing,
 )
+from gpx_view.domain.analysis import MetricName
 from gpx_view.infrastructure.assembly import (
     TrackServices,
     build_services,
@@ -511,3 +519,370 @@ def test_reading_a_real_reference_never_writes_near_it(
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before_bytes
     assert path.stat().st_mtime_ns == before_mtime
     assert sorted(entry.name for entry in LOCAL_TRACKS.iterdir()) == before_listing
+
+
+# --- Analysis against real data ---------------------------------------------
+
+
+def test_the_recorded_reference_analyses_to_plausible_values(archive: TrackServices) -> None:
+    """A real recording produces every metric its data can support.
+
+    Bounds rather than snapshots. Pinning a private file's exact distance would
+    turn one person's walk into the project's specification, and the first
+    justified algorithm change would then look like a regression. What is
+    checked is that the numbers are of the right order and internally
+    consistent -- which is what would actually break if an algorithm went wrong.
+    """
+    _, (track_id,) = _import(archive, _path(RECORDED))
+
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+    metrics = stored.metrics
+
+    distance = metrics[MetricName.DISTANCE].value
+    elapsed = metrics[MetricName.ELAPSED_DURATION].value
+    moving = metrics[MetricName.MOVING_DURATION].value
+    stopped = metrics[MetricName.STOPPED_DURATION].value
+    unobserved = metrics[MetricName.UNOBSERVED_GAP_DURATION].value
+
+    # A day walk, not a marathon and not a stroll round the block.
+    assert 1_000.0 < distance < 100_000.0
+    assert 600.0 < elapsed < 24 * 3600.0
+    assert moving + stopped + unobserved <= elapsed + 1.0
+    assert moving > 0.0
+
+
+def test_the_recorded_reference_keeps_its_speeds_believable(archive: TrackServices) -> None:
+    """A real receiver produces bad fixes, and none of them may become a headline.
+
+    This is the outlier strategy meeting the data it exists for. A single jump
+    in a real recording would show up here as a maximum speed no walker reaches.
+    """
+    _, (track_id,) = _import(archive, _path(RECORDED))
+
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+    maximum = stored.metrics[MetricName.MAXIMUM_SPEED].value
+    moving_average = stored.metrics[MetricName.MOVING_AVERAGE_SPEED].value
+
+    assert 0.0 < moving_average < 4.0
+    assert moving_average <= maximum
+    assert maximum < 15.0
+
+
+def test_the_recorded_reference_reports_filtered_elevation(archive: TrackServices) -> None:
+    """Real phone elevation is noisy, and the filter has to survive it.
+
+    The check that matters is the relationship: ascent derived from a filtered
+    profile cannot plausibly dwarf the raw range it was derived from. An
+    unfiltered sum over real data would.
+    """
+    _, (track_id,) = _import(archive, _path(RECORDED))
+
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+    metrics = stored.metrics
+
+    lowest = metrics[MetricName.ELEVATION_MINIMUM].value
+    highest = metrics[MetricName.ELEVATION_MAXIMUM].value
+    gain = metrics[MetricName.ELEVATION_GAIN].value
+
+    assert highest > lowest
+    assert gain >= highest - lowest
+    assert gain < 5.0 * (highest - lowest)
+
+
+def test_the_planned_reference_is_measurable_without_being_an_activity(
+    archive: TrackServices,
+) -> None:
+    """The real planned route carries timestamps, and they prove nothing.
+
+    This is the contract that "timestamps present does not prove `RECORDED`"
+    exists for, and the real file is what makes it concrete: a planner wrote
+    times into it, so the analysis derives durations and speeds from them
+    exactly as it would for a recording. Those numbers are real arithmetic over
+    the data present -- and the archive still does not claim anybody walked it.
+
+    The separation is therefore not made by withholding metrics. It is made by
+    the effective kind, which decides which totals a track reaches. Suppressing
+    the metrics instead would be the classifier deciding twice, in a place that
+    has no evidence to decide with.
+    """
+    _, (track_id,) = _import(archive, _path(PLANNED))
+
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+    (summary,) = [
+        candidate
+        for candidate in archive.store.list_tracks(TrackQuery()).tracks
+        if candidate.track_id == track_id
+    ]
+
+    assert stored.metrics[MetricName.DISTANCE].value > 1_000.0
+    assert MetricName.ELEVATION_GAIN in stored.metrics
+    assert summary.effective_kind is not TrackKind.RECORDED
+    assert not summary.classification.contributes_to_actual_totals
+
+
+def test_a_real_import_is_analysed_immediately(archive: TrackServices) -> None:
+    """Importing a real file leaves nothing for the batch selection to find."""
+    _import(archive, _path(RECORDED))
+
+    assert archive.analyze.outdated_tracks() == ()
+
+
+def test_the_planned_reference_stays_out_of_the_actual_totals(
+    archive: TrackServices,
+) -> None:
+    """The whole point, on real data: a planned route is not a walk you did."""
+    _import(archive, _path(RECORDED))
+    _import(archive, _path(PLANNED))
+
+    statistics = GetYearStatistics(
+        repository=archive.store, timezone="UTC", analysis=InstalledAnalysis()
+    )
+    actual = statistics(2025, scope=AggregationScope.RECORDED)
+    (recorded_summary,) = [
+        summary
+        for summary in archive.store.list_tracks(TrackQuery()).tracks
+        if summary.effective_kind is TrackKind.RECORDED
+    ]
+    stored = archive.store.current_analysis(recorded_summary.track_id)
+
+    assert stored is not None
+    assert actual.totals.track_count == 1
+    assert actual.totals.distance_m == pytest.approx(stored.metrics[MetricName.DISTANCE].value)
+
+
+def test_reanalysing_a_real_track_reproduces_its_numbers(archive: TrackServices) -> None:
+    """Derived state is rebuildable, and a rebuild must agree with what it replaces."""
+    _, (track_id,) = _import(archive, _path(RECORDED))
+    before = archive.store.current_analysis(track_id)
+
+    assert archive.analyze(track_id).status is AnalyzeStatus.ANALYZED
+
+    after = archive.store.current_analysis(track_id)
+    assert before is not None
+    assert after is not None
+    assert after.metrics == before.metrics
+
+
+def test_a_real_analysis_survives_reprocessing(archive: TrackServices) -> None:
+    """A regeneration brings its metrics along rather than leaving them stale."""
+    sha256, (track_id,) = _import(archive, _path(RECORDED))
+    before = archive.store.current_analysis(track_id)
+
+    assert archive.reprocess(sha256).status is ReprocessStatus.REPROCESSED
+
+    assert archive.analyze.outdated_tracks() == ()
+    after = archive.store.current_analysis(track_id)
+    assert before is not None
+    assert after is not None
+    assert after.metrics == before.metrics
+
+
+# --- Independent cross-check against the real files --------------------------
+
+
+def _independent_distance(segments: tuple[TrackSegment, ...]) -> float:
+    """Sum a track's length with a formula the production code does not use.
+
+    The spherical law of cosines on the same sphere. Deliberately not haversine:
+    calling the production function again would prove only that it is
+    deterministic. Two different formulas agreeing to a fraction of a percent is
+    evidence that the number means what it says.
+    """
+    radius = 6_371_008.8
+    total = 0.0
+    for segment in segments:
+        for start, end in zip(segment.points, segment.points[1:], strict=False):
+            first = math.radians(start.latitude)
+            second = math.radians(end.latitude)
+            delta = math.radians(end.longitude - start.longitude)
+            cosine = math.sin(first) * math.sin(second) + math.cos(first) * math.cos(
+                second
+            ) * math.cos(delta)
+            total += radius * math.acos(max(-1.0, min(1.0, cosine)))
+    return total
+
+
+def _independent_elapsed(segments: tuple[TrackSegment, ...]) -> float:
+    """Return the raw span between the first and last instant the file carries."""
+    instants = [point.time for segment in segments for point in segment.points if point.time]
+    return (instants[-1] - instants[0]).total_seconds()
+
+
+@pytest.fixture(params=REFERENCES, ids=lambda reference: reference.filename[:24])
+def analysed(request: pytest.FixtureRequest, archive: TrackServices) -> tuple[int, TrackServices]:
+    """Import one reference and return its track identity."""
+    assert isinstance(request.param, Reference)
+    _, (track_id,) = _import(archive, _path(request.param))
+    return track_id, archive
+
+
+def test_the_production_distance_matches_an_independent_calculation(
+    analysed: tuple[int, TrackServices],
+) -> None:
+    """Two formulas, one answer, within the tolerance a sphere allows."""
+    track_id, archive = analysed
+    segments = archive.store.get_geometry(track_id)
+    assert segments is not None
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+
+    assert stored.metrics[MetricName.DISTANCE].value == pytest.approx(
+        _independent_distance(segments), rel=0.001
+    )
+
+
+def test_the_production_elapsed_span_matches_the_raw_timestamps(
+    analysed: tuple[int, TrackServices],
+) -> None:
+    """The elapsed duration is first observation to last, and nothing cleverer."""
+    track_id, archive = analysed
+    segments = archive.store.get_geometry(track_id)
+    assert segments is not None
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+
+    assert stored.metrics[MetricName.ELAPSED_DURATION].value == pytest.approx(
+        _independent_elapsed(segments)
+    )
+
+
+def test_a_real_tracks_time_is_fully_attributed(analysed: tuple[int, TrackServices]) -> None:
+    """The four durations add up to the elapsed one, on real data.
+
+    Synthetic fixtures can be built to add up. A real recording with dropouts,
+    duplicated instants and a receiver that lost its fix is where an attribution
+    rule actually leaks.
+    """
+    track_id, archive = analysed
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+    metrics = stored.metrics
+
+    attributed = sum(
+        metrics[name].value
+        for name in (
+            MetricName.MOVING_DURATION,
+            MetricName.STOPPED_DURATION,
+            MetricName.UNOBSERVED_GAP_DURATION,
+            MetricName.UNATTRIBUTED_DURATION,
+        )
+    )
+    assert attributed == pytest.approx(metrics[MetricName.ELAPSED_DURATION].value)
+
+
+def test_the_recorded_reference_gains_roughly_what_it_loses(archive: TrackServices) -> None:
+    """The real recording is a round tour, so it ends where it started.
+
+    Not exactly -- a receiver's first and last altitude differ by metres -- but
+    an ascent and a descent that disagree by a third would mean the filter is
+    direction-dependent.
+    """
+    _, (track_id,) = _import(archive, _path(RECORDED))
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+
+    gain = stored.metrics[MetricName.ELEVATION_GAIN].value
+    loss = stored.metrics[MetricName.ELEVATION_LOSS].value
+    assert gain == pytest.approx(loss, rel=0.1)
+
+
+def test_the_recorded_reference_earns_observed_timing(archive: TrackServices) -> None:
+    """A real receiver wrote quality values, so its instants are observations."""
+    _, (track_id,) = _import(archive, _path(RECORDED))
+    summary = archive.store.get_track(track_id)
+    assert summary is not None
+
+    assert summary.temporal_evidence is TemporalEvidence.OBSERVED
+    assert supports_actual_timing(summary.effective_kind, summary.temporal_evidence)
+
+
+def test_the_planned_reference_never_claims_observed_timing(archive: TrackServices) -> None:
+    """The most important assertion in this file.
+
+    The real planned route carries 391 positions with plausible timestamps and
+    no measurement metadata whatsoever. The analysis derives durations and
+    speeds from those instants, because they are real arithmetic over the data
+    present -- and nothing in the archive may call the result observed movement.
+    """
+    _, (track_id,) = _import(archive, _path(PLANNED))
+    summary = archive.store.get_track(track_id)
+    assert summary is not None
+    stored = archive.store.current_analysis(track_id)
+    assert stored is not None
+
+    assert summary.temporal_evidence is not TemporalEvidence.OBSERVED
+    assert not supports_actual_timing(summary.effective_kind, summary.temporal_evidence)
+    assert stored.metrics[MetricName.MOVING_DURATION].value > 0.0, (
+        "the arithmetic is not withheld; only the claim about it is"
+    )
+
+
+def test_the_planned_reference_contributes_to_no_actual_or_planned_total(
+    archive: TrackServices,
+) -> None:
+    """`UNKNOWN` is a third set, not a weaker form of either other one."""
+    _, (track_id,) = _import(archive, _path(PLANNED))
+    summary = archive.store.get_track(track_id)
+    assert summary is not None
+    if summary.effective_kind is not TrackKind.UNKNOWN:
+        pytest.skip("the classifier reached a verdict; this checks the unknown case")
+
+    statistics = GetYearStatistics(
+        repository=archive.store, timezone="UTC", analysis=InstalledAnalysis()
+    )
+    for scope in (AggregationScope.RECORDED, AggregationScope.PLANNED):
+        year = statistics(2025, scope=scope)
+        assert year.totals.track_count == 0, scope
+        assert year.unplaced.without_date.track_count == 0, scope
+        assert year.unplaced.with_unverified_date.track_count == 0, scope
+
+
+def test_the_planned_reference_is_not_placed_in_a_calendar_month(
+    archive: TrackServices,
+) -> None:
+    """Its first position carries an October instant. That is not a date.
+
+    The file states a plausible time and nothing in it shows anything was
+    measuring, so the archive may show the timeline and may not use it to say
+    the route happened in October. It belongs to no month, and its distance
+    belongs to no monthly total.
+    """
+    _, (track_id,) = _import(archive, _path(PLANNED))
+    summary = archive.store.get_track(track_id)
+    assert summary is not None
+    assert summary.started_at is not None, "the timeline itself is present"
+    assert not supports_actual_calendar_placement(summary.temporal_evidence)
+
+    statistics = GetYearStatistics(
+        repository=archive.store, timezone="UTC", analysis=InstalledAnalysis()
+    )
+    year = statistics(summary.started_at.year, scope=AggregationScope.UNKNOWN)
+
+    if summary.effective_kind is TrackKind.UNKNOWN:
+        assert year.totals.track_count == 0
+        assert year.unplaced.with_unverified_date.track_count == 1
+        assert year.unplaced.with_unverified_date.distance_m is not None
+
+
+def test_a_kind_override_never_dates_the_planned_reference(archive: TrackServices) -> None:
+    """Saying "this was recorded" does not say "this clock was measured"."""
+    _, (track_id,) = _import(archive, _path(PLANNED))
+    assert archive.store.set_override(
+        track_id, TrackKind.RECORDED, datetime(2026, 8, 9, tzinfo=UTC)
+    )
+    summary = archive.store.get_track(track_id)
+    assert summary is not None
+    assert summary.effective_kind is TrackKind.RECORDED
+
+    statistics = GetYearStatistics(
+        repository=archive.store, timezone="UTC", analysis=InstalledAnalysis()
+    )
+    assert summary.started_at is not None
+    year = statistics(summary.started_at.year, scope=AggregationScope.RECORDED)
+
+    assert year.totals.track_count == 0, "an override placed an unverified date in a year"
+    assert year.unplaced.with_unverified_date.track_count == 1

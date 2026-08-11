@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from gpx_view.application.analyze import AnalyzeOutcome, AnalyzeStatus
 from gpx_view.application.import_tracks import ImportOutcome, ImportRequest, ImportStatus
 from gpx_view.application.reprocess import ReprocessOutcome, ReprocessStatus
 from gpx_view.config import Settings, get_settings
@@ -60,6 +61,24 @@ def _parser() -> argparse.ArgumentParser:
         "--outdated",
         action="store_true",
         help="reprocess every source the installed processing outdates",
+    )
+
+    analyze_command = commands.add_parser(
+        "analyze",
+        help="derive the metrics of tracks the archive already holds",
+    )
+    analyze_selection = analyze_command.add_mutually_exclusive_group(required=True)
+    analyze_selection.add_argument("track_id", nargs="?", type=int, help="identity of a track")
+    analyze_selection.add_argument(
+        "--outdated",
+        action="store_true",
+        help="analyse every track whose metrics the installed analysis outdates",
+    )
+    analyze_selection.add_argument(
+        "--all",
+        action="store_true",
+        dest="every",
+        help="analyse every current track, whatever its metrics currently say",
     )
 
     status_command = commands.add_parser(
@@ -186,6 +205,42 @@ def _reprocess(
     )
 
 
+def _report_analyzed(outcomes: Sequence[AnalyzeOutcome]) -> int:
+    """Print what each analysis attempt did, and return the exit code."""
+    if not outcomes:
+        sys.stdout.write("nothing to analyze\n")
+        return EXIT_OK
+    failed = 0
+    for outcome in outcomes:
+        detail = f" {outcome.error_code.value}" if outcome.error_code else ""
+        sys.stdout.write(f"{outcome.status.value:<13} track={outcome.track_id}{detail}\n")
+        failed += outcome.status is not AnalyzeStatus.ANALYZED
+    return EXIT_FAILED if failed else EXIT_OK
+
+
+def _analyze(
+    services: TrackServices, track_id: int | None, *, outdated_only: bool, everything: bool
+) -> int:
+    """Derive metrics for one track, or for a named batch.
+
+    Which tracks a batch covers is decided by the use case, not here. A command
+    line that assembled its own selection would be a second opinion on what
+    "outdated" means, and the status view would eventually disagree with it.
+
+    Every track is attempted on its own. One failure does not stop the rest, and
+    the exit code still reports that the run was not clean.
+    """
+    if outdated_only:
+        identities: tuple[int | None, ...] = services.analyze.outdated_tracks()
+    elif everything:
+        identities = services.analyze.analyzable_tracks()
+    else:
+        identities = (track_id,)
+    return _report_analyzed(
+        [services.analyze(identity) for identity in identities if identity is not None]
+    )
+
+
 def _processing_status(services: TrackServices, sha256: str) -> int:
     """Print what happened to one source, and whether it is still current.
 
@@ -206,6 +261,13 @@ def _processing_status(services: TrackServices, sha256: str) -> int:
         f"tracks:         {report.track_count}",
         *_components(report.current_profile, report.installed_profile),
         f"outdated:       {'yes' if report.is_outdated else 'no'}",
+        # The second lifecycle, in the same view. A source can be perfectly
+        # normalized and still carry no usable metrics, and an operator should
+        # not have to know the two are separate to notice that one is behind.
+        f"analysis:       {report.analysed_track_count}/{report.track_count} tracks, "
+        f"profile {report.analysis_profile.metric_schema_version}",
+        f"analysis outdated: {'yes' if report.outdated_analysis_count else 'no'}"
+        f"{_suffix(report.latest_analysis_error_code)}",
     ]
     sys.stdout.write("\n".join(lines) + "\n")
     return EXIT_OK
@@ -284,6 +346,13 @@ def main(argv: Sequence[str] | None = None, settings: Settings | None = None) ->
             arguments.sha256,
             failed_only=arguments.failed,
             outdated_only=arguments.outdated,
+        )
+    if arguments.command == "analyze":
+        return _analyze(
+            services,
+            arguments.track_id,
+            outdated_only=arguments.outdated,
+            everything=arguments.every,
         )
     if arguments.command == "processing-status":
         return _processing_status(services, arguments.sha256)

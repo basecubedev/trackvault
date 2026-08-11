@@ -69,19 +69,19 @@ def test_listing_an_empty_archive_answers_with_an_empty_list(client: TestClient)
     response = client.get("/api/v1/tracks")
 
     assert response.status_code == 200
-    assert response.json() == {"count": 0, "tracks": []}
+    assert response.json() == {"total": 0, "limit": 50, "offset": 0, "tracks": []}
 
 
 def test_a_listing_carries_what_a_dashboard_needs(archive: TestClient) -> None:
     """Kind, activity, counts, extent and provenance, without any geometry."""
     payload = archive.get("/api/v1/tracks").json()
 
-    assert payload["count"] == 2
+    assert payload["total"] == 2
     track = next(t for t in payload["tracks"] if t["title"] == "Synthetic morning walk")
     assert track["activity"] == "walking"
     assert track["point_count"] == 4
     assert track["segment_count"] == 1
-    assert track["started_at"].startswith("2026-05-04T08:00:00")
+    assert track["timeline"]["started_at"].startswith("2026-05-04T08:00:00")
     assert track["source"]["exchange_format"] == "gpx"
     assert track["source"]["format_version"] == "1.1"
     assert "segments" not in track
@@ -259,7 +259,10 @@ def test_the_api_publishes_exactly_the_implemented_surface(client: TestClient) -
         "/api/v1/tracks",
         "/api/v1/tracks/{track_id}",
         "/api/v1/tracks/{track_id}/geometry",
+        "/api/v1/tracks/{track_id}/analysis",
         "/api/v1/tracks/{track_id}/classification",
+        "/api/v1/statistics/year/{year}",
+        "/api/v1/statistics/year/{year}/monthly",
     }
 
 
@@ -310,7 +313,7 @@ def test_a_candidate_a_later_run_stopped_producing_is_gone_from_the_api(
         detail = client.get(f"/api/v1/tracks/{stale_id}")
         geometry = client.get(f"/api/v1/tracks/{stale_id}/geometry")
 
-    assert listing["count"] == 1
+    assert listing["total"] == 1
     assert detail.status_code == 404
     assert detail.json()["error"]["code"] == "track_not_found"
     assert geometry.status_code == 404

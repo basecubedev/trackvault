@@ -177,6 +177,12 @@ def test_the_report_exposes_only_the_agreed_fields() -> None:
 
     Diagnostics is the view most likely to grow a "just this once" field, and the
     fields most useful for debugging are exactly the private ones.
+
+    The analysis fields are counts, a profile and an error code -- the same
+    shape as the processing ones. They are here rather than in a second
+    diagnostics view because an operator asking what happened to a source should
+    not need to know that normalization and analysis are separate lifecycles to
+    notice that one of them is behind.
     """
     assert {field.name for field in fields(ProcessingStatusReport)} == {
         "raw_import_sha256",
@@ -190,4 +196,8 @@ def test_the_report_exposes_only_the_agreed_fields() -> None:
         "latest_error_code",
         "track_count",
         "is_outdated",
+        "analysed_track_count",
+        "outdated_analysis_count",
+        "analysis_profile",
+        "latest_analysis_error_code",
     }
