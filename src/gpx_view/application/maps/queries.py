@@ -5,6 +5,7 @@ property that makes "viewing a track sends nothing anywhere" true rather than
 merely intended: there is no code path from a track page to a provider.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from gpx_view.application.maps.errors import MapErrorCode, MapOperationError
@@ -83,6 +84,41 @@ class MapCoverage:
         return bool(self.sources)
 
 
+@dataclass(frozen=True, slots=True)
+class MapStorageCensus:
+    """What the managed map area amounts to, proved rather than believed.
+
+    The counts a diagnosis needs, and they are deliberately three rather than
+    two. `installed` and `invalid` are the pair an operator reads, but the two
+    ways of being invalid call for opposite actions -- one is reinstalled by a
+    person, the other is cleared by the next start -- and a single number would
+    have to give one of them the wrong advice.
+
+    Attributes:
+        installed: Rows whose managed file exists and hashes to what the row
+            says. The only state that is an installation.
+        unprovable: Rows whose file is missing, unreadable, or not the bytes its
+            digest names. Reinstalling the region fixes these.
+        unclaimed: Managed files no installed row claims. Debris from a crash
+            between publishing a file and committing its row; start-up recovery
+            removes them.
+    """
+
+    installed: int
+    unprovable: int
+    unclaimed: int
+
+    @property
+    def invalid(self) -> int:
+        """Return everything in the map area that is not an installation.
+
+        Both halves, because both are storage the archive cannot account for.
+        A count that omitted the unclaimed files would report a clean map area
+        to somebody looking for the disk usage they cannot explain.
+        """
+        return self.unprovable + self.unclaimed
+
+
 class ListInstalledMaps:
     """What is installed, and whether the archive can still prove it.
 
@@ -94,10 +130,14 @@ class ListInstalledMaps:
     exactly like a rendering bug. So the file is checked, and a row without one
     reports `INVALID` -- a state with its own word and its own instruction.
 
-    The check is existence, not a re-hash. Hashing a gigabyte on every page load
-    would make the map manager cost more than the map; the digest is verified
-    when the package is published and whenever a tile read finds something it
-    cannot parse.
+    **How hard the file is checked is the one thing that varies here.** A page
+    load asks :meth:`all`, which checks existence: hashing a gigabyte to render
+    a table would make the map manager cost more than the map. A diagnosis asks
+    :meth:`census`, which re-reads the bytes, because catching a file that is no
+    longer what it claims to be is the entire reason somebody runs `doctor`. The
+    *rule* -- row and matching file, or `INVALID` -- is written once and shared
+    by both, so the cheap answer and the thorough one can differ in confidence
+    and never in meaning.
     """
 
     def __init__(self, repository: MapPackageRepository, storage: MapPackageStorage) -> None:
@@ -107,12 +147,36 @@ class ListInstalledMaps:
 
     def all(self) -> tuple[InstalledMap, ...]:
         """Return every installed package with its current state."""
-        return tuple(
-            InstalledMap(package=package, state=self._state_of(package))
-            for package in sorted(
-                self._repository.installed_packages(),
-                key=lambda package: package.region_name.casefold(),
-            )
+        return self._listed(self._storage.exists)
+
+    def verified(self) -> tuple[InstalledMap, ...]:
+        """Return every installed package, its file re-read rather than found.
+
+        The expensive listing. A package whose bytes were replaced or truncated
+        is `INSTALLED` to :meth:`all` and `INVALID` here, which is the whole
+        difference between the two.
+        """
+        return self._listed(self._storage.is_intact)
+
+    def census(self) -> MapStorageCensus:
+        """Return what the map area amounts to, files re-read and disk included.
+
+        The one place that looks at the managed directory as well as at the
+        database. A row without a healthy file and a file without a row are
+        both failures of the same rule, and counting only the first would leave
+        the archive unable to report storage nobody can account for.
+        """
+        verified = self.verified()
+        installed = sum(entry.state is MapInstallState.INSTALLED for entry in verified)
+        return MapStorageCensus(
+            installed=installed,
+            unprovable=len(verified) - installed,
+            # Every row's file, not only the healthy ones. A file whose bytes are
+            # wrong is still a file a row names: it is unprovable, and counting
+            # it as unclaimed as well would report one fault twice.
+            unclaimed=self._storage.count_orphans(
+                [(entry.package.region_id, entry.package.content_sha256) for entry in verified]
+            ),
         )
 
     def usable(self) -> tuple[MapPackage, ...]:
@@ -123,11 +187,22 @@ class ListInstalledMaps:
             if installed.state is MapInstallState.INSTALLED
         )
 
-    def _state_of(self, package: MapPackage) -> MapInstallState:
-        """Return what a stored package currently amounts to."""
-        if not self._storage.exists(package.region_id, package.content_sha256):
-            return MapInstallState.INVALID
-        return MapInstallState.INSTALLED
+    def _listed(self, is_present: Callable[[MapRegionId, str], bool]) -> tuple[InstalledMap, ...]:
+        """Return every stored package, judged by how deeply its file is checked."""
+        return tuple(
+            InstalledMap(
+                package=package,
+                state=(
+                    MapInstallState.INSTALLED
+                    if is_present(package.region_id, package.content_sha256)
+                    else MapInstallState.INVALID
+                ),
+            )
+            for package in sorted(
+                self._repository.installed_packages(),
+                key=lambda package: package.region_name.casefold(),
+            )
+        )
 
 
 class SelectMapCoverage:

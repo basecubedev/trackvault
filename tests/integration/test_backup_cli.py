@@ -59,6 +59,45 @@ def test_creating_a_backup_reports_what_it_holds_and_what_it_omits(
     assert "map_packages" in output
 
 
+def test_a_backup_of_an_inconsistent_archive_fails_by_name(
+    settings: Settings, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The operator interface to the failure this must never get wrong.
+
+    A named code and a non-zero exit, not a traceback: the archive is missing an
+    original its database names, and what an operator does next is run `doctor`,
+    not read a stack trace.
+    """
+    source = tmp_path / SOURCE
+    source.write_bytes((FIXTURES / SOURCE).read_bytes())
+    assert main(["import", str(source)], settings=settings) == EXIT_OK
+    next(settings.raw_storage_dir.rglob("*.raw")).unlink()
+
+    assert main(["backup", "create"], settings=settings) == EXIT_FAILED
+
+    captured = capsys.readouterr()
+    assert "archive_source_incomplete" in captured.err
+    assert "Traceback" not in captured.err
+    assert not list(settings.backup_storage_dir.glob(f"*{ARCHIVE_SUFFIX}"))
+    assert not list(settings.backup_storage_dir.glob("*.part"))
+
+
+def test_a_backup_that_passes_over_stored_debris_says_how_much(
+    settings: Settings, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An archive that leaves bytes behind reports the count, not a shrug."""
+    source = tmp_path / SOURCE
+    source.write_bytes((FIXTURES / SOURCE).read_bytes())
+    assert main(["import", str(source)], settings=settings) == EXIT_OK
+    orphan = next(settings.raw_storage_dir.rglob("*.raw")).with_name(f"{'b' * 64}.raw")
+    orphan.write_bytes(b"bytes no row can account for")
+
+    assert main(["backup", "create"], settings=settings) == EXIT_OK
+
+    assert "unreferenced_raw_objects x1" in capsys.readouterr().out
+    assert orphan.is_file()
+
+
 def test_listing_backups_says_so_when_there_are_none(
     settings: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:

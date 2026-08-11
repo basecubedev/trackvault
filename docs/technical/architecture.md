@@ -1378,8 +1378,9 @@ shapes it now rather than what is missing from it:
   has been paid for, and a declared length over the ceiling before a chunk,
 * one file per request, so twenty files produce twenty verdicts,
 * the filename is display metadata and never a location,
-* `GPX_VIEW_UPLOAD_ENABLED=false` refuses the whole capability, which is how a
-  deployment that cannot assume a trusted network says so.
+* `GPX_VIEW_UPLOAD_ENABLED` defaults to `false` and refuses the whole
+  capability, so a deployment that never made a statement about its network
+  does not get an unauthenticated write because a container started.
 
 It is not authentication and does not reduce the need for it. See
 `docs/adr/0011-web-upload.md`.
@@ -1523,6 +1524,30 @@ format is arranged against.
 
 Two versions, moving for two reasons: `format_version` changes when the
 *container* does, `schema_version` describes the database inside it.
+
+**Writing one is durable, not merely atomic.** The archive is built under a
+`.part` name and renamed into place, and the sequence does not end at the
+rename:
+
+```
+write → flush → fsync the archive → atomic rename → fsync the parent directory
+```
+
+The last step is what makes the rename survive a power cut, and it uses the same
+directory-flush helper the restore publication does -- both end a multi-step
+write with a rename, and a second implementation would be the one that quietly
+stopped early. A flush that fails fails the backup, and the finished file is
+removed again: a backup the command reported as unwritten is the one somebody
+finds later and trusts.
+
+**The manifest is checked against itself, never against the database inside
+it.** A member name may be stated only once, no source may claim the database
+member's name, and the manifest is not one of its own members -- all three are
+contradictions within one document, caught where the document is decoded. What
+is deliberately *not* checked is `counts` against the member list: what an
+archive holds in an operator's terms is the captured database's to say, and
+reconciling the two would make the manifest a second authority for numbers it
+only describes.
 
 ### Restore
 
@@ -1686,10 +1711,10 @@ Open on purpose, and not to be pre-empted by "preparation" code:
   is implemented instead and is not the same thing: it is an equality with
   nothing to tune, and it catches exactly one ride exported more than once detection
 - authentication. The archive is unauthenticated on purpose and is meant for a
-  trusted network; every endpoint, including the one that accepts a file,
-  assumes that. A deployment that cannot make the assumption refuses uploads
-  with `GPX_VIEW_UPLOAD_ENABLED=false` and is still readable by anyone who
-  can reach the port.
+  trusted network; every endpoint assumes that. The one endpoint that *writes*
+  is therefore off until an operator turns it on with
+  `GPX_VIEW_UPLOAD_ENABLED=true`; the reads are open to anyone who can reach
+  the port either way.
 - a file system watcher, as opposed to the explicit scan
 - Android client or companion app
 - sensor schemas beyond heart rate and cadence: power, temperature, FIT

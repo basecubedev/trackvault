@@ -37,6 +37,7 @@ from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore
 from gpx_view.infrastructure.maps import (
     FilesystemMapCatalogCache,
     FilesystemMapPackageStorage,
+    MapInstallJobs,
     MbtilesPackageInspector,
 )
 from gpx_view.main import create_app
@@ -118,18 +119,30 @@ class Deployment:
         self._jobs = 0
 
     def use_fixture_provider(self) -> None:
-        """Point the running application's catalog at the fixture provider.
+        """Point everything in the running application at the fixture provider.
 
-        Every reader of a catalog is redirected, not one of them. Suggestions come from
-        the cached catalog under the fixture's own slug, and leaving them
-        pointed at the real provider's would make every suggestion test pass by
-        finding nothing.
+        **Every** collaborator that could reach a provider, not the convenient
+        ones. Suggestions come from the cached catalog under the fixture's own
+        slug, and leaving them pointed at the real provider's would make every
+        suggestion test pass by finding nothing.
+
+        The job runner matters most, and least visibly. It holds its own
+        references to a catalog and a provider, so an install request routed
+        through the one the composition root built would resolve its region
+        against the real Geofabrik index -- over the network, from a contract
+        test, with a refusal that depends on whether that host answered.
         """
         self.app.state.map_catalog = self.catalog
         self.app.state.map_suggestions = SuggestMapRegions(
             self.cache, self.app.state.map_installed, provider=self.provider.slug
         )
         self.app.state.locate_tracks = LocateTracks(self.cache, provider=self.provider.slug)
+        self.app.state.map_installer = MapInstallJobs(
+            installer=self.installer,
+            catalog=self.catalog,
+            repository=self.repository,
+            clock=self.clock,
+        )
 
     def import_track(self, bbox: str) -> int:
         """Import a synthetic recording inside one rectangle, and return its track."""
@@ -593,11 +606,58 @@ def test_installing_takes_a_region_and_answers_with_a_job(
 
 
 def test_installing_an_unknown_region_is_refused(client: TestClient) -> None:
-    """A region identity that never came from a catalog reaches no provider."""
+    """A region identity that never came from a catalog reaches no provider.
+
+    The catalog is *known* here -- the fixture provider answers with Europe and
+    its three regions -- so "there is no such region" is a fact rather than an
+    inability to check. That distinction is the whole reason this test and the
+    one below it are separate.
+    """
+    catalog = client.get("/api/v1/maps/catalog").json()
+    assert catalog["provider_available"] is True
+    assert [entry["region_id"] for entry in catalog["entries"]] == ["fake:europe"]
+
     response = client.post("/api/v1/maps/install", json={"region_id": "fake:europe/atlantis"})
 
     assert response.status_code == 404
     assert response.json()["detail"]["error"]["code"] == "map_region_unknown"
+
+
+def test_installing_when_no_catalog_can_be_read_is_a_different_refusal(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """Nothing cached and nobody to ask is `503`, and never "no such region".
+
+    A deployment that cannot reach its provider knows nothing about *any*
+    region, including the ones it would happily install tomorrow. Answering
+    ``map_region_unknown`` there would tell an operator their identity is wrong
+    when what is wrong is their network, and they would go and look for a typo.
+    """
+    deployment.provider.unavailable = True
+
+    response = client.post("/api/v1/maps/install", json={"region_id": MONACO})
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"]["code"] == "map_provider_unavailable"
+
+
+def test_a_region_the_catalog_knows_is_accepted_even_while_the_provider_is_gone(
+    client: TestClient, deployment: Deployment
+) -> None:
+    """The cached catalog is what an install resolves against, not a live index.
+
+    Which is what makes the two refusals above about the *catalog* rather than
+    about reachability: once one has been read, a provider that goes away costs
+    the queueing nothing, and the transfer fails later where a job can report it.
+    """
+    client.post("/api/v1/maps/catalog/refresh")
+    deployment.provider.unavailable = True
+    deployment.app.state.map_installer = _RecordingInstaller(deployment)
+
+    response = client.post("/api/v1/maps/install", json={"region_id": ANDORRA})
+
+    assert response.status_code == 202
+    assert response.json()["state"] == "queued"
 
 
 @pytest.mark.parametrize(

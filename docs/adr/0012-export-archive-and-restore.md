@@ -107,6 +107,54 @@ the part nobody mentioned" are different promises.
 The format version and the schema version are separate on purpose. They move for
 different reasons: one when a table changes, the other when the container does.
 
+### The snapshot names the sources, not the storage directory
+
+The first version of this listed raw members by walking the storage directory.
+That is a different question, and it is the wrong one: it answers about a
+deployment that is still running, and a source whose file has gone missing does
+not appear in the answer at all. The manifest counted the database's sources and
+the container held whatever was on disk, so the one failure a backup must never
+have — holding less than it says — produced a file with nothing detectably wrong
+about it.
+
+So the member list comes from the captured snapshot, which is where the counts
+already came from. A source the snapshot names and the storage cannot produce
+fails the backup by name. `archive_source_incomplete` is deliberately not
+`archive_incomplete`: the fault is in the live deployment rather than in any
+container, and the operator's next step is `doctor` rather than another copy of
+the file.
+
+Files the snapshot does *not* name are not exported. They carry no import
+instant, no filename and no classification, so there is nothing to restore them
+as, and inventing one would make a backup the place where unattributed bytes
+acquire a provenance. The manifest counts them instead. The rejected
+alternatives were failing the backup — too harsh for debris that is by
+definition unreferenced, and it would block the backup somebody takes *before*
+investigating — and shipping them, which would put objects in the container that
+the archive's own database cannot explain.
+
+### A restored map row is not a restored map
+
+Excluding the packages while carrying their rows creates the obvious hazard: a
+restore onto a fresh machine would have a database saying "Germany installed"
+and a disk with no Germany package on it.
+
+No rule about restores was written for this, because none was needed. An
+installation is a row *and* a file that hashes to it, decided in one place, so
+the restored entry reports `INVALID` — a state with its own word and its own
+instruction — rather than offering a map that answers every tile with nothing.
+
+The case worth designing for is the machine that already has the package.
+Packages are content-addressed, so the restored row names exactly the file that
+is already there and the map is usable the moment the database is back, with
+nothing downloaded and nothing copied.
+
+A package the restored database does *not* name is cleared by the ordinary
+start-up recovery. That is a deletion, and it is accepted for the reason the
+packages are excluded in the first place: the bytes are replaceable public data,
+and the installation belonged to the database the restore replaced. It happens
+after the restore rather than during it, so `doctor` can report it first.
+
 ### Restore validates before it publishes
 
 ```

@@ -86,6 +86,10 @@ class ArchiveErrorCode(StrEnum):
         INCOMPLETE: A member the manifest promises is not in the container.
         DATABASE_INVALID: The captured database does not open or fails its own
             integrity check.
+        SOURCE_INCOMPLETE: The deployment being backed up cannot produce an
+            original its own database names. The fault is in the live archive
+            rather than in any container, which is why it is not ``INCOMPLETE``:
+            the operator's next step is `doctor`, not another copy of the file.
         TARGET_OCCUPIED: Restoring here would replace data that is already
             present, and nobody said to.
         WRITE_FAILED: The archive could not be written. Nothing partial is left
@@ -100,6 +104,7 @@ class ArchiveErrorCode(StrEnum):
     MEMBER_REFUSED = "archive_member_refused"
     INCOMPLETE = "archive_incomplete"
     DATABASE_INVALID = "archive_database_invalid"
+    SOURCE_INCOMPLETE = "archive_source_incomplete"
     TARGET_OCCUPIED = "restore_target_occupied"
     WRITE_FAILED = "archive_write_failed"
 
@@ -195,12 +200,73 @@ class ArchiveCounts:
         tracks: How many tracks the current generations hold.
         classification_overrides: How many kinds the user corrected.
         user_metadata: How many titles or notes the user wrote.
+        analyzed_tracks: How many of those tracks carry derived metrics at all.
+
+            Deliberately **not** a currency claim. Whether an analysis is
+            `current` depends on the algorithms the *reading* build has
+            installed, which an archive cannot know and must not pretend to --
+            that decision has one owner and it is not this manifest. What this
+            states is the archive's own fact: this many tracks arrived with
+            metrics attached. A dry-run reporting "412 tracks, 0 analysed" tells
+            an operator the restore will be followed by a long re-analysis,
+            which is the thing they wanted to know before starting it.
     """
 
     raw_imports: int
     tracks: int
     classification_overrides: int
     user_metadata: int
+    analyzed_tracks: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveOmission:
+    """Something a deployment holds that this archive deliberately leaves out.
+
+    The manifest states these rather than staying silent. "Complete" and
+    "complete except for the part nobody mentioned" are different promises, and
+    only one of them is safe to make about a backup.
+
+    Attributes:
+        kind: What was left out, as a stable identifier.
+        reason: Why it is safe to leave out, in one sentence an operator reads.
+        count: How many things of this kind were left out, where that is
+            countable. ``None`` for an omission that is categorical rather than
+            enumerable -- map packages are omitted whether there are none or ten.
+    """
+
+    kind: str
+    reason: str
+    count: int | None = None
+
+
+MAP_PACKAGES_OMITTED = ArchiveOmission(
+    kind="map_packages",
+    reason="offline maps are public datasets that can be downloaded again",
+)
+"""The omission this format makes categorically, stated in every manifest."""
+
+UNREFERENCED_RAW_OBJECTS = "unreferenced_raw_objects"
+"""Stored originals no row of the captured database accounts for.
+
+Not exported, and **not silently**. A file the database cannot explain carries
+no import instant, no original filename and no classification -- there is
+nothing to restore it *as*, and inventing an import for it would make a backup
+the place where unattributed bytes acquire a provenance they never had.
+
+So it stays where it is, the archive says how many it passed over, and the
+bytes remain on the deployment for somebody to look at. What is refused is the
+silence, not the file.
+"""
+
+
+def unreferenced_raw_objects(count: int) -> ArchiveOmission:
+    """Return the omission that states how many stored originals were passed over."""
+    return ArchiveOmission(
+        kind=UNREFERENCED_RAW_OBJECTS,
+        reason="stored originals no database row accounts for; they stay in the archive's storage",
+        count=count,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,35 +284,16 @@ class StagedArchive:
         contents: The members, with their sizes and digests.
         schema_version: The schema of the database that was captured.
         counts: What that database holds.
+        omissions: What the deployment held that this material does not carry.
+            Staged rather than assumed: whether anything was passed over is
+            discovered while capturing, and a manifest that listed the standard
+            omissions from a constant would describe an archive nobody looked at.
     """
 
     contents: "ArchiveContents"
     schema_version: int
     counts: "ArchiveCounts"
-
-
-@dataclass(frozen=True, slots=True)
-class ArchiveOmission:
-    """Something a deployment holds that this archive deliberately leaves out.
-
-    The manifest states these rather than staying silent. "Complete" and
-    "complete except for the part nobody mentioned" are different promises, and
-    only one of them is safe to make about a backup.
-
-    Attributes:
-        kind: What was left out, as a stable identifier.
-        reason: Why it is safe to leave out, in one sentence an operator reads.
-    """
-
-    kind: str
-    reason: str
-
-
-MAP_PACKAGES_OMITTED = ArchiveOmission(
-    kind="map_packages",
-    reason="offline maps are public datasets that can be downloaded again",
-)
-"""The one omission this format currently makes, stated in every manifest."""
+    omissions: tuple["ArchiveOmission", ...] = (MAP_PACKAGES_OMITTED,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -365,11 +412,20 @@ class ArchiveBuilder(Protocol):
         that reported the *live* deployment's schema and counts instead would
         produce a manifest about a different database.
 
+        **The captured database decides which originals belong in the archive.**
+        Listing whatever the storage directory happens to contain answers a
+        different question, and answers it about a deployment that is still
+        running: an import between the two reads puts a member in the container
+        that the manifest's own counts do not cover, and a *missing* file simply
+        does not appear -- which is how an archive comes to hold less than it
+        says while looking entirely well formed.
+
         Raises:
-            ArchiveError: If the database could not be captured or an artifact
-                does not match the hash it is filed under. A corrupt source is
-                not quietly copied into a backup: it would make the backup a
-                second copy of the damage.
+            ArchiveError: ``archive_source_incomplete`` if the deployment cannot
+                produce an original its database names, and
+                ``archive_checksum_mismatch`` if one does not match the hash it
+                is filed under. Neither is copied into a backup: the first would
+                be a silent gap and the second a second copy of the damage.
         """
         ...
 
@@ -458,6 +514,7 @@ class CreateArchive:
                 schema_version=staged.schema_version,
                 contents=staged.contents,
                 counts=staged.counts,
+                omissions=staged.omissions,
             )
             builder.finish(manifest)
         except BaseException:
@@ -557,7 +614,15 @@ def describe_omissions(omissions: Sequence[ArchiveOmission]) -> str:
 
     Rendered rather than assumed: an archive that omits nothing says so, because
     "no omissions listed" and "omissions not reported" look identical otherwise.
+
+    A countable omission is rendered with its count. "Some originals were passed
+    over" and "three originals were passed over" are the difference between a
+    note somebody skims and a number they go and look at.
     """
     if not omissions:
         return "nothing"
-    return ", ".join(f"{omission.kind} ({omission.reason})" for omission in omissions)
+    return ", ".join(
+        f"{omission.kind}{'' if omission.count is None else f' x{omission.count}'} "
+        f"({omission.reason})"
+        for omission in omissions
+    )

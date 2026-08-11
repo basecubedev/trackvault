@@ -16,10 +16,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from gpx_view.application.diagnostics import DeploymentObservation
+from gpx_view.application.maps import MapStorageCensus
 from gpx_view.application.ports import RawArtifactState
 from gpx_view.config import Settings
-from gpx_view.domain.maps import MapInstallState
 from gpx_view.infrastructure.archive.container import ARCHIVE_SUFFIX
+from gpx_view.infrastructure.archive.publication import restore_is_pending
 from gpx_view.infrastructure.assembly import TrackServices
 from gpx_view.infrastructure.database.inspection import is_intact, read_schema_version
 from gpx_view.release import VERSION
@@ -46,6 +47,7 @@ def observe(services: TrackServices, installed_schema_version: int) -> Deploymen
     database = settings.database_path
     schema_version = read_schema_version(database)
     missing, corrupt, expected = _raw_artifact_health(services)
+    maps = _map_census(services)
     return DeploymentObservation(
         release=VERSION,
         installed_schema_version=installed_schema_version,
@@ -67,9 +69,11 @@ def observe(services: TrackServices, installed_schema_version: int) -> Deploymen
         processing_profiles=services.processing.profiles,
         analysis_profile=services.analyze.installed.profile,
         containerized=_is_containerized(),
+        restore_in_progress=restore_is_pending(settings.data_dir),
         maps_enabled=settings.maps_enabled,
-        installed_map_count=_installed_map_count(services),
-        invalid_map_count=_invalid_map_count(services),
+        installed_map_count=maps.installed,
+        invalid_map_count=maps.invalid,
+        unclaimed_map_file_count=maps.unclaimed,
     )
 
 
@@ -126,22 +130,22 @@ def _newest_backup_age_days(settings: Settings) -> float | None:
     return (datetime.now(UTC).timestamp() - newest) / _SECONDS_PER_DAY
 
 
-def _installed_map_count(services: TrackServices) -> int:
-    """Return how many map packages are installed and can be proved."""
-    if not services.settings.database_path.is_file():
-        return 0
-    return sum(
-        1 for entry in services.maps.installed.all() if entry.state is MapInstallState.INSTALLED
-    )
+def _map_census(services: TrackServices) -> MapStorageCensus:
+    """Return what the map area amounts to, asked of the map authority itself.
 
+    Deliberately not recomputed here. Whether a package counts as installed is a
+    business rule with one owner, and a diagnostic that re-derived it from the
+    same two ingredients would be a second opinion that agrees until the day it
+    does not.
 
-def _invalid_map_count(services: TrackServices) -> int:
-    """Return how many map packages are a row without a healthy file, or the reverse."""
+    The expensive answer, not the one a page load takes. Every managed file is
+    re-read and the directory is compared against the rows, because a file that
+    is no longer what it claims to be is precisely what `doctor` exists to find
+    and precisely what a cheap check cannot see.
+    """
     if not services.settings.database_path.is_file():
-        return 0
-    return sum(
-        1 for entry in services.maps.installed.all() if entry.state is not MapInstallState.INSTALLED
-    )
+        return MapStorageCensus(installed=0, unprovable=0, unclaimed=0)
+    return services.maps.installed.census()
 
 
 def _is_containerized() -> bool:

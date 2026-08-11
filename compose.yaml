@@ -28,11 +28,12 @@ services:
       # it was meant to survive.
       GPX_VIEW_BACKUP_DIR: /backups
       #
-      # Uploading through the web interface writes into the managed archive
-      # under /data, never into /import. Set GPX_VIEW_UPLOAD_ENABLED=false to
-      # refuse uploads outright -- see README.md, because on a network you do
-      # not fully trust this is the setting to think about.
-      # GPX_VIEW_UPLOAD_ENABLED: "false"
+      # Uploading from the browser is off unless you switch it on. It is the
+      # one endpoint that lets a caller make the server write, and nothing here
+      # authenticates -- so this is a statement about your network, not a
+      # convenience toggle. Uploads write into the managed archive under /data,
+      # never into /import. See README.md.
+      # GPX_VIEW_UPLOAD_ENABLED: "true"
     volumes:
       # A managed volume, not a host bind mount. Docker initialises a named
       # volume from the image, so /data arrives owned by the non-root runtime

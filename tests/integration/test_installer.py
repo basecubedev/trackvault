@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from gpx_view.config import Settings
+
 pytestmark = pytest.mark.integration
 
 INSTALLER = Path(__file__).resolve().parents[2] / "install-docker.sh"
@@ -242,6 +244,24 @@ def test_force_replaces_the_configuration_and_only_the_configuration(
     environment = (target / ".env").read_text(encoding="utf-8")
     assert "GPX_VIEW_HTTP_PORT=9124" in environment
     assert "GPX_VIEW_HTTP_PORT=9123" not in environment
+
+
+def test_an_installation_does_not_switch_writing_on_for_you(tmp_path: Path) -> None:
+    """The installer writes a settings file, so it is a second place to get this wrong.
+
+    Somebody running this script has read nothing -- that is what it is for --
+    and an unauthenticated write endpoint must not be reachable because they
+    typed one command. The generated `.env` therefore has to agree with the
+    application's own default rather than quietly overriding it.
+    """
+    target = tmp_path / "gpx-view"
+
+    _run("--dir", str(target), "--no-start")
+
+    environment = (target / ".env").read_text(encoding="utf-8")
+    assert "GPX_VIEW_UPLOAD_ENABLED=false" in environment
+    assert "GPX_VIEW_UPLOAD_ENABLED=true" not in environment
+    assert Settings(data_dir=tmp_path / "unused").upload_enabled is False
 
 
 def test_the_created_directories_are_private(tmp_path: Path) -> None:

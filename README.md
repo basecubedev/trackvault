@@ -132,10 +132,11 @@ and half-written downloads, and none of them is a track.
 
 **On the machine itself**, with the commands below.
 
-> **The upload endpoint has no authentication in front of it**, because nothing
-> here does. Anyone who can reach the port can add files as well as read them.
-> Set `GPX_VIEW_UPLOAD_ENABLED=false` in `.env` to refuse uploads and keep
-> everything else — see
+> **Uploading from the browser is off until you switch it on.** It is the one
+> endpoint that lets a caller make the server write, and nothing here
+> authenticates — so anyone who can reach the port could add files, not only
+> read them. Set `GPX_VIEW_UPLOAD_ENABLED=true` in `.env` once you are happy
+> that your network makes that acceptable; every read works either way. See
 > [Security](#security-and-the-trusted-network).
 
 ```bash
@@ -369,6 +370,10 @@ schema:        10
 compatibility: supported
 sources:       1
 tracks:        1
+analysed:      1
+overrides:     0
+notes:         0
+omits:         map_packages (offline maps are public datasets that can be downloaded again)
 target:        /data
 target holds data: no
 needs:         161281 bytes
@@ -377,11 +382,16 @@ needs:         161281 bytes
 A dry run changes nothing at all, and exits non-zero if the archive could not be
 restored — so it works in a script as well as on a screen.
 
-Then do it:
+Then do it. **Restoring wants the archive to itself**: it replaces the database
+and the stored originals, and an import running at the same time would be
+writing into storage that is moving out from under it. Backing up is the
+opposite and needs no such care — it is a read, and it runs happily while you
+use the archive.
 
 ```bash
-docker compose exec gpx-view gpx-view restore /backups/gpx-view-20260810-164301.tar.gz
-docker compose restart
+docker compose stop gpx-view
+docker compose run --rm gpx-view gpx-view restore /backups/gpx-view-20260810-164301.tar.gz
+docker compose start gpx-view
 ```
 
 **Nothing is touched until everything has been checked.** The manifest, the
@@ -398,8 +408,23 @@ gpx-view restore <archive> --replace            # replace what is there
 gpx-view restore <archive> --into /some/other   # somewhere else entirely
 ```
 
-**Installed maps survive a restore.** They are not in the archive, and a restore
-replaces what the archive carries rather than the whole data directory.
+**A restore never claims a map it does not have.** Map packages are not in the
+archive — they are public data you can download again — but their metadata is,
+because the whole database is. So the rows come back, and what happens to each
+one depends on what the machine already has:
+
+| The machine has | After restoring |
+| --- | --- |
+| the same package | it works immediately, with nothing downloaded |
+| no package | the entry reads `invalid`, and `doctor` tells you to reinstall it |
+| a *different* package | it belonged to the database you just replaced, and the next start clears it |
+
+You will never be shown a map that is "installed" and draws nothing.
+
+**If a restore is interrupted** — the container is killed, the machine loses
+power — the next start undoes it and leaves the archive you had. A restore
+either completed or did not happen; there is no half-restored state to
+untangle, and `doctor` reports one that has not been resolved yet.
 
 ### Restoring onto a new machine
 
@@ -816,12 +841,14 @@ and can change a track's classification, title and notes.
 
 - Run it on your own network, or behind a reverse proxy that authenticates.
 - **Do not forward the port to the internet.**
-- **Uploading is unauthenticated too.** Anyone who can reach the port can add
-  files, not only read them. The endpoint is bounded — one file per request, the
-  size limit applied while reading, the filename never used as a location — and
-  `GPX_VIEW_UPLOAD_ENABLED=false` turns it off entirely while leaving every read
-  working. Why it exists at all is recorded in
-  [`docs/adr/0011-web-upload.md`](docs/adr/0011-web-upload.md).
+- **Uploading is off by default, and unauthenticated when you enable it.**
+  Writing is the one thing an unauthenticated caller must not be able to do
+  because a container happened to start, so `GPX_VIEW_UPLOAD_ENABLED` defaults
+  to `false` and turning it on is a statement about your network. The endpoint
+  itself is bounded — one file per request, the size limit applied while
+  reading, no archive or multipart parsing, the filename never used as a
+  location — but bounded is not authenticated. Why the capability exists at all
+  is recorded in [`docs/adr/0011-web-upload.md`](docs/adr/0011-web-upload.md).
 
 What the application does do:
 
@@ -846,7 +873,7 @@ prefix:
 | `GPX_VIEW_DATA_DIR` | `data` | Holds *all* persistent data: the database and every original import |
 | `GPX_VIEW_IMPORT_DIR` | unset | Directory `gpx-view scan` reads. Unset disables the feature. Never modified. |
 | `GPX_VIEW_BACKUP_DIR` | `backups/` beside the data directory | Where `gpx-view backup create` writes. Outside the data directory on purpose: a backup kept inside what it protects is lost with it. |
-| `GPX_VIEW_UPLOAD_ENABLED` | `true` | Whether the browser interface may add files. `false` refuses uploads and keeps every read. |
+| `GPX_VIEW_UPLOAD_ENABLED` | `false` | Whether the browser interface may add files. Off unless you set it: uploading is unauthenticated, and every read works without it. |
 | `GPX_VIEW_IMPORT_MAX_BYTES` | `16777216` | Largest accepted input file |
 | `GPX_VIEW_IMPORT_MAX_TRACKS` | `100` | Most tracks in one document |
 | `GPX_VIEW_IMPORT_MAX_SEGMENTS_PER_TRACK` | `1000` | Most segments in one track |

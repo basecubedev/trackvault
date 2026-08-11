@@ -23,6 +23,18 @@ not.
 and renamed into place only once it is complete and flushed, so a crash leaves no
 file that looks like a backup and is not one.
 
+```
+write  ->  flush  ->  fsync the file  ->  atomic rename  ->  fsync the directory
+```
+
+The last arrow is the one that is easy to leave off, and without it the
+guarantee is half a guarantee. Flushing the file makes its *bytes* durable; the
+rename that gives those bytes the archive's name is an entry in the destination's
+directory, and an unflushed directory entry does not survive the power cut this
+sequence exists for. So a backup whose command returned successfully has been
+synchronised after its publish -- the same promise, in the same order, that the
+managed raw storage makes about an imported original.
+
 Member metadata is written deterministically -- no owner, no group, no host
 user name -- because a tar header records the login name of whoever ran it, and
 that is personal data leaving the machine inside a file people share with
@@ -35,8 +47,9 @@ import logging
 import os
 import shutil
 import tarfile
-from collections.abc import Iterator
-from contextlib import suppress
+import zlib
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import BinaryIO
 from uuid import uuid4
@@ -44,16 +57,26 @@ from uuid import uuid4
 from gpx_view.application.archive import (
     DATABASE_MEMBER,
     MANIFEST_MEMBER,
+    MAP_PACKAGES_OMITTED,
     RAW_MEMBER_PREFIX,
     ArchiveContents,
     ArchivedFile,
     ArchiveError,
     ArchiveErrorCode,
     ArchiveManifest,
+    ArchiveOmission,
     StagedArchive,
+    unreferenced_raw_objects,
 )
 from gpx_view.infrastructure.archive.manifest_codec import decode_manifest, encode_manifest
-from gpx_view.infrastructure.database.archive_source import read_counts
+from gpx_view.infrastructure.archive.publication import (
+    begin_publication,
+    finish_publication,
+    recover_interrupted_restore,
+    restore_is_pending,
+    sync_directory,
+)
+from gpx_view.infrastructure.database.archive_source import read_counts, read_raw_import_digests
 from gpx_view.infrastructure.database.inspection import counts_sources, read_schema_version
 from gpx_view.infrastructure.database.snapshot import (
     DatabaseSnapshotError,
@@ -61,6 +84,7 @@ from gpx_view.infrastructure.database.snapshot import (
     digest_of,
     verify_database,
 )
+from gpx_view.infrastructure.filesystem.raw_store import FilesystemRawImportStore
 from gpx_view.infrastructure.private_data import (
     PRIVATE_FILE_MODE,
     create_private_directory,
@@ -87,10 +111,17 @@ class FilesystemArchiveBuilder:
     """Assembles one archive file out of a live data directory."""
 
     def __init__(self, destination: Path, database_path: Path, raw_root: Path) -> None:
-        """Point the builder at where the archive goes and what goes into it."""
+        """Point the builder at where the archive goes and what goes into it.
+
+        The managed storage is reached through its own store rather than by
+        rebuilding its layout here. Where a content hash lives on disk has one
+        owner, and a backup that computed the path itself would be the second
+        place that has to be changed if it ever moves.
+        """
         self._destination = destination
         self._database_path = database_path
         self._raw_root = raw_root
+        self._raw_store = FilesystemRawImportStore(raw_root)
         self._staging = destination.parent / f".{destination.name}.staging-{uuid4().hex}"
         self._partial = destination.with_name(destination.name + PARTIAL_SUFFIX)
 
@@ -131,29 +162,49 @@ class FilesystemArchiveBuilder:
                 ArchiveErrorCode.WRITE_FAILED, "the database copy could not be written"
             ) from error
         snapshot = self._staging / _STAGED_DATABASE
+        referenced = read_raw_import_digests(snapshot)
         return StagedArchive(
             contents=ArchiveContents(
                 database=ArchivedFile(name=DATABASE_MEMBER, size_bytes=size, sha256=digest),
-                raw_imports=tuple(self._raw_artifacts()),
+                raw_imports=tuple(self._raw_artifacts(referenced)),
             ),
             schema_version=read_schema_version(snapshot) or 0,
             counts=read_counts(snapshot),
+            omissions=self._omissions(referenced),
         )
 
-    def _raw_artifacts(self) -> Iterator[ArchivedFile]:
-        """Describe every managed raw artifact, in a stable order.
+    def _raw_artifacts(self, referenced: Sequence[str]) -> Iterator[ArchivedFile]:
+        """Describe the managed original of every source the snapshot names.
 
-        Sorted, so two archives of the same archive list their members the same
-        way and a difference between them is a difference in the data.
+        Driven by the database rather than by the directory. A source the
+        snapshot names and the storage cannot produce is the failure this whole
+        arrangement exists to catch: walking the directory instead would simply
+        not find it, and the archive would be complete-looking and short by one
+        recording nobody could get back.
+
+        Raises:
+            ArchiveError: ``archive_source_incomplete`` if an original is
+                missing or unreadable, ``archive_checksum_mismatch`` if its
+                bytes are not the ones it is filed under.
         """
-        for path in sorted(self._raw_root.rglob(f"*{RAW_ARTIFACT_SUFFIX}")):
+        for sha256 in referenced:
+            path = self._raw_store.path_for(sha256)
             if not path.is_file() or path.is_symlink():
-                continue
-            digest = digest_of(path)
-            if digest != path.stem:
+                raise ArchiveError(
+                    ArchiveErrorCode.SOURCE_INCOMPLETE,
+                    "the archive holds no stored original for a source its database names",
+                )
+            try:
+                digest = digest_of(path)
+            except OSError as error:
+                raise ArchiveError(
+                    ArchiveErrorCode.SOURCE_INCOMPLETE,
+                    "a stored original could not be read",
+                ) from error
+            if digest != sha256:
                 raise ArchiveError(
                     ArchiveErrorCode.CHECKSUM_MISMATCH,
-                    "a stored artifact does not match the hash it is filed under",
+                    "a stored original does not match the hash it is filed under",
                 )
             relative = path.relative_to(self._raw_root).as_posix()
             yield ArchivedFile(
@@ -162,13 +213,37 @@ class FilesystemArchiveBuilder:
                 sha256=digest,
             )
 
+    def _omissions(self, referenced: Sequence[str]) -> tuple[ArchiveOmission, ...]:
+        """Return what this archive leaves out, discovered rather than assumed.
+
+        The map packages are categorical. The unreferenced originals are counted
+        here and now, because whether a deployment has any is a fact about that
+        deployment at that instant -- and an archive that passed over stored
+        bytes without saying so is exactly the quiet incompleteness this module
+        is arranged against.
+        """
+        wanted = {self._raw_store.path_for(sha256) for sha256 in referenced}
+        unreferenced = sum(
+            1
+            for path in self._raw_root.rglob(f"*{RAW_ARTIFACT_SUFFIX}")
+            if path.is_file() and not path.is_symlink() and path not in wanted
+        )
+        if not unreferenced:
+            return (MAP_PACKAGES_OMITTED,)
+        return (MAP_PACKAGES_OMITTED, unreferenced_raw_objects(unreferenced))
+
     def finish(self, manifest: ArchiveManifest) -> None:
-        """Write the container and move it into place as one act.
+        """Write the container, move it into place, and make that durable.
+
+        Returning from here means the archive exists on the disk and not merely
+        in the page cache: the bytes are flushed before the rename and the
+        destination's directory is flushed after it. Somebody who runs a backup
+        and pulls the plug has a backup.
 
         Raises:
-            ArchiveError: If the archive could not be written. The partial file
-                is removed, so nothing survives that could be mistaken for a
-                complete backup.
+            ArchiveError: If the archive could not be written or could not be
+                made durable. Nothing survives under either name that could be
+                mistaken for a complete backup.
         """
         create_private_file(self._partial)
         try:
@@ -184,6 +259,7 @@ class FilesystemArchiveBuilder:
                     self._add_file(container, manifest, item, self._source_path_of(item))
             _flush(self._partial)
             self._partial.replace(self._destination)
+            self._make_durable()
         except OSError as error:
             self._discard_partial()
             raise ArchiveError(
@@ -193,6 +269,28 @@ class FilesystemArchiveBuilder:
             self._discard_partial()
             raise
         self._remove_staging()
+
+    def _make_durable(self) -> None:
+        """Flush the directory the rename was recorded in, or leave no archive.
+
+        The same helper the restore publication uses, deliberately. Both end a
+        multi-step write with a rename, and both are only as durable as the
+        directory entry that rename produced -- one implementation, because a
+        second one would be the one that quietly stopped at the rename.
+
+        A failure here is a failure of the backup. The file is complete and
+        already carries the archive's own name, and leaving it would hand
+        somebody a backup that the command told them it could not write.
+
+        Raises:
+            OSError: If the directory could not be flushed.
+        """
+        try:
+            sync_directory(self._destination.parent)
+        except OSError:
+            with suppress(OSError):
+                self._destination.unlink(missing_ok=True)
+            raise
 
     def _source_path_of(self, item: ArchivedFile) -> Path:
         """Return where a described raw member is read from."""
@@ -306,7 +404,7 @@ class FilesystemArchiveExtractor:
             ArchiveError: ``archive_unreadable`` if the container will not open,
                 ``archive_manifest_invalid`` if it holds no readable manifest.
         """
-        with self._open() as container:
+        with self._open() as container, _readable_container():
             try:
                 member = container.getmember(MANIFEST_MEMBER)
             except KeyError as error:
@@ -335,7 +433,7 @@ class FilesystemArchiveExtractor:
         expected = manifest.contents.checksums()
         create_private_directory(self._staging)
         extracted: set[str] = set()
-        with self._open() as container:
+        with self._open() as container, _readable_container():
             for member in container:
                 if member.name == MANIFEST_MEMBER:
                     continue
@@ -470,16 +568,30 @@ class FilesystemArchiveExtractor:
         out of the archive.
 
         The old material is moved aside rather than deleted, and removed only
-        once the new material is in place. Two renames are not one atomic act;
-        what this guarantees is that no moment exists in which neither copy is
-        there.
+        once the new material is in place. Several renames are not one atomic
+        act; what this guarantees is that no moment exists in which neither copy
+        is there, and that any moment in between is *recoverable*.
+
+        Recoverable rather than atomic, because atomic is not available here. A
+        marker recording what is being moved is written and flushed before the
+        first rename and cleared after the last, so an interruption anywhere in
+        between leaves a deployment that can be resolved -- see
+        `gpx_view.infrastructure.archive.publication`.
         """
         create_private_directory(self._data_dir)
         create_private_directory(self._displaced)
+        begin_publication(
+            self._data_dir,
+            staging=self._staging,
+            displaced=self._displaced,
+            database=self._database_path,
+            raw_root=self._raw_root,
+        )
         self._displace_existing()
         self._staged_database().replace(self._database_path)
         self._staged_raw_root().replace(self._raw_root)
         self._cleanup()
+        finish_publication(self._data_dir)
 
     def _displace_existing(self) -> None:
         """Move what is currently in place out of the way.
@@ -505,7 +617,22 @@ class FilesystemArchiveExtractor:
                 shutil.rmtree(directory, ignore_errors=True)
 
     def abandon(self) -> None:
-        """Discard the staged material without touching what is in place."""
+        """Give up on this restore, leaving one readable deployment behind.
+
+        Before publication began this is simply "throw the staged material
+        away". Once it has begun it is not, and the difference is the whole
+        point: the displaced directory then holds the *only* copy of the
+        previous database and raw storage, and discarding it as staging debris
+        would turn a failed restore into total data loss.
+
+        So an interrupted publication is resolved rather than deleted, through
+        exactly the code the next start-up would use. Two implementations of
+        "what to do about an unfinished publication" would eventually disagree,
+        and the day they did, somebody would already be restoring from a backup.
+        """
+        if restore_is_pending(self._data_dir):
+            recover_interrupted_restore(self._data_dir)
+            return
         self._cleanup()
 
     def _open(self) -> tarfile.TarFile:
@@ -516,10 +643,43 @@ class FilesystemArchiveExtractor:
         """
         try:
             return tarfile.open(self._source, "r:*")
-        except (OSError, tarfile.TarError) as error:
+        except _CONTAINER_FAILURES as error:
             raise ArchiveError(
                 ArchiveErrorCode.ARCHIVE_UNREADABLE, "the archive could not be opened"
             ) from error
+
+
+_CONTAINER_FAILURES = (OSError, tarfile.TarError, EOFError, zlib.error)
+"""Every way a damaged container fails while it is being read.
+
+`EOFError` is the one that matters and the one that is easy to miss. A backup
+cut short -- a disk that filled, a copy somebody interrupted, a download that
+stopped -- opens perfectly: the gzip header is intact and the manifest is the
+first member, so the archive can still *describe* material it no longer
+carries. The failure arrives later, from the decompressor, as a bare `EOFError`
+that is neither an `OSError` nor a `TarError`.
+
+Truncation is also far more likely than any hostile archive this module guards
+against, which makes a traceback the most probable way somebody meets this code.
+"""
+
+
+@contextmanager
+def _readable_container() -> Iterator[None]:
+    """Translate a damaged container into the archive's own vocabulary.
+
+    Wraps the *reading*, not the opening. What is refused here is a container
+    this build cannot finish reading, which is a different statement from a file
+    that is not an archive -- and both are answers rather than tracebacks.
+    """
+    try:
+        yield
+    except ArchiveError:
+        raise
+    except _CONTAINER_FAILURES as error:
+        raise ArchiveError(
+            ArchiveErrorCode.ARCHIVE_UNREADABLE, "the archive could not be read to the end"
+        ) from error
 
 
 def _journal(database: Path, suffix: str) -> Path:

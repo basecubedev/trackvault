@@ -2,7 +2,19 @@
 
 ## Status
 
-Accepted (2026-08-10)
+Accepted (2026-08-10). Amended the same day: the capability ships **off**.
+
+The original decision built the toggle and defaulted it to on, reasoning that
+the owner had asked for the feature for their own trusted network. The amendment
+keeps every word of the decision and changes only who has to act: a deployment
+that wants unauthenticated writes says so, rather than one that does not want
+them having to find the setting.
+
+The difference is what happens to somebody who reads nothing. `install-docker.sh`
+exists precisely so that a person can go from an empty directory to a running
+archive without reading this file, and the version of that story where writing
+is reachable by default is the wrong one. Nothing about the endpoint, its
+bounds or its place in the pipeline changed.
 
 Reverses the "no upload endpoint" position taken in ADR 0003 and restated in
 ADR 0008 and ADR 0009. Nothing else those decisions made changes: the import
@@ -68,7 +80,7 @@ Those are different things and the interface says them differently.
 
 | Bound | Why |
 | --- | --- |
-| `GPX_VIEW_UPLOAD_ENABLED=false` | A deployment that cannot assume a trusted network keeps every read and refuses this |
+| `GPX_VIEW_UPLOAD_ENABLED` defaults to `false` | Writing must not become reachable because a container started. Enabling it is a statement about a network |
 | `import_max_bytes`, checked while reading | A limit applied after loading the body has already paid the cost it exists to prevent |
 | Declared `Content-Length` over the ceiling | Refused before a chunk is pulled |
 | One file per request | A batch endpoint is one verdict for twenty files, or this response inside a list |

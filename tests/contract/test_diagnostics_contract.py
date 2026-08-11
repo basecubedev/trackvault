@@ -7,7 +7,10 @@ broken disk. The *observation* is exercised against real directories, and what
 is asserted about it is mostly that it left them alone.
 """
 
+import hashlib
+import shutil
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -22,9 +25,19 @@ from gpx_view.application.import_tracks import ImportRequest, ImportStatus
 from gpx_view.config import Settings
 from gpx_view.domain import InputChannel, ProcessingProfile
 from gpx_view.domain.analysis import AnalysisProfile
+from gpx_view.domain.maps import (
+    MapAttribution,
+    MapBounds,
+    MapPackage,
+    MapPackageFormat,
+    MapRegionId,
+    MapTileSchema,
+)
 from gpx_view.infrastructure.assembly import TrackServices, build_services
 from gpx_view.infrastructure.database.migrations import SCHEMA_VERSION
 from gpx_view.infrastructure.diagnostics import observe
+from gpx_view.infrastructure.private_data import create_private_directory
+from support.map_packages import build_package
 
 pytestmark = pytest.mark.contract
 
@@ -259,10 +272,224 @@ def test_a_corrupted_managed_artifact_is_seen(services: TrackServices, settings:
     assert Diagnose()(observation).status is CheckStatus.ERROR
 
 
-def test_observing_an_archive_changes_nothing_about_it(
-    services: TrackServices, settings: Settings
+# --- map integrity --------------------------------------------------------
+#
+# `installed` and `invalid` answer two different questions, and a doctor whose
+# two counters describe the same set is a doctor that cannot report the one
+# failure it exists for. The contract, in full:
+#
+#     row + file that hashes to it   installed = 1   invalid = 0
+#     row, file gone                 installed = 0   invalid = 1
+#     row, file with other bytes     installed = 0   invalid = 1
+#     file nothing claims            installed = 0   invalid = 1
+#     nothing at all                 installed = 0   invalid = 0
+
+
+MONACO = "fake:europe/monaco"
+MONACO_BOUNDS = (7.40, 43.48, 7.60, 43.76)
+
+
+def _package_of(region_id: MapRegionId, digest: str, size: int) -> MapPackage:
+    """Return the row an installation of the fixture package would have written."""
+    return MapPackage(
+        region_id=region_id,
+        region_name="Monaco",
+        provider=region_id.provider,
+        format=MapPackageFormat.MBTILES,
+        tile_schema=MapTileSchema(name="shortbread", version="1.0"),
+        content_sha256=digest,
+        size_bytes=size,
+        bounds=MapBounds(*MONACO_BOUNDS),
+        min_zoom=0,
+        max_zoom=6,
+        attribution=MapAttribution(
+            data_owner="OpenStreetMap contributors",
+            provider="GPX-View test fixtures",
+            license_identifier="ODbL-1.0",
+            license_name="Open Database License 1.0",
+            required_text="© OpenStreetMap contributors",
+        ),
+        downloaded_at=datetime(2026, 8, 9, 12, 0, tzinfo=UTC),
+        source_url="https://example.invalid/monaco.mbtiles",
+    )
+
+
+def _install_map(services: TrackServices, tmp_path: Path) -> tuple[MapRegionId, Path]:
+    """Put a real package on disk and the row that claims it into the database.
+
+    The two halves are written separately on purpose: every case below is one of
+    them being wrong, and a helper that could only produce healthy installations
+    could not express them.
+    """
+    source = build_package(tmp_path / "monaco.mbtiles", bounds=MONACO_BOUNDS)
+    payload = source.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    region_id = MapRegionId.parse(MONACO)
+    managed = services.maps.storage.package_path(region_id, digest)
+    create_private_directory(managed.parent)
+    shutil.copyfile(source, managed)
+    services.maps.repository.save_package(_package_of(region_id, digest, len(payload)))
+    return region_id, managed
+
+
+def test_a_deployment_with_no_maps_counts_none_of_either(services: TrackServices) -> None:
+    """The baseline. Neither counter invents a package out of an empty archive."""
+    services.prepare_storage()
+
+    observation = observe(services, SCHEMA_VERSION)
+
+    assert observation.installed_map_count == 0
+    assert observation.invalid_map_count == 0
+    assert _check(Diagnose()(observation), "maps") is CheckStatus.OK
+
+
+def test_a_healthy_package_counts_as_installed_and_not_as_invalid(
+    services: TrackServices, tmp_path: Path
 ) -> None:
-    """Read-only is a contract, so it is asserted rather than intended."""
+    """A row and a file that hashes to it: the one state that is an installation."""
+    services.prepare_storage()
+    _install_map(services, tmp_path)
+
+    observation = observe(services, SCHEMA_VERSION)
+
+    assert observation.installed_map_count == 1
+    assert observation.invalid_map_count == 0
+    assert _check(Diagnose()(observation), "maps") is CheckStatus.OK
+
+
+def test_a_row_whose_file_is_gone_counts_as_invalid_and_not_as_installed(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """The lost-volume case: a map that answers every tile with nothing."""
+    services.prepare_storage()
+    _, managed = _install_map(services, tmp_path)
+    managed.unlink()
+
+    observation = observe(services, SCHEMA_VERSION)
+
+    assert observation.installed_map_count == 0
+    assert observation.invalid_map_count == 1
+    assert _check(Diagnose()(observation), "maps") is CheckStatus.WARNING
+
+
+def test_a_file_that_does_not_hash_to_its_row_counts_as_invalid(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """A file of the right name proves only that a file of that name exists.
+
+    The listing a page draws checks existence, deliberately: re-hashing a
+    gigabyte to render a table is a cost with no reader. The doctor is the
+    surface that pays it, which is the whole reason somebody runs it.
+    """
+    services.prepare_storage()
+    _, managed = _install_map(services, tmp_path)
+    managed.write_bytes(b"not the bytes this file is named after")
+
+    observation = observe(services, SCHEMA_VERSION)
+
+    assert observation.installed_map_count == 0
+    assert observation.invalid_map_count == 1
+    assert _check(Diagnose()(observation), "maps") is CheckStatus.WARNING
+
+
+def test_a_managed_file_no_row_claims_counts_as_invalid(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """Published, never committed. Storage nobody can account for is not nothing.
+
+    Start-up recovery deletes these, so one exists only between starts -- which
+    is exactly when somebody runs `doctor`, and exactly the disk usage they
+    cannot otherwise explain.
+    """
+    services.prepare_storage()
+    region_id, managed = _install_map(services, tmp_path)
+    services.maps.repository.delete_package(region_id)
+
+    observation = observe(services, SCHEMA_VERSION)
+
+    assert managed.is_file()
+    assert observation.installed_map_count == 0
+    assert observation.invalid_map_count == 1
+    assert _check(Diagnose()(observation), "maps") is CheckStatus.WARNING
+
+
+def test_installed_and_invalid_never_describe_the_same_package(
+    services: TrackServices, tmp_path: Path
+) -> None:
+    """The defect this contract exists for: two counters over one set.
+
+    A healthy package and a broken one are installed side by side, so a counter
+    that answered "how many rows are there" would report two of each and look
+    entirely plausible.
+    """
+    services.prepare_storage()
+    _install_map(services, tmp_path)
+    broken = MapRegionId.parse("fake:europe/andorra")
+    source = build_package(tmp_path / "andorra.mbtiles", bounds=(1.40, 42.42, 1.79, 42.66))
+    payload = source.read_bytes()
+    services.maps.repository.save_package(
+        replace(
+            _package_of(broken, hashlib.sha256(payload).hexdigest(), len(payload)),
+            region_name="Andorra",
+        )
+    )
+
+    observation = observe(services, SCHEMA_VERSION)
+
+    assert observation.installed_map_count == 1
+    assert observation.invalid_map_count == 1
+
+
+def test_observing_maps_removes_no_debris(services: TrackServices, tmp_path: Path) -> None:
+    """`doctor` reports an orphan; it does not take the decision to delete it.
+
+    Recovery does that, at start-up, deliberately. A diagnostic that repaired
+    what it found would leave an operator unable to see the state they ran it to
+    understand.
+    """
+    services.prepare_storage()
+    region_id, managed = _install_map(services, tmp_path)
+    services.maps.repository.delete_package(region_id)
+
+    observe(services, SCHEMA_VERSION)
+
+    assert managed.is_file()
+
+
+JOURNAL_SUFFIXES = ("-wal", "-shm")
+"""What SQLite puts beside a database in order to read it.
+
+Not archive content, and not evidence of a write. Opening a write-ahead-logging
+database read-only creates both, whoever opens it and however carefully; the
+only way for a diagnostic to leave them absent is to refuse to look at the
+database at all. They are excluded from the "changed nothing" comparison and
+checked separately for the one property that does matter -- that they carry the
+same private mode as everything else holding movement data.
+"""
+
+
+def _archive_content(data_dir: Path) -> dict[Path, tuple[int, int]]:
+    """Return every stored file with its size and modification time.
+
+    Journal files aside, nothing under the data directory may differ across a
+    diagnosis: not the database, not a managed original, not a map package.
+    """
+    return {
+        path: (path.stat().st_size, path.stat().st_mtime_ns)
+        for path in sorted(data_dir.rglob("*"))
+        if path.is_file() and not path.name.endswith(JOURNAL_SUFFIXES)
+    }
+
+
+def test_observing_an_archive_changes_nothing_about_it(
+    services: TrackServices, settings: Settings, tmp_path: Path
+) -> None:
+    """Read-only is a contract, so it is asserted rather than intended.
+
+    Every kind of thing the archive stores is present before the diagnosis --
+    a database, a managed original, an installed map package -- because "nothing
+    changed" is only worth asserting over material that could have changed.
+    """
     services.prepare_storage()
     services.import_tracks(
         ImportRequest(
@@ -271,17 +498,13 @@ def test_observing_an_archive_changes_nothing_about_it(
             input_channel=InputChannel.LOCAL_FILE,
         )
     )
-    before = {
-        path: path.stat().st_mtime_ns
-        for path in sorted(settings.data_dir.rglob("*"))
-        if path.is_file()
-    }
+    _install_map(services, tmp_path)
+    before = _archive_content(settings.data_dir)
+    assert len(before) >= 3
 
     observe(services, SCHEMA_VERSION)
 
-    after = {
-        path: path.stat().st_mtime_ns
-        for path in sorted(settings.data_dir.rglob("*"))
-        if path.is_file()
-    }
-    assert after == before
+    assert _archive_content(settings.data_dir) == before
+    for path in settings.data_dir.rglob("*"):
+        if path.is_file() and path.name.endswith(JOURNAL_SUFFIXES):
+            assert path.stat().st_mode & 0o777 == 0o600, path

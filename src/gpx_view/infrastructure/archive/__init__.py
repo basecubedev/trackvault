@@ -12,11 +12,21 @@ from gpx_view.infrastructure.archive.container import (
     FilesystemArchiveExtractor,
 )
 from gpx_view.infrastructure.archive.manifest_codec import decode_manifest, encode_manifest
+from gpx_view.infrastructure.archive.publication import (
+    RESTORE_MARKER_NAME,
+    RestoreRecovery,
+    recover_interrupted_restore,
+    restore_is_pending,
+)
 
 __all__ = [
     "ARCHIVE_SUFFIX",
+    "RESTORE_MARKER_NAME",
     "FilesystemArchiveBuilder",
     "FilesystemArchiveExtractor",
+    "RestoreRecovery",
     "decode_manifest",
     "encode_manifest",
+    "recover_interrupted_restore",
+    "restore_is_pending",
 ]

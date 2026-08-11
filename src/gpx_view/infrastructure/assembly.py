@@ -32,6 +32,7 @@ from gpx_view.application.processing import InstalledProcessing
 from gpx_view.application.processing_status import GetProcessingStatus
 from gpx_view.application.reprocess import ReprocessRawImport
 from gpx_view.config import Settings
+from gpx_view.infrastructure.archive import recover_interrupted_restore
 from gpx_view.infrastructure.clock import SystemClock
 from gpx_view.infrastructure.database import SqliteTrackStore
 from gpx_view.infrastructure.database.map_store import SqliteMapPackageStore
@@ -147,7 +148,14 @@ class TrackServices:
     maps: MapServices
 
     def prepare_storage(self) -> None:
-        """Bring the database up to the current schema before serving anything."""
+        """Bring the deployment to a readable state before serving anything.
+
+        An interrupted restore is resolved *first*, before the schema is even
+        looked at. A publication that stopped halfway leaves a database and a
+        raw storage that belong to different deployments, and migrating one of
+        them would build on a state nobody chose.
+        """
+        recover_interrupted_restore(self.settings.data_dir)
         self.store.migrate()
         self.maps.storage.prepare()
         # Debris from a process that stopped mid-installation is cleared before

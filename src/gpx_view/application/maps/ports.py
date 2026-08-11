@@ -274,6 +274,14 @@ class MapPackageStorage(Protocol):
         """Remove leftover temporary files. Returns how many were removed."""
         ...
 
+    def count_orphans(self, keep: Sequence[tuple[MapRegionId, str]]) -> int:
+        """Return how many managed files no installed package claims.
+
+        The read-only half of :meth:`discard_orphans`. A diagnostic reports
+        debris; only recovery removes it.
+        """
+        ...
+
     def discard_orphans(self, keep: Sequence[tuple[MapRegionId, str]]) -> int:
         """Remove managed files no installed package claims.
 

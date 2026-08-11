@@ -21,6 +21,7 @@ from datetime import datetime
 from typing import Any
 
 from gpx_view.application.archive import (
+    MANIFEST_MEMBER,
     ArchiveContents,
     ArchiveCounts,
     ArchivedFile,
@@ -47,14 +48,13 @@ def encode_manifest(manifest: ArchiveManifest) -> bytes:
             "tracks": manifest.counts.tracks,
             "classification_overrides": manifest.counts.classification_overrides,
             "user_metadata": manifest.counts.user_metadata,
+            "analyzed_tracks": manifest.counts.analyzed_tracks,
         },
         "contents": {
             "database": _encode_file(manifest.contents.database),
             "raw_imports": [_encode_file(item) for item in manifest.contents.raw_imports],
         },
-        "omissions": [
-            {"kind": omission.kind, "reason": omission.reason} for omission in manifest.omissions
-        ],
+        "omissions": [_encode_omission(omission) for omission in manifest.omissions],
     }
     return (json.dumps(document, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
@@ -62,6 +62,19 @@ def encode_manifest(manifest: ArchiveManifest) -> bytes:
 def _encode_file(item: ArchivedFile) -> dict[str, Any]:
     """Render one member's description."""
     return {"name": item.name, "size_bytes": item.size_bytes, "sha256": item.sha256}
+
+
+def _encode_omission(omission: ArchiveOmission) -> dict[str, Any]:
+    """Render one omission, writing a count only where there is one.
+
+    An absent ``count`` and ``"count": 0`` are different statements -- "this
+    kind is not enumerable" against "none of them were left out" -- and a
+    manifest that wrote zero for both would make the second unreadable.
+    """
+    document: dict[str, Any] = {"kind": omission.kind, "reason": omission.reason}
+    if omission.count is not None:
+        document["count"] = omission.count
+    return document
 
 
 def decode_manifest(content: bytes) -> ArchiveManifest:
@@ -103,10 +116,45 @@ def _decode_contents(document: dict[str, Any]) -> ArchiveContents:
     raw = document.get("raw_imports", [])
     if not isinstance(raw, list):
         raise ArchiveError(ArchiveErrorCode.MANIFEST_INVALID, "raw_imports is not a list")
-    return ArchiveContents(
+    contents = ArchiveContents(
         database=_decode_file(_object(document, "database")),
         raw_imports=tuple(_decode_file(_as_object(item, "raw_imports")) for item in raw),
     )
+    _require_distinct_members(contents)
+    return contents
+
+
+def _require_distinct_members(contents: ArchiveContents) -> None:
+    """Refuse a manifest that describes one member more than once.
+
+    A member list is keyed by name everywhere it is used -- the expected
+    checksums, the completeness check, the path a member is written to. A name
+    stated twice therefore collapses to one entry wherever it is *checked* and
+    stays two wherever it is *counted*, which is a manifest that describes more
+    material than the archive can possibly carry while still verifying
+    perfectly.
+
+    That is a self-contradiction inside the manifest, and it is caught here as
+    one. It is deliberately not a check against the database inside the
+    container: what the archive holds is the database's to say, and reconciling
+    the two would make this file a second business authority for it.
+
+    Raises:
+        ArchiveError: ``archive_manifest_invalid``. The detail stays structural
+            and never echoes the repeated name back into a log.
+    """
+    names = [contents.database.name, *(item.name for item in contents.raw_imports)]
+    if len(set(names)) != len(names):
+        raise ArchiveError(
+            ArchiveErrorCode.MANIFEST_INVALID, "a member name is stated more than once"
+        )
+    if MANIFEST_MEMBER in names:
+        # The manifest is not one of the members it describes. A container
+        # holding one of these would fail later, as an archive missing a member
+        # it promised, which is a true statement about a different problem.
+        raise ArchiveError(
+            ArchiveErrorCode.MANIFEST_INVALID, "a member claims the manifest's own name"
+        )
 
 
 def _decode_file(document: dict[str, Any]) -> ArchivedFile:
@@ -121,12 +169,23 @@ def _decode_file(document: dict[str, Any]) -> ArchivedFile:
 
 
 def _decode_counts(document: dict[str, Any]) -> ArchiveCounts:
-    """Parse what the archive says it holds."""
+    """Parse what the archive says it holds.
+
+    ``analyzed_tracks`` is optional, and only that one. An archive written
+    before the field existed is a valid archive of the same container format,
+    and refusing to restore it over a count that was not yet being recorded
+    would break the promise the format version exists to make. Absent decodes to
+    zero -- "this archive states nothing about analysis", which for a build that
+    was not recording it is the truth.
+    """
     return ArchiveCounts(
         raw_imports=_whole_number(document, "raw_imports"),
         tracks=_whole_number(document, "tracks"),
         classification_overrides=_whole_number(document, "classification_overrides"),
         user_metadata=_whole_number(document, "user_metadata"),
+        analyzed_tracks=(
+            _whole_number(document, "analyzed_tracks") if "analyzed_tracks" in document else 0
+        ),
     )
 
 
@@ -139,12 +198,20 @@ def _decode_omissions(value: object) -> tuple[ArchiveOmission, ...]:
     """
     if not isinstance(value, list):
         raise ArchiveError(ArchiveErrorCode.MANIFEST_INVALID, "omissions is not a list")
-    return tuple(
-        ArchiveOmission(
-            kind=_text(_as_object(item, "omissions"), "kind"),
-            reason=_text(_as_object(item, "omissions"), "reason"),
-        )
-        for item in value
+    return tuple(_decode_omission(_as_object(item, "omissions")) for item in value)
+
+
+def _decode_omission(document: dict[str, Any]) -> ArchiveOmission:
+    """Parse one omission, refusing a count that could not have been counted."""
+    count = document.get("count")
+    if count is not None:
+        count = _whole_number(document, "count")
+        if count < 0:
+            raise ArchiveError(ArchiveErrorCode.MANIFEST_INVALID, "an omission count is negative")
+    return ArchiveOmission(
+        kind=_text(document, "kind"),
+        reason=_text(document, "reason"),
+        count=count,
     )
 
 

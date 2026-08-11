@@ -266,7 +266,12 @@ contract test in the same commit, and say so.
 ## 7. Test isolation
 
 - Tests must pass with no internet, no external services, no real GPS files and
-  no Docker.
+  no Docker. This is **enforced**, not merely intended: an autouse fixture
+  refuses every connection and every lookup that leaves this machine, so a test
+  that reaches a provider fails rather than depending on whether the provider
+  answered. Loopback stays open, because the transfer tests run a real server
+  there. Wire a fixture provider before the request, never a `status_code in
+  {404, 503}` that passes either way.
 - Docker-dependent tests carry the `docker` marker and are opt-in
   (`uv run pytest -m docker`).
 - No test may depend on another test's side effects or on execution order.

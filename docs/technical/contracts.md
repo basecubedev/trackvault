@@ -1018,6 +1018,94 @@ a write can produce one that will not open.
 `format_version` and `schema_version` are separate and move for separate
 reasons: the container changing and a table changing are different events.
 
+### A backup that returned successfully is on the disk
+
+*Implemented as `gpx_view.infrastructure.archive.container.FilesystemArchiveBuilder`.*
+
+> A backup command that returns has written a backup, not scheduled one.
+
+```
+write → flush → fsync the archive → atomic rename → fsync the parent directory
+```
+
+The same sequence, in the same order, that the managed raw storage makes for an
+imported original. The last step is the one that is easy to leave off and
+impossible to notice afterwards: flushing the archive makes its *bytes* durable,
+but the rename that gives those bytes the archive's own name is an entry in the
+destination's directory, and an entry still in the page cache when the power
+goes leaves a complete backup that nothing points at. The moment somebody needs
+a backup is disproportionately often the moment after something went wrong with
+the machine.
+
+The directory flush is the *same helper* the restore publication uses. Both end
+a multi-step write with a rename and are only as durable as the directory entry
+it produced; a second implementation would be the one that quietly stopped at
+the rename.
+
+A failure to flush fails the backup, and the finished file is removed again even
+though it is complete and already carries the archive's name. A backup the
+command told somebody it could not write is the one they find later and trust.
+
+### The manifest describes the container; the database says what it holds
+
+> The manifest is an integrity description, never a second business authority.
+
+Two different jobs, and keeping them apart is what stops a restore from ever
+having to pick a winner between them.
+
+**What the manifest is checked against is itself.** A member name may be stated
+only once, no source may claim the database member's name, and the manifest is
+not one of the members it describes. All three are self-contradictions rather
+than disagreements with anything else: every use of the member list keys it by
+name -- the expected checksums, the completeness check, the path a member is
+written to -- so a repeated name collapses to one entry wherever it is *checked*
+and stays two wherever it is *counted*. The result would be an archive that
+verifies perfectly while describing more sources than it can be carrying, which
+is exactly the quiet incompleteness the manifest exists to make impossible.
+
+**`counts` is deliberately not reconciled with the member list.** It answers
+"what does this archive hold" in an operator's terms -- tracks, corrections,
+titles -- and only the captured database can answer that; one raw import row is
+one source whatever the container looks like. Cross-checking the two would make
+the manifest a second authority for numbers the database owns, and the coupling
+would have to be paid for at every future schema change. What the container is
+not allowed to do is carry a member it did not describe, or describe one twice;
+both of those are statements about the container alone, and both are enforced.
+
+### The captured database decides what belongs in the archive
+
+> A backup lists its sources from the snapshot it took, never from the disk it
+> is standing on.
+
+For every raw import the captured snapshot names, three things must hold:
+
+```
+the database row exists   +   the managed original exists   +   its bytes hash to it
+```
+
+Any one of them missing fails the backup. `archive_source_incomplete` names the
+first two and `archive_checksum_mismatch` the third, and neither leaves a file
+behind that could be mistaken for a backup.
+
+Listing the storage directory instead would answer a different question, and
+answer it about a deployment that is still running. A missing original simply
+would not appear, and the result is the failure this rule exists for: a
+well-formed archive whose manifest counts three sources and whose container
+carries two, with nothing detectably wrong about it until somebody restores it
+and goes looking for the third recording.
+
+**Stored originals that no row accounts for are not exported.** There is nothing
+to restore them *as* -- no import instant, no original filename, no
+classification -- and inventing one would make a backup the place where
+unattributed bytes acquire a provenance they never had. They stay where they
+are, and the manifest states how many were passed over. What is refused is the
+silence, not the file.
+
+The manifest also states how many tracks arrived with metrics attached. That is
+a fact about the archive and deliberately not a currency verdict: whether an
+analysis is `current` is decided by the algorithms the *reading* build has
+installed, and that decision has one owner elsewhere.
+
 ## Restore validates before it publishes
 
 *Implemented as `gpx_view.application.archive.RestoreArchive`.*
@@ -1051,6 +1139,98 @@ passed, which is the property that makes attempting a restore safe.
 - **A backup is verified by the code that would restore it.** A bespoke check
   would be a second opinion, and the day the two disagreed the backup would
   already be the thing at stake.
+
+### Backing up is a read; restoring is exclusive
+
+> A backup may run while the archive is being used. A restore may not.
+
+They are asymmetric because what they do is asymmetric, and stating the rule is
+better than leaving each caller to discover it.
+
+**A backup runs alongside everything.** The database is captured through
+SQLite's own online backup, which is built for a live file. Managed originals
+are immutable, so hashing one cannot race a writer. And the source list comes
+from the snapshot, so an import that commits after it is simply not in that
+backup — which is what a snapshot means.
+
+What makes that safe is one ordering, in the import: **the managed original is
+written before the row that names it.** A snapshot taken between the two halves
+sees neither, never a row whose bytes are missing — and a row whose bytes are
+missing is exactly what fails a backup. The bytes on disk are then counted as
+unreferenced and stated in the manifest, which is the honest description of a
+file that arrived a moment ago.
+
+**A restore requires the archive to itself.** It replaces the database and the
+managed storage, and an import running at the same time would write into
+storage that is being moved out from under it. There is no lock enforcing this:
+the supported operating procedure is to stop the container, restore, and start
+it again, which is what the documented recovery steps say.
+
+### A restore either completed, or it did not happen
+
+*Implemented as `gpx_view.infrastructure.archive.publication`.*
+
+Publishing is several renames, and several renames are not one atomic act.
+Between them the deployment holds a database from the archive beside a raw
+storage from somewhere else, which is a state nothing can read correctly.
+
+```
+write marker → displace → publish database → publish storage → clean → clear marker
+```
+
+The marker is written and flushed *before* anything moves and cleared only after
+everything has, so its presence is exactly the statement "a publication started
+and did not finish". It records its directories by name relative to the data
+directory: a container's data directory is a mount point whose absolute path
+depends on how the container was started, and a marker of absolute paths would
+stop resolving precisely when somebody moved a volume.
+
+An unfinished publication is **undone**, never finished on the deployment's
+behalf. Somebody whose restore reported an error has to be able to believe their
+archive is the one they started with; a command that reports a failure and
+replaced the data anyway is worse than one that simply fails. Rolling back is
+available for as long as the displaced directory is intact, which is until the
+moment both moves have succeeded — that is what makes the two-outcome promise
+keepable rather than aspirational.
+
+- **The same code resolves both interruptions.** An exception is handled
+  in-process by `abandon`; a killed container is handled at the next start by
+  the composition root, before the schema is even looked at. Two implementations
+  of "what to do about an unfinished publication" would eventually disagree, and
+  the day they did somebody would already be restoring from a backup.
+- **`abandon` after publication has begun is not a cleanup.** The displaced
+  directory then holds the *only* copy of the previous database and raw storage,
+  and discarding it as staging debris would turn a failed restore into total
+  data loss.
+- **An unreadable marker moves nothing.** Recovery moves and deletes
+  directories; a marker it cannot interpret names none, so it reports the fault
+  and leaves both copies where they are rather than choosing between them.
+- **`doctor` reports a pending restore as an error and does not clear it.** Not
+  because data is being lost, but because nothing else on the report can be
+  believed while the database and the storage may belong to different archives.
+
+### A restored map row is not a restored map
+
+The archive carries a package's metadata and not its bytes, so restoring onto a
+machine that does not have the package produces a row without a file. That state
+already has one honest answer, and no rule about restores was needed to get it:
+an installation is a row **and** a file that hashes to it, so the entry reports
+`INVALID` rather than offering a map that would answer every tile with nothing.
+
+| Target holds | After the restore |
+| --- | --- |
+| the same package | `INSTALLED` -- the row names that exact file, nothing is downloaded |
+| no package | `INVALID` -- reported by `doctor`, reinstalled by a person |
+| a *different* package | its file is now claimed by no row: cleared at the next start |
+
+The third row is a deletion, and it is the documented one: a map package is
+replaceable public data, and the installation it belonged to was part of the
+database the restore replaced. It happens through the ordinary start-up recovery
+rather than during the restore, so `doctor` can report it first.
+
+Attribution survives either way, because it is package metadata and the metadata
+is exactly what the archive does carry. A manager entry whose bytes are gone can
+still say what it was and who to credit.
 
 ## Diagnostics change nothing
 

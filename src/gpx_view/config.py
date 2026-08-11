@@ -65,11 +65,17 @@ class Settings(BaseSettings):
             a way to fill a disk with one request, and the default admits every
             country package the provider actually publishes.
         upload_enabled: Whether the web interface may offer files to the
-            archive. This is the one endpoint that lets a caller make the server
-            write, and the archive has no authentication -- so a deployment on a
-            network its operator does not fully trust turns it off and keeps
-            every read. Importing then stays what it was: an operator action on
-            the machine that holds the data.
+            archive. **Off unless somebody turns it on**, because this is the
+            one endpoint that lets a caller make the server write and the
+            archive has no authentication: anybody who can reach the port could
+            fill the disk. Enabling it is a statement about a network, and a
+            statement nobody made is not one this default may assume.
+
+            The capability itself is a decided feature rather than a gap --
+            see ``docs/adr/0011-web-upload.md``. What is deferred to the
+            operator is only whether their network makes it safe. Until then
+            importing stays what it was: the command line and the watched
+            folder, which is how Locus AutoSync already works.
         maps_enabled: Whether offline map packages may be installed at all.
             An operator who never wants an outbound request, not even a
             deliberate one, turns the whole capability off and the manager says
@@ -98,7 +104,7 @@ class Settings(BaseSettings):
 
     web_dir: Path = Path("web/dist")
 
-    upload_enabled: bool = True
+    upload_enabled: bool = False
 
     map_max_download_bytes: int = DEFAULT_MAX_DOWNLOAD_BYTES
     maps_enabled: bool = True

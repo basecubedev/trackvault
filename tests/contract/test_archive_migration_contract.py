@@ -19,6 +19,7 @@ can review in a diff, and it would stop being a real schema-1 database the first
 time somebody edited migration 1.
 """
 
+import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -35,10 +36,24 @@ from gpx_view.infrastructure.archive import FilesystemArchiveBuilder, Filesystem
 from gpx_view.infrastructure.assembly import TrackServices, build_services
 from gpx_view.infrastructure.database.inspection import read_schema_version
 from gpx_view.infrastructure.database.migrations import MIGRATIONS, SCHEMA_VERSION
+from gpx_view.infrastructure.filesystem import FilesystemRawImportStore
 
 pytestmark = [pytest.mark.contract, pytest.mark.persistence]
 
-SOURCE_HASH = "a" * 64
+SOURCE_CONTENT = (
+    b'<?xml version="1.0" encoding="UTF-8"?>\n'
+    b'<gpx version="1.1" creator="OldRecorder"><trk><name>An old ride</name></trk></gpx>\n'
+)
+"""The bytes the old deployment stored, synthetic and minimal.
+
+A real digest rather than a placeholder, because the managed original is written
+beside the row that names it. An old deployment whose database referenced a
+source its storage could not produce would be an *inconsistent* deployment, and
+a backup of one is refused -- correctly, and for reasons that have nothing to do
+with migrations.
+"""
+
+SOURCE_HASH = hashlib.sha256(SOURCE_CONTENT).hexdigest()
 
 
 def _database_at_schema(path: Path, version: int) -> None:
@@ -60,6 +75,19 @@ def _database_at_schema(path: Path, version: int) -> None:
         connection.close()
 
 
+def _store_schema_1_original(data_dir: Path) -> None:
+    """Write the managed original the schema-1 row names.
+
+    A row and its stored bytes are one deployment, and the store decides where
+    those bytes live -- asking it is what keeps this fixture describing a real
+    archive rather than a layout copied into a test.
+    """
+    store = FilesystemRawImportStore(data_dir / "raw")
+    path = store.path_for(SOURCE_HASH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(SOURCE_CONTENT)
+
+
 def _insert_schema_1_track(path: Path) -> None:
     """Put one source, one run and one track into a schema-1 database.
 
@@ -74,7 +102,7 @@ def _insert_schema_1_track(path: Path) -> None:
             " media_type, input_channel) VALUES (?, ?, ?, ?, ?, ?)",
             (
                 SOURCE_HASH,
-                42,
+                len(SOURCE_CONTENT),
                 "old.gpx",
                 "2019-06-11T09:14:00+00:00",
                 "application/gpx+xml",
@@ -210,6 +238,7 @@ def test_a_track_from_the_first_schema_survives_every_migration(
     old = tmp_path / "old-deployment"
     _database_at_schema(old / "gpx-view.sqlite3", 1)
     _insert_schema_1_track(old / "gpx-view.sqlite3")
+    _store_schema_1_original(old)
     archive = _archive_of(old, tmp_path / "ancient.tar.gz", services)
     fresh = tmp_path / "fresh"
 
@@ -228,6 +257,11 @@ def test_a_track_from_the_first_schema_survives_every_migration(
         (52.5, 13.4),
         (52.6, 13.5),
     ]
+    # The original bytes are the one thing no migration could reconstruct, so
+    # surviving six years of schema changes is asserted of them too -- and
+    # byte-for-byte, because "a file is there" is a weaker claim than the
+    # immutable-source-evidence rule makes.
+    assert restored.raw_store.read(SOURCE_HASH) == SOURCE_CONTENT
 
 
 def test_the_manifest_of_an_old_archive_states_the_old_schema(

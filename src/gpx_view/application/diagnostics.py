@@ -126,10 +126,20 @@ class DeploymentObservation:
         analysis_profile: What this build derives metrics with.
         containerized: Whether this looks like a container, for the advice to
             match the deployment.
+        restore_in_progress: Whether a restore started and did not finish. The
+            deployment may currently be a database and a raw storage belonging
+            to two different archives, which is the one state where every other
+            number on this report is describing half of something.
         maps_enabled: Whether map installation is permitted.
-        installed_map_count: How many map packages are installed and valid.
-        invalid_map_count: How many are a row without a healthy file, or the
-            other way round.
+        installed_map_count: How many map packages have a row and a managed file
+            that hashes to what the row says. Nothing else is an installation.
+        invalid_map_count: How much of the map area is not an installation --
+            rows whose file is missing or wrong, plus managed files no row
+            claims. Disjoint from ``installed_map_count`` by construction.
+        unclaimed_map_file_count: How many of those are files nothing claims.
+            Held apart because the two faults call for opposite actions: a row
+            without its file is reinstalled by a person, a file without its row
+            is cleared by the next start.
     """
 
     release: str
@@ -155,6 +165,8 @@ class DeploymentObservation:
     maps_enabled: bool
     installed_map_count: int
     invalid_map_count: int
+    unclaimed_map_file_count: int = 0
+    restore_in_progress: bool = False
 
 
 class Diagnose:
@@ -166,6 +178,7 @@ class Diagnose:
             checks=(
                 _release(observation),
                 _data_directory(observation),
+                _restore(observation),
                 _database(observation),
                 _database_integrity(observation),
                 _schema(observation),
@@ -214,6 +227,29 @@ def _data_directory(observation: DeploymentObservation) -> DiagnosticCheck:
             "the data directory is not writable by this user; check the mount's ownership",
         )
     return DiagnosticCheck("data_directory", CheckStatus.OK, "present and writable")
+
+
+def _restore(observation: DeploymentObservation) -> DiagnosticCheck:
+    """The one fault that makes every other line on this report untrustworthy.
+
+    A publication that stopped halfway can leave a database from one archive
+    beside a raw storage from another, so the track counts and the integrity
+    figures below would each be describing a different deployment. It is an
+    error rather than a warning for that reason: nothing is being lost, but
+    nothing can be believed either.
+
+    Ordinarily nobody sees this. Starting the archive resolves an interrupted
+    restore before it serves anything, so a marker survives only until the next
+    start -- which is exactly the window in which somebody runs `doctor`,
+    wondering why the container will not come up.
+    """
+    if observation.restore_in_progress:
+        return DiagnosticCheck(
+            "restore",
+            CheckStatus.ERROR,
+            "a restore did not finish; starting the archive completes or undoes it",
+        )
+    return DiagnosticCheck("restore", CheckStatus.OK, "no restore is pending")
 
 
 def _database(observation: DeploymentObservation) -> DiagnosticCheck:
@@ -346,12 +382,27 @@ def _web_assets(observation: DeploymentObservation) -> DiagnosticCheck:
 
 
 def _maps(observation: DeploymentObservation) -> DiagnosticCheck:
-    """A package is a row and a file that hashes to it; either alone is invalid."""
-    if observation.invalid_map_count:
+    """A package is a row and a file that hashes to it; either alone is invalid.
+
+    The two ways of being invalid get different sentences because they get
+    different actions. A row whose file is gone or damaged is reinstalled by
+    somebody; a file no row claims is debris the next start clears, and telling
+    an operator to reinstall it would send them looking for a region that is
+    not missing.
+    """
+    unclaimed = observation.unclaimed_map_file_count
+    unprovable = observation.invalid_map_count - unclaimed
+    if unprovable:
+        detail = f"{unprovable} installed map(s) cannot be proved; reinstall them"
+        if unclaimed:
+            detail += f", and {unclaimed} stored file(s) belong to no installation"
+        return DiagnosticCheck("maps", CheckStatus.WARNING, detail)
+    if unclaimed:
         return DiagnosticCheck(
             "maps",
             CheckStatus.WARNING,
-            f"{observation.invalid_map_count} installed map(s) cannot be proved; reinstall them",
+            f"{unclaimed} stored map file(s) belong to no installation; "
+            "the next start removes them",
         )
     if not observation.maps_enabled:
         return DiagnosticCheck(

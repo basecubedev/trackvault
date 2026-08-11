@@ -49,6 +49,10 @@ const server = spawn(
       GPX_VIEW_DATA_DIR: dataDir,
       GPX_VIEW_WEB_DIR: new URL('../dist', import.meta.url).pathname,
       GPX_VIEW_TIMEZONE: 'UTC',
+      // Opted in explicitly: uploading is off unless a deployment says
+      // otherwise, and the browser tests cover the capability somebody
+      // switched on rather than a default they did not choose.
+      GPX_VIEW_UPLOAD_ENABLED: 'true',
     },
     stdio: 'inherit',
   },

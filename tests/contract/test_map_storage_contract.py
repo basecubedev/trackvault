@@ -475,6 +475,74 @@ def test_a_published_file_no_row_points_at_is_removed_rather_than_adopted(
     assert archive.storage.is_intact(package.region_id, package.content_sha256)
 
 
+def test_counting_orphans_and_removing_them_agree_on_what_one_is(archive: Archive) -> None:
+    """One definition, read by the diagnostic and acted on by recovery.
+
+    A `doctor` that reported debris recovery then did not clear -- or worse,
+    reported none while recovery deleted a file -- would make the two surfaces
+    disagree about the same directory. Counting is asserted to predict removing.
+    """
+    archive.publish(MONACO)
+    archive.install(MONACO)
+    package = archive.repository.installed_package(MapRegionId.parse(MONACO))
+    assert package is not None
+    keep = [(package.region_id, package.content_sha256)]
+    archive.storage.package_path(package.region_id, "c" * 64).write_bytes(b"SQLite format 3\x00")
+
+    counted = archive.storage.count_orphans(keep)
+
+    assert counted == 1
+    assert archive.storage.discard_orphans(keep) == counted
+    assert archive.storage.count_orphans(keep) == 0
+
+
+def test_counting_orphans_reads_the_directory_without_emptying_it(archive: Archive) -> None:
+    """The diagnostic half is a read. It is what tells recovery apart from it."""
+    archive.publish(MONACO)
+    archive.install(MONACO)
+    package = archive.repository.installed_package(MapRegionId.parse(MONACO))
+    assert package is not None
+    orphan = archive.storage.package_path(package.region_id, "d" * 64)
+    orphan.write_bytes(b"SQLite format 3\x00")
+
+    assert archive.storage.count_orphans([(package.region_id, package.content_sha256)]) == 1
+
+    assert orphan.is_file()
+    assert archive.storage.is_intact(package.region_id, package.content_sha256)
+
+
+def test_a_file_a_row_names_is_never_counted_as_belonging_to_nobody(
+    archive: Archive,
+) -> None:
+    """A damaged package is one fault, and it is the row's fault to report.
+
+    Its bytes are wrong, so it is unprovable; but a row does name it, so calling
+    it unclaimed as well would count one broken package twice and send an
+    operator looking for a second problem that does not exist.
+    """
+    archive.publish(MONACO)
+    archive.install(MONACO)
+    package = archive.repository.installed_package(MapRegionId.parse(MONACO))
+    assert package is not None
+    archive.storage.package_path(package.region_id, package.content_sha256).write_bytes(b"wrong")
+
+    census = archive.installed.census()
+
+    assert (census.installed, census.unprovable, census.unclaimed) == (0, 1, 0)
+    assert census.invalid == 1
+
+
+def test_a_census_counts_a_healthy_package_once_and_as_installed(archive: Archive) -> None:
+    """The baseline the other census assertions are read against."""
+    archive.publish(MONACO)
+    archive.install(MONACO)
+
+    census = archive.installed.census()
+
+    assert (census.installed, census.unprovable, census.unclaimed) == (1, 0, 0)
+    assert census.invalid == 0
+
+
 # --- Reading tiles -----------------------------------------------------------
 
 

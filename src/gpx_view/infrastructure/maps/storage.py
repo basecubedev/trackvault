@@ -28,7 +28,7 @@ import hashlib
 import logging
 import os
 import shutil
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import BinaryIO
 
@@ -199,22 +199,48 @@ class FilesystemMapPackageStorage:
             removed += 1
         return removed
 
+    def count_orphans(self, keep: Sequence[tuple[MapRegionId, str]]) -> int:
+        """Return how many managed files no installed package claims.
+
+        The read-only half of :meth:`discard_orphans`, for the diagnostic that
+        reports debris rather than clearing it. A count and not the paths: a
+        storage key is a one-way digest of a region identity, so a file on its
+        own cannot say which region it was meant for, and nothing above
+        infrastructure is told a path in any case.
+        """
+        return sum(1 for _ in self._orphan_paths(keep))
+
     def discard_orphans(self, keep: Sequence[tuple[MapRegionId, str]]) -> int:
         """Remove managed files no installed package claims."""
         directory = self._root / PACKAGES_DIRECTORY
         if not directory.is_dir():
             return 0
-        wanted = {self.package_path(region_id, digest) for region_id, digest in keep}
         removed = 0
+        for candidate in self._orphan_paths(keep):
+            candidate.unlink(missing_ok=True)
+            removed += 1
+        for region_directory in sorted(directory.iterdir()):
+            if region_directory.is_dir():
+                self._prune(region_directory)
+        return removed
+
+    def _orphan_paths(self, keep: Sequence[tuple[MapRegionId, str]]) -> Iterator[Path]:
+        """Yield every managed file that is not one of the packages to keep.
+
+        What an orphan *is* is defined here and nowhere else, so the diagnostic
+        that counts them and the recovery that deletes them cannot come to
+        different answers about the same directory.
+        """
+        directory = self._root / PACKAGES_DIRECTORY
+        if not directory.is_dir():
+            return
+        wanted = {self.package_path(region_id, digest) for region_id, digest in keep}
         for region_directory in sorted(directory.iterdir()):
             if not region_directory.is_dir():
                 continue
             for candidate in sorted(region_directory.iterdir()):
                 if candidate.is_file() and candidate not in wanted:
-                    candidate.unlink(missing_ok=True)
-                    removed += 1
-            self._prune(region_directory)
-        return removed
+                    yield candidate
 
     def _prune(self, directory: Path) -> None:
         """Remove a package directory once nothing is left in it."""

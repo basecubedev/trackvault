@@ -61,6 +61,9 @@ CI regenerates both and fails on a non-empty diff.
 
 ```bash
 uv run pytest                  # default suite: no network, no Docker, no real GPS files
+                               # "no network" is enforced: every connection that
+                               # would leave this machine is refused, loopback
+                               # excepted. See tests/support/network.py.
 uv run pytest -m contract      # documented project and API contracts
 uv run pytest -m analysis      # the analysis algorithms and their versioning
 uv run pytest -m statistics    # aggregation, scopes and periods
