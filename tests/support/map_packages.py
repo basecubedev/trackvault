@@ -21,7 +21,7 @@ from __future__ import annotations
 import gzip
 import math
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -60,6 +60,16 @@ class Feature:
     attributes: dict[str, str] = field(default_factory=dict)
 
 
+FeatureSource = Callable[[str, int, int, int], Sequence[Feature]]
+"""What a package draws: given a layer name and a `(zoom, column, row)` tile in
+XYZ orientation, the features that tile carries in that layer.
+
+The default fixture puts one recognisable shape in every layer of every tile,
+which is what a validation test needs. A caller that wants a package to *look*
+like somewhere -- the documentation's demo island -- supplies its own.
+"""
+
+
 def build_package(
     path: Path,
     *,
@@ -71,6 +81,8 @@ def build_package(
     licence: str | None = DEFAULT_LICENCE,
     layers: Sequence[str] = SHORTBREAD_LAYERS,
     with_tiles: bool = True,
+    features: FeatureSource | None = None,
+    description: str = "Synthetic Shortbread package for the TrackVault test suite",
 ) -> Path:
     """Write a valid Shortbread-shaped MBTiles package covering ``bounds``.
 
@@ -90,6 +102,9 @@ def build_package(
             check an unsupported schema is refused by name.
         with_tiles: ``False`` writes the container and its metadata and no
             tiles, which is what an empty package looks like.
+        features: What each tile draws. The default puts one recognisable shape
+            in every layer, which is what a validation test asserts against.
+        description: What the `description` metadata says.
 
     Returns:
         The path that was written.
@@ -111,7 +126,11 @@ def build_package(
 
         if with_tiles:
             for zoom, column, row in _tiles_covering(bounds, min_zoom, max_zoom):
-                payload = gzip.compress(_tile(layers, place_name), mtime=0)
+                # The loop carries the TMS row the container stores; a feature
+                # source reasons about where it is on the ground, which is the
+                # XYZ row. Converting here keeps that flip in one place.
+                drawn = _tile(layers, place_name, features, zoom, column, (1 << zoom) - 1 - row)
+                payload = gzip.compress(drawn, mtime=0)
                 connection.execute(
                     "INSERT INTO tiles VALUES (?, ?, ?, ?)", (zoom, column, row, payload)
                 )
@@ -120,7 +139,7 @@ def build_package(
             "name": "Shortbread",
             "type": "baselayer",
             "version": "1.0",
-            "description": "Synthetic Shortbread package for the TrackVault test suite",
+            "description": description,
             "format": "pbf",
             "minzoom": str(min_zoom),
             "maxzoom": str(max_zoom),
@@ -179,11 +198,31 @@ def _row(latitude: float, zoom: int) -> int:
     return max(0, min(span - 1, int(fraction * span)))
 
 
-def _tile(layers: Sequence[str], place_name: str) -> bytes:
-    """Return one vector tile carrying a recognisable feature in every layer."""
+def _tile(
+    layers: Sequence[str],
+    place_name: str,
+    features: FeatureSource | None,
+    zoom: int,
+    column: int,
+    row: int,
+) -> bytes:
+    """Return one vector tile: every layer, and whatever it draws here.
+
+    A layer that draws nothing in this tile is left out entirely rather than
+    written empty. The package still *declares* it -- the schema check reads the
+    metadata, not the tiles -- and a renderer asking for a layer that is not in
+    a tile gets the same answer as one that is there and empty.
+    """
     encoded = b""
     for name in layers:
-        encoded += _bytes(3, _layer(name, _features_for(name, place_name)))
+        drawn = (
+            _features_for(name, place_name)
+            if features is None
+            else features(name, zoom, column, row)
+        )
+        if not drawn:
+            continue
+        encoded += _bytes(3, _layer(name, drawn))
     return encoded
 
 
