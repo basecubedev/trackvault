@@ -108,6 +108,33 @@ Neither browser suite ever touches a real recording. A private track in a
 screenshot or a trace is personal movement data leaving the machine it belongs
 to, and no assertion is worth that.
 
+### The documentation screenshots
+
+```bash
+cd web
+npm run build          # the screenshots are of the built page, not of Vite
+npm run screenshots    # regenerates docs/images/
+```
+
+The pictures in [`docs/user/guide.md`](../user/guide.md) and in the README are
+of the real application, driven in a real browser, over an archive that is
+nobody's: `scripts/demo_region.py` describes an invented island, and
+`scripts/demo_archive.py` walks it, writes GPX documents, imports them through
+the ordinary import path and installs a hand-drawn map package through the
+ordinary installation path.
+
+Run it after any change to a page the guide shows, so a screenshot cannot
+quietly become a description of a version that is gone. The generated archive is
+kept in `DEMO_DATA_DIR` and reused, because building it takes a few minutes and
+the interface is what changed; delete that directory to rebuild it. The browser
+comes from `npx playwright install chromium`, or from `CHROMIUM` where a machine
+already has one.
+
+The offline maps page is the one picture that reads the real Geofabrik catalog,
+which is the same request the *Refresh* button makes. Without a network that
+panel says the provider is unreachable and the picture stops at the installed
+package; nothing else in the run needs the internet.
+
 ## Working on offline maps
 
 The design and its rejected alternatives are in
