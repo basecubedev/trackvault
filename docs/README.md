@@ -7,6 +7,7 @@ TrackVault. It stays short on purpose; everything it summarises is here in full.
 
 | Document | Purpose |
 | --- | --- |
+| [user/guide.md](user/guide.md) | The guided tour: what it is for, getting the first tracks in, and what every screen says, with screenshots of a generated demo archive. Start here, then follow its links into the documents below |
 | [user/installation.md](user/installation.md) | The installed layout, every installer flag, the two ports, who the container runs as, Windows and macOS, running from a checkout, updating |
 | [user/importing.md](user/importing.md) | The three input paths and the one pipeline behind them, the full command list, the Locus AutoSync walkthrough, scheduling a scan, and the three exports |
 | [user/maps.md](user/maps.md) | Why an offline package rather than a tile service, installing and updating a region, region suggestions and their limits, storage, attribution |
