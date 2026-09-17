@@ -36,6 +36,20 @@ GPX is currently the exchange format TrackVault reads and writes. The archive
 model is deliberately format-independent: a format is an adapter at the edge,
 never the internal track model.
 
+## What it looks like
+
+A year at a time, recorded and planned kept apart:
+
+![The TrackVault dashboard: a year's distance, track count, moving time and elevation gain, above a monthly bar chart split by activity](docs/images/dashboard.png)
+
+One track: where it went, over a basemap on your own disk, and what it did:
+
+![A track page showing the route on an offline map beside its elevation and speed profile](docs/images/track-detail.png)
+
+Every picture in this repository is taken from a generated demo archive — an
+invented island, invented outings, an invented map. No real recording is in
+here. The [user guide](docs/user/guide.md) is the tour, screen by screen.
+
 ## Quick start
 
 You need Docker. You do not need Python, Node, or a copy of this repository.
@@ -232,6 +246,7 @@ follows.
 
 | For | Document |
 | --- | --- |
+| **Starting out — the guided tour, with pictures** | **[docs/user/guide.md](docs/user/guide.md)** |
 | Installing, updating, running it | [docs/user/installation.md](docs/user/installation.md) |
 | Getting tracks in and out | [docs/user/importing.md](docs/user/importing.md) |
 | Offline maps | [docs/user/maps.md](docs/user/maps.md) |
