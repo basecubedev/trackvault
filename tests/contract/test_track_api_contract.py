@@ -487,6 +487,7 @@ def test_the_api_publishes_exactly_the_implemented_surface(client: TestClient) -
         "/api/v1/system/info",
         "/api/v1/tracks",
         "/api/v1/tracks/imports",
+        "/api/v1/tracks/imports/automatic",
         "/api/v1/tracks/{track_id}",
         "/api/v1/tracks/{track_id}/geometry",
         "/api/v1/tracks/{track_id}/profile",

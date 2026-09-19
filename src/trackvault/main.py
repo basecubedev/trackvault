@@ -118,6 +118,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # has to know where configuration lives.
         app.state.upload_enabled = services.settings.upload_enabled
         app.state.import_tracks = services.import_tracks
+        # Read-only to the API: a route can ask what the worker did, and has no
+        # way to make it scan.
+        app.state.automatic_import = services.automatic_import
         app.state.maps_enabled = services.maps.enabled
         app.state.map_catalog = services.maps.catalog
         app.state.map_installed = services.maps.installed

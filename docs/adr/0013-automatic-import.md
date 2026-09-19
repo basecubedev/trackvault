@@ -121,8 +121,10 @@ never ends the worker, and a scan is never started while another one runs.
 
 The worker keeps the last scan and the last scan that imported, repaired or
 failed something, and when the next one is due. Both are in memory: they are a
-report on this process, not a record. Logging is quiet when a scan found
-nothing.
+report on this process, not a record. `GET /api/v1/tracks/imports/automatic`
+projects them — counts per outcome in the import use case's own vocabulary, and
+the name and error code of every file that failed. It reads the status and
+cannot start a scan. Logging is quiet when a scan found nothing.
 
 ### 8. The folder is still never modified
 

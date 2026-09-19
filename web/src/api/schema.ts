@@ -426,6 +426,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tracks/imports/automatic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the automatic import last did
+         * @description Return whether the import directory is read automatically, and what came of it.
+         *
+         *     A projection of the worker's own status. Every count is a count of the
+         *     import use case's outcomes, so this can never call a file imported that the
+         *     upload endpoint would have called a duplicate.
+         */
+        get: operations["read_automatic_import_api_v1_tracks_imports_automatic_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tracks/{track_id}": {
         parameters: {
             query?: never;
@@ -777,6 +801,46 @@ export interface components {
             required_text: string;
         };
         /**
+         * AutomaticImportResponse
+         * @description What the server's own scan of the import directory is doing.
+         */
+        AutomaticImportResponse: {
+            /**
+             * Directory
+             * @description The import directory as the server sees it; /import in the container
+             */
+            directory: string | null;
+            /**
+             * Enabled
+             * @description Whether the server reads the import directory itself
+             */
+            enabled: boolean;
+            /**
+             * Interval Minutes
+             * @description Minutes between one scan and the next
+             */
+            interval_minutes: number;
+            /** @description The most recent scan that imported, repaired or failed anything */
+            last_activity: components["schemas"]["ImportScanResponse"] | null;
+            /** @description The most recent scan */
+            last_scan: components["schemas"]["ImportScanResponse"] | null;
+            /**
+             * Next Scan At
+             * @description When the next scan is due
+             */
+            next_scan_at: string | null;
+            /**
+             * Scanning
+             * @description Whether a scan is running right now
+             */
+            scanning: boolean;
+            /**
+             * Settle Minutes
+             * @description Minutes a file must have been left alone before it is read
+             */
+            settle_minutes: number;
+        };
+        /**
          * AvailableYearsResponse
          * @description Which years this archive has something to show for.
          *
@@ -1062,6 +1126,22 @@ export interface components {
          */
         ImportErrorCode: "unsupported_format" | "invalid_gpx" | "unsafe_xml" | "import_too_large" | "too_many_tracks" | "too_many_track_segments" | "too_many_track_points" | "invalid_coordinate" | "invalid_timestamp" | "raw_storage_failed" | "raw_storage_missing" | "raw_storage_corrupt" | "persistence_failed" | "track_not_found" | "analysis_failed";
         /**
+         * ImportFailureResponse
+         * @description One file of the import directory that did not become a track.
+         */
+        ImportFailureResponse: {
+            /**
+             * Error Code
+             * @description Why it was not imported, in the upload's vocabulary; null when the import reached no verdict -- the file could not be read, or its import stopped on an error the server log describes
+             */
+            error_code: string | null;
+            /**
+             * Name
+             * @description The file's name in the import directory
+             */
+            name: string;
+        };
+        /**
          * ImportOutcomeResponse
          * @description What one offered file produced.
          *
@@ -1090,6 +1170,59 @@ export interface components {
              * @description The tracks this produced, or the tracks a duplicate already had
              */
             track_ids: number[];
+        };
+        /**
+         * ImportScanResponse
+         * @description What one scan of the import directory found and did.
+         */
+        ImportScanResponse: {
+            /**
+             * Directory Available
+             * @description Whether the import directory could be opened at all; false when it is not mounted, not there yet or not readable
+             */
+            directory_available: boolean;
+            /**
+             * Discovered
+             * @description Files named like a format this archive reads
+             */
+            discovered: number;
+            /**
+             * Failed
+             * @description Files that were not imported; see failures
+             */
+            failed: number;
+            /** Failures */
+            failures: components["schemas"]["ImportFailureResponse"][];
+            /**
+             * Finished At
+             * Format: date-time
+             */
+            finished_at: string;
+            /**
+             * Imported
+             * @description Files the archive took in as new sources; a document may hold no track
+             */
+            imported: number;
+            /**
+             * Repaired
+             * @description Files whose lost managed copy was restored
+             */
+            repaired: number;
+            /**
+             * Skipped
+             * @description Files with nothing new to do: already in the archive, or unchanged since an earlier scan reported on them
+             */
+            skipped: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * Waiting
+             * @description Files still being written, left for a later scan
+             */
+            waiting: number;
         };
         /**
          * ImportStatus
@@ -2735,6 +2868,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_automatic_import_api_v1_tracks_imports_automatic_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomaticImportResponse"];
                 };
             };
         };

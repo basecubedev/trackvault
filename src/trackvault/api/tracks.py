@@ -19,10 +19,13 @@ because the archive's owner asked for it, it goes through the single canonical
 import use case like every other input path, it bounds its read before consuming
 a body, and a deployment that cannot assume a trusted network refuses it with
 ``TRACKVAULT_UPLOAD_ENABLED=false``. See ``docs/adr/0011-web-upload.md``.
+
+``GET /tracks/imports/automatic`` reports what the server's own scan of the
+import directory last did. It reads the worker's status and cannot start a scan.
 """
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, cast
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, Response, status
@@ -31,6 +34,7 @@ from pydantic import BaseModel, Field
 from trackvault.application import ImportErrorCode
 from trackvault.application.analysis import GetTrackAnalysis, TrackAnalysisReport
 from trackvault.application.calendar import MAX_QUERY_YEAR, MIN_QUERY_YEAR, MONTHS_IN_YEAR
+from trackvault.application.import_scan import AutomaticImportMonitor, ImportScan
 from trackvault.application.import_tracks import ImportRequest, ImportStatus, ImportTracks
 from trackvault.application.maps import ApproximateLocation, LocateTracks
 from trackvault.application.ports import (
@@ -537,6 +541,59 @@ class ImportOutcomeResponse(BaseModel):
     error_code: str | None = Field(description="Why a failed attempt failed")
 
 
+class ImportFailureResponse(BaseModel):
+    """One file of the import directory that did not become a track."""
+
+    name: str = Field(description="The file's name in the import directory")
+    error_code: str | None = Field(
+        description="Why it was not imported, in the upload's vocabulary; null when "
+        "the import reached no verdict -- the file could not be read, or its import "
+        "stopped on an error the server log describes"
+    )
+
+
+class ImportScanResponse(BaseModel):
+    """What one scan of the import directory found and did."""
+
+    started_at: datetime
+    finished_at: datetime
+    directory_available: bool = Field(
+        description="Whether the import directory could be opened at all; false when "
+        "it is not mounted, not there yet or not readable"
+    )
+    discovered: int = Field(description="Files named like a format this archive reads")
+    imported: int = Field(
+        description="Files the archive took in as new sources; a document may hold no track"
+    )
+    repaired: int = Field(description="Files whose lost managed copy was restored")
+    skipped: int = Field(
+        description="Files with nothing new to do: already in the archive, or unchanged "
+        "since an earlier scan reported on them"
+    )
+    failed: int = Field(description="Files that were not imported; see failures")
+    waiting: int = Field(description="Files still being written, left for a later scan")
+    failures: list[ImportFailureResponse]
+
+
+class AutomaticImportResponse(BaseModel):
+    """What the server's own scan of the import directory is doing."""
+
+    enabled: bool = Field(description="Whether the server reads the import directory itself")
+    directory: str | None = Field(
+        description="The import directory as the server sees it; /import in the container"
+    )
+    interval_minutes: int = Field(description="Minutes between one scan and the next")
+    settle_minutes: int = Field(
+        description="Minutes a file must have been left alone before it is read"
+    )
+    scanning: bool = Field(description="Whether a scan is running right now")
+    last_scan: ImportScanResponse | None = Field(description="The most recent scan")
+    last_activity: ImportScanResponse | None = Field(
+        description="The most recent scan that imported, repaired or failed anything"
+    )
+    next_scan_at: datetime | None = Field(description="When the next scan is due")
+
+
 NOT_FOUND: dict[int | str, dict[str, object]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "No such track"}
 }
@@ -877,6 +934,48 @@ async def import_file(request: Request, filename: UploadFilename = None) -> Impo
         sha256=outcome.sha256,
         track_ids=list(outcome.track_ids),
         error_code=None if outcome.error_code is None else outcome.error_code.value,
+    )
+
+
+@router.get("/tracks/imports/automatic", summary="What the automatic import last did")
+def read_automatic_import(request: Request) -> AutomaticImportResponse:
+    """Return whether the import directory is read automatically, and what came of it.
+
+    A projection of the worker's own status. Every count is a count of the
+    import use case's outcomes, so this can never call a file imported that the
+    upload endpoint would have called a duplicate.
+    """
+    report = cast(AutomaticImportMonitor, request.app.state.automatic_import).status()
+    return AutomaticImportResponse(
+        enabled=report.enabled,
+        directory=report.directory,
+        interval_minutes=report.interval // timedelta(minutes=1),
+        settle_minutes=report.settle_time // timedelta(minutes=1),
+        scanning=report.scanning,
+        last_scan=_project_scan(report.last_scan),
+        last_activity=_project_scan(report.last_activity),
+        next_scan_at=report.next_scan_at,
+    )
+
+
+def _project_scan(scan: ImportScan | None) -> ImportScanResponse | None:
+    """Shape one scan for HTTP."""
+    if scan is None:
+        return None
+    return ImportScanResponse(
+        started_at=scan.started_at,
+        finished_at=scan.finished_at,
+        directory_available=not scan.unavailable,
+        discovered=scan.discovered,
+        imported=scan.count(ImportStatus.IMPORTED),
+        repaired=scan.count(ImportStatus.REPAIRED),
+        skipped=scan.skipped,
+        failed=len(scan.failures),
+        waiting=len(scan.waiting),
+        failures=[
+            ImportFailureResponse(name=name, error_code=None if code is None else code.value)
+            for name, code in scan.failures
+        ],
     )
 
 

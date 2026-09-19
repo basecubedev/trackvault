@@ -19,6 +19,7 @@ what it can say about that to somebody who is not reading its log.
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Protocol
 
 from trackvault.application.errors import ImportErrorCode
 from trackvault.application.import_tracks import ImportOutcome, ImportStatus
@@ -133,4 +134,12 @@ class AutomaticImportStatus:
     next_scan_at: datetime | None = None
 
 
-__all__ = ["AutomaticImportStatus", "ImportScan"]
+class AutomaticImportMonitor(Protocol):
+    """Reports what the automatic import is doing, without being able to run it."""
+
+    def status(self) -> AutomaticImportStatus:
+        """Return the automatic import's current state."""
+        ...
+
+
+__all__ = ["AutomaticImportMonitor", "AutomaticImportStatus", "ImportScan"]

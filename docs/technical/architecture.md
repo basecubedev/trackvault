@@ -1490,7 +1490,9 @@ about one file -- the folder cannot be listed -- ends the scan, is logged, and
 the next one is due an interval later rather than at once; a broken scan never
 ends the worker, and no scan starts while another runs.
 What the worker last did is kept in memory as a report on this process; what it
-imported is in the archive. See `docs/adr/0013-automatic-import.md`.
+imported is in the archive. `GET /api/v1/tracks/imports/automatic` projects that
+report through the application's `AutomaticImportMonitor` port -- read-only, so
+no route can make the worker scan. See `docs/adr/0013-automatic-import.md`.
 
 #### The AutoSync boundary
 

@@ -129,6 +129,7 @@ new ones.
 | `GET /healthz` | Liveness probe |
 | `GET /api/v1/system/info` | Release, schema version and the installed algorithms |
 | `GET /api/v1/tracks` | List stored tracks, without geometry |
+| `GET /api/v1/tracks/imports/automatic` | Whether the import folder is read automatically, when it was last read, and which files failed |
 | `GET /api/v1/tracks/{id}` | Read one track |
 | `GET /api/v1/tracks/{id}/geometry` | Its segments and positions; `?max_points=` for a simplified shape |
 | `GET /api/v1/tracks/{id}/profile` | Its elevation and speed against distance; `?max_samples=` |
