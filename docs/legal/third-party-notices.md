@@ -151,7 +151,7 @@ Everything here is bundled into the assets the container serves.
 | `@testing-library/user-event` | 14.6.1 | Simulating real user interaction in component tests | MIT |
 | `@testing-library/jest-dom` | 6.9.1 | Assertions about rendered markup | MIT |
 | `@playwright/test` | 1.57.0 | Browser end-to-end tests | Apache-2.0 |
-| `openapi-typescript` | 7.9.1 | Generates the API types from the backend schema | MIT |
+| `openapi-typescript` | 7.13.0 | Generates the API types from the backend schema | MIT |
 | `@types/node` | 26.2.0 | Type definitions for the Node build scripts | MIT |
 | `@types/react` | 19.2.2 | Type definitions for React | MIT |
 | `@types/react-dom` | 19.2.1 | Type definitions for React DOM | MIT |
