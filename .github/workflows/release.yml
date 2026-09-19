@@ -68,9 +68,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Tags and labels are derived from the tag being released rather than
-      # written by hand. `latest` is deliberately conditional: a pre-release
-      # (v1.0.0-rc1) publishes under its own name and does not become the
-      # version an unpinned deployment pulls tomorrow morning.
+      # written by hand. One name per release -- the tag's own, `v1.2.3`, which
+      # is what the release notes, the installer's `--tag` and the documentation
+      # use -- and no numeric aliases beside it that nothing refers to. `latest`
+      # is deliberately conditional: a pre-release (v1.0.0-rc1) publishes under
+      # its own name and does not become the version an unpinned deployment
+      # pulls tomorrow morning.
       - name: Decide tags and OCI labels
         id: metadata
         uses: docker/metadata-action@v5
@@ -78,8 +81,6 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/trackvault
           tags: |
             type=semver,pattern=v{{version}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
           # `org.opencontainers.image.licenses` states the identifier the
           # repository's own `LICENSE` file carries, and nothing else. It is a
