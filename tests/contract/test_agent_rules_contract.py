@@ -39,6 +39,15 @@ REQUIRED_RULE_ANCHORS = (
     "recorded, planned and unknown are distinct",
     "measured, derived and estimated metrics must not be conflated",
     "explicit user overrides beat automatic classification",
+    # Engineering baseline for every change.
+    "understand before changing",
+    "architectural conflict",
+    "data integrity",
+    "idempotency",
+    "background and scheduled processing",
+    "error handling",
+    "logging",
+    "documentation is part of the implementation",
 )
 
 # An entry point stays a pointer: short, and never a full copy of every topic.
