@@ -9,7 +9,9 @@ a second format is an adapter rather than a second pipeline.
 **From the browser.** Open **Tracks** and press *Import files*. Pick one file or
 twenty; each one is offered on its own and gets its own answer — imported,
 already in the archive, or not imported with the reason in words. Nothing is
-guessed: a file the archive cannot read is named, and the rest still go in.
+guessed: a file the archive cannot read is named, and the rest still go in. A
+file whose bytes the archive already holds but could never read says so, with
+the reason, rather than "nothing to do".
 
 **A watched folder.** Drop files into `import/` — the folder mounted read-only
 at `/import` — and TrackVault imports them on its own: when it starts, and every
@@ -65,8 +67,9 @@ import fails rather than overwriting the evidence.
 
 `scan` gives every `.gpx` file in the folder a line of its own: what the import
 made of it, or `unreadable`, `error` or `waiting` when there is no verdict.
-`waiting` is a file that changed while it was being read, or is still empty; the
-next scan takes it, and it does not count as a failure. Anything else without a
+`waiting` is a file that changed while it was being read; the next scan takes it,
+and it does not count as a failure. An empty file gets no line: it is not a
+document yet. Anything else without a
 verdict makes `scan` exit non-zero, like a failed import.
 
 `reprocess` answers a different question. Recognising a content hash makes an
@@ -154,8 +157,9 @@ scan finished. There is nothing to set up — no `cron`, no command.
   folder. Subfolders, hidden files and everything else are left alone.
 - **Only finished files.** A file is imported once nothing has changed it for
   five minutes, and only if it does not change while it is being read. A file
-  your sync tool is still copying — or an empty file it created ahead of the
-  content — is *waiting* and is taken by a later scan, never imported half way.
+  your sync tool is still copying is *waiting* and is taken by a later scan,
+  never imported half way. An empty file it created ahead of the content is
+  left alone until the content is there.
 - **Sync finished recordings.** A recorder that writes into the synced folder
   *while* it records produces a file that grows with pauses in between. If a
   pause lasts longer than the settle time, the first half is imported as a track
@@ -175,8 +179,10 @@ scan finished. There is nothing to set up — no `cron`, no command.
 
 The top of the **Tracks** page says whether the automatic import is on, which
 folder it reads, when it last read it and what came of that — "nothing new" for
-most scans — and lists every file it could not import, with the reason, until a
-later scan imports or fails something else.
+most scans — and lists every file in the folder it could not import, with the
+reason, for as long as the file is there. Fix the file, or take it out, and it
+leaves the list. The line keeps itself up to date while the page is open, and
+the track list below it catches up as soon as a scan brings something new.
 
 Three settings, all optional:
 

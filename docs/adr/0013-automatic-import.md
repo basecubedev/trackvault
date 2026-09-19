@@ -65,10 +65,11 @@ A candidate is read once its kernel change time is at least the settle time
 old — `TRACKVAULT_IMPORT_SETTLE_MINUTES`, five by default — and only if the open
 file is in exactly the state that was looked at before and after the read. The
 change time is set by the kernel on every write and rename and cannot be set
-back, which a modification time preserved by a copy tool cannot promise. An
-empty file is not a document yet either: sync tools create the name before the
-content. A file that fails any of these is *waiting* and is taken by a later
-scan. `trackvault scan` keeps the before-and-after check but no settle time: an
+back, which a modification time preserved by a copy tool cannot promise. A file
+that fails either check is *waiting* and is taken by a later scan. An empty
+file is not a candidate at all: sync tools create the name before the content,
+and one left behind would otherwise be "still arriving" forever. Writing into
+it changes it, and the next scan takes it then. `trackvault scan` keeps the before-and-after check but no settle time: an
 operator running it has decided the folder is ready.
 
 Five minutes rather than one because of recorders that write into a synced
@@ -121,11 +122,18 @@ never ends the worker, and a scan is never started while another one runs.
 
 The worker keeps the last scan and the last scan that imported, repaired or
 failed something, and when the next one is due. Both are in memory: they are a
-report on this process, not a record. `GET /api/v1/tracks/imports/automatic`
+report on this process, not a record. Every scan reports every file in the folder
+that is not a track: one this process saw fail is reported from memory without
+being read again, and after a restart the import use case supplies the reason,
+because a duplicate of bytes that never became tracks carries the error code of
+their newest attempt. So a broken file is listed for as long as it is there, and
+leaves the list once it is fixed or gone. `GET /api/v1/tracks/imports/automatic`
 projects them — counts per outcome in the import use case's own vocabulary, and
 the name and error code of every file that failed. It reads the status and
 cannot start a scan. The tracks page shows it in one line, and names the files
-that failed. Logging is quiet when a scan found nothing.
+that failed. It asks again every minute while the import is on — every few
+seconds while a scan runs — and reloads the track list when a scan imported
+something. Logging is quiet when a scan found nothing.
 
 ### 8. The folder is still never modified
 

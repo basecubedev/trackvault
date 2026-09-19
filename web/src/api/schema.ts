@@ -1155,7 +1155,7 @@ export interface components {
         ImportOutcomeResponse: {
             /**
              * Error Code
-             * @description Why a failed attempt failed
+             * @description Why a failed attempt failed; for a duplicate, why the bytes the archive already holds never became a track
              */
             error_code: string | null;
             /**

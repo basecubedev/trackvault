@@ -108,7 +108,10 @@ class ImportOutcome:
             were read.
         track_ids: The tracks the import produced, or the tracks the duplicate
             already had.
-        error_code: Why a failed import failed.
+        error_code: Why a failed import failed -- or, for bytes the archive
+            already holds, why they never became tracks. A duplicate of a file
+            that could not be read is still not in the archive's tracks, and
+            "nothing to do" would hide that from whoever offered it again.
     """
 
     status: ImportStatus
@@ -225,7 +228,9 @@ class ImportTracks:
         if state is RawArtifactState.HEALTHY:
             existing = self._repository.track_ids_for(sha256)
             logger.info("import.duplicate raw_import=%s tracks=%d", sha256[:12], len(existing))
-            return ImportOutcome(ImportStatus.DUPLICATE, sha256, existing)
+            return ImportOutcome(
+                ImportStatus.DUPLICATE, sha256, existing, self._never_imported(sha256, existing)
+            )
 
         if state is RawArtifactState.MISSING:
             # The same source evidence was offered again, and it hashes to the
@@ -237,12 +242,35 @@ class ImportTracks:
                 return self._failed(sha256, error.code)
             existing = self._repository.track_ids_for(sha256)
             logger.info("import.repaired raw_import=%s tracks=%d", sha256[:12], len(existing))
-            return ImportOutcome(ImportStatus.REPAIRED, sha256, existing)
+            return ImportOutcome(
+                ImportStatus.REPAIRED, sha256, existing, self._never_imported(sha256, existing)
+            )
 
         # A corrupt or unreadable artifact is evidence of a problem. Overwriting
         # it with the bytes it should have had would destroy the only trace of
         # whatever damaged it, so the import fails and says which it was.
         return self._failed(sha256, _INTEGRITY_FAILURES[state])
+
+    def _never_imported(self, sha256: str, existing: tuple[int, ...]) -> ImportErrorCode | None:
+        """Return why known bytes never became tracks, or ``None`` if they did.
+
+        Read from the newest attempt, which is already on record: nothing is
+        parsed and nothing is recorded to answer this. A source with a current
+        generation was imported, however many tracks it held and whatever a
+        later reprocessing attempt made of it. A stored reason this build does
+        not know is not repeated -- what comes out of the database is validated
+        before it is believed.
+        """
+        if existing:
+            return None
+        snapshot = self._repository.processing_snapshot(sha256)
+        if snapshot is None or snapshot.current_run is not None or snapshot.latest_run is None:
+            return None
+        stored = snapshot.latest_run.error_code
+        try:
+            return None if stored is None else ImportErrorCode(stored)
+        except ValueError:
+            return None
 
     @staticmethod
     def _failed(sha256: str, code: ImportErrorCode) -> ImportOutcome:

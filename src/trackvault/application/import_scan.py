@@ -8,6 +8,7 @@ never sees: files that were not offered, and why.
 ```
 offered      handed to ImportTracks -- imported, duplicate, repaired or failed
 unchanged    already offered in exactly this state by this process; not read
+failing      unchanged since this process offered it, and not imported then
 waiting      still being written; a later scan offers it
 unreadable   named like a track but could not be read as a regular file
 crashed      offered, but the import stopped on an error it did not anticipate
@@ -37,6 +38,10 @@ class ImportScan:
             outcome, in scan order.
         unchanged: How many candidates this process had already offered in
             exactly their current state, and skipped without reading.
+        failing: Candidates unchanged since this process offered them, which
+            did not become tracks then, with the reason they did not. Still
+            reported, so a broken file stays visible for as long as it is in
+            the folder, however much else is imported beside it.
         waiting: Candidates that were still changing. Not a verdict: the next
             pass offers them once they are quiet.
         unreadable: Candidates that could not be read as a regular file.
@@ -52,6 +57,7 @@ class ImportScan:
     finished_at: datetime
     offered: tuple[tuple[str, ImportOutcome], ...] = ()
     unchanged: int = 0
+    failing: tuple[tuple[str, ImportErrorCode], ...] = ()
     waiting: tuple[str, ...] = ()
     unreadable: tuple[str, ...] = ()
     crashed: tuple[str, ...] = ()
@@ -63,6 +69,7 @@ class ImportScan:
         return (
             len(self.offered)
             + self.unchanged
+            + len(self.failing)
             + len(self.waiting)
             + len(self.unreadable)
             + len(self.crashed)
@@ -74,34 +81,45 @@ class ImportScan:
 
     @property
     def skipped(self) -> int:
-        """Return how many candidates had nothing new to do.
+        """Return how many candidates the archive already holds as tracks.
 
         Either the archive answered ``duplicate``, or the file is unchanged
-        since an earlier pass of this process reported on it -- which includes
-        a file that pass reported as failed. Which of the two is a question of
-        cost, not of outcome.
+        since an earlier pass of this process found it imported. Which of the
+        two is a question of cost, not of outcome.
         """
-        return self.unchanged + self.count(ImportStatus.DUPLICATE)
+        held = sum(
+            1
+            for _, outcome in self.offered
+            if outcome.status is ImportStatus.DUPLICATE and outcome.error_code is None
+        )
+        return self.unchanged + held
 
     @property
     def failures(self) -> tuple[tuple[str, ImportErrorCode | None], ...]:
-        """Return every candidate that did not make it, with the reason.
+        """Return every candidate in the folder that is not a track, with the reason.
 
-        ``None`` means the import reached no verdict: the file could not be
-        read, or its import stopped on an error. The log says which.
+        That includes a file offered before whose bytes the archive holds but
+        could never read -- a duplicate that carries a reason -- and one this
+        process remembers failing. ``None`` means the import reached no verdict:
+        the file could not be read, or its import stopped on an error. The log
+        says which.
         """
         rejected = tuple(
             (name, outcome.error_code)
             for name, outcome in self.offered
-            if outcome.status is ImportStatus.FAILED
+            if outcome.error_code is not None
         )
         unfinished = (*self.unreadable, *self.crashed)
-        return rejected + tuple((name, None) for name in unfinished)
+        return rejected + self.failing + tuple((name, None) for name in unfinished)
 
     @property
     def had_activity(self) -> bool:
-        """Return whether the pass imported, repaired or failed anything."""
-        return bool(self.failures) or any(
+        """Return whether the pass imported, repaired or newly failed anything.
+
+        A failure already known -- remembered, or recognised in bytes the
+        archive holds -- is reported by every pass, and is news in none of them.
+        """
+        return bool(self.unreadable or self.crashed) or any(
             outcome.status is not ImportStatus.DUPLICATE for _, outcome in self.offered
         )
 

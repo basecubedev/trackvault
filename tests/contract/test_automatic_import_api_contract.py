@@ -121,19 +121,17 @@ def test_a_scan_is_reported_file_by_file_where_it_matters(served: Served) -> Non
     assert datetime.fromisoformat(body["next_scan_at"]) == scan.finished_at + INTERVAL
 
 
-def test_a_quiet_scan_does_not_hide_the_failure_before_it(served: Served) -> None:
-    """Most scans find nothing; the one that found a problem stays readable."""
+def test_a_quiet_scan_still_names_the_file_that_is_not_imported(served: Served) -> None:
+    """Most scans find nothing new; the broken file is still in the folder, and said so."""
     served.automatic.run_due()
     served.clock.instant += INTERVAL
 
     served.automatic.run_due()
     body = served.client.get(STATUS).json()
 
-    assert body["last_scan"]["skipped"] == 2
-    assert body["last_scan"]["failures"] == []
-    assert body["last_activity"]["failures"] == [
-        {"name": "broken.gpx", "error_code": "invalid_gpx"}
-    ]
+    assert body["last_scan"]["skipped"] == 1
+    assert body["last_scan"]["failures"] == [{"name": "broken.gpx", "error_code": "invalid_gpx"}]
+    assert body["last_activity"]["imported"] == 1
 
 
 def test_a_folder_that_cannot_be_opened_is_not_reported_as_empty(

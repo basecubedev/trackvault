@@ -123,6 +123,15 @@ export function TrackBrowser() {
     [kind],
   )
 
+  // Whatever brought a track in -- this browser or the server's own scan of the
+  // import folder -- the list and the years it is filtered by catch up.
+  const reloadPage = page.reload
+  const reloadYears = available.reload
+  const refreshListing = useCallback(() => {
+    reloadPage()
+    reloadYears()
+  }, [reloadPage, reloadYears])
+
   const update = useCallback(
     (key: string, value: string) => {
       const next = new URLSearchParams(parameters)
@@ -176,7 +185,7 @@ export function TrackBrowser() {
     <>
       <h1>Tracks</h1>
 
-      <AutomaticImportStatus />
+      <AutomaticImportStatus onImported={refreshListing} />
 
       <div className="filters">
         <div className="field">
@@ -284,10 +293,7 @@ export function TrackBrowser() {
       {importing && (
         <TrackImport
           enabled={system.data?.upload_enabled ?? false}
-          onImported={() => {
-            page.reload()
-            available.reload()
-          }}
+          onImported={refreshListing}
         />
       )}
 

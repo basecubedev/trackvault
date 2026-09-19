@@ -5,6 +5,7 @@ the classification rules meet real documents: every rule has a positive, a
 negative and an undecidable fixture here.
 """
 
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -263,8 +264,62 @@ def test_importing_the_same_bytes_twice_is_idempotent(
 
     assert second.status is ImportStatus.DUPLICATE
     assert second.track_ids == first.track_ids
+    assert second.error_code is None
     assert len(store.list_tracks(TrackQuery()).tracks) == 1
     assert len(list(raw_store.root.rglob("*.raw"))) == 1
+
+
+def test_offering_bytes_that_never_became_tracks_again_says_why(
+    pipeline: ImportTracks, store: SqliteTrackStore
+) -> None:
+    """A duplicate of a source that could not be read is still not in the archive.
+
+    The bytes are held -- that is what makes the offer a duplicate -- but
+    whoever offers the file again needs to hear why it is still not a track, not
+    "nothing to do". The reason is the one the last attempt recorded: nothing is
+    parsed and nothing is recorded to say so.
+    """
+    first = run(pipeline, "malformed.gpx")
+    again = run(pipeline, "malformed.gpx")
+
+    assert first.error_code is ImportErrorCode.INVALID_GPX
+    assert again.status is ImportStatus.DUPLICATE
+    assert again.track_ids == ()
+    assert again.error_code is ImportErrorCode.INVALID_GPX
+    assert store.run_count(again.sha256) == 1
+
+
+def test_a_document_that_holds_no_track_is_a_plain_duplicate(pipeline: ImportTracks) -> None:
+    """Holding nothing importable is a successful import, and saying so again is not a failure."""
+    first = run(pipeline, "empty-track.gpx")
+    again = run(pipeline, "empty-track.gpx")
+
+    assert first.track_ids == again.track_ids == ()
+    assert again.status is ImportStatus.DUPLICATE
+    assert again.error_code is None
+
+
+def test_a_stored_reason_this_build_does_not_know_is_not_repeated(
+    pipeline: ImportTracks, tmp_path: Path
+) -> None:
+    """What comes back out of the database is validated before it is believed.
+
+    A reason written by another build, or damaged since, is not an error code
+    this build can state. The duplicate is still a duplicate; it just has no
+    reason to give.
+    """
+    first = run(pipeline, "malformed.gpx")
+    with sqlite3.connect(tmp_path / "trackvault.sqlite3") as connection:
+        connection.execute(
+            "UPDATE processing_runs SET error_code = 'from_a_future_build' "
+            "WHERE raw_import_sha256 = ?",
+            (first.sha256,),
+        )
+
+    again = run(pipeline, "malformed.gpx")
+
+    assert again.status is ImportStatus.DUPLICATE
+    assert again.error_code is None
 
 
 def test_a_different_filename_is_still_the_same_content(

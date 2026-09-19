@@ -324,6 +324,21 @@ def test_the_command_line_scan_names_a_file_that_is_still_arriving(
     assert any(line.startswith("waiting") and line.endswith(arriving.name) for line in lines)
 
 
+def test_the_command_line_scan_passes_over_an_empty_file(
+    tmp_path: Path, inbox: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An empty file is no document: no line, no failure, nothing stored."""
+    (inbox / "malformed.gpx").unlink()
+    (inbox / "placeholder.gpx").write_bytes(b"")
+    settings = _settings(tmp_path, inbox)
+
+    code = main(["scan"], settings=settings)
+
+    assert code == EXIT_OK
+    assert "placeholder.gpx" not in capsys.readouterr().out
+    assert len(SqliteTrackStore(settings.database_path).processing_snapshots()) == 2
+
+
 def test_scanning_without_a_configured_directory_says_so(tmp_path: Path) -> None:
     """An unset import directory disables the feature instead of guessing one."""
     assert main(["scan"], settings=_settings(tmp_path)) == EXIT_DISABLED

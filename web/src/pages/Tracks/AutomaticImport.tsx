@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { AutomaticImport, ImportScan } from '../../api/client'
 import { api } from '../../api/client'
 import { explainImportError } from '../../api/explanations'
@@ -6,6 +7,19 @@ import type { StateLabel } from '../../api/labels'
 import { useRequest } from '../../api/useRequest'
 import { Badge } from '../../components/Badge'
 import { Notice } from '../../components/Notice'
+
+/**
+ * How often the line asks again. The status is one small read, and a folder
+ * scanned every quarter of an hour does not need a fresher answer than a minute.
+ */
+const REFRESH_MS = 60_000
+
+/**
+ * How often it asks while a scan is running. Soon enough that "reading the
+ * folder now" does not outlive the read by long; far enough apart to stay one
+ * request among many.
+ */
+const REFRESH_WHILE_SCANNING_MS = 5_000
 
 const ON: StateLabel = {
   text: 'Automatic import on',
@@ -29,12 +43,52 @@ const OFF: StateLabel = {
  * import and why. It puts the archive's counts into words and decides nothing:
  * whether a file was new, a duplicate or broken is the import's verdict.
  *
- * The file that failed is taken from the last scan that *did* something. Most
- * scans find nothing new, and a quiet quarter hour must not make a broken file
- * disappear from the page before anybody saw it.
+ * The files that failed are the last scan's, because every scan reports every
+ * file in the folder that is not a track -- including one it did not have to
+ * read again. So a broken file stays listed for as long as it is there, however
+ * much else arrives beside it, and leaves the list once it is fixed or gone.
+ *
+ * The line asks again on its own while the automatic import is on, and tells
+ * the page when a scan brought something new, so the list beside it catches up
+ * without anybody reloading.
  */
-export function AutomaticImportStatus() {
-  const status = useRequest((signal) => api.readAutomaticImport(signal), [])
+export function AutomaticImportStatus({
+  onImported,
+}: {
+  /** Called once a scan after the first answer imported or restored a file. */
+  onImported?: () => void
+}) {
+  const [tick, setTick] = useState(0)
+  const status = useRequest((signal) => api.readAutomaticImport(signal), [tick])
+  const enabled = status.data?.enabled ?? false
+  const scanning = status.data?.scanning ?? false
+
+  // Asking only while there is something to ask about: a switched-off import
+  // answers the same thing for the lifetime of the tab.
+  useEffect(() => {
+    if (!enabled) return undefined
+    const timer = window.setInterval(
+      () => {
+        setTick((value) => value + 1)
+      },
+      scanning ? REFRESH_WHILE_SCANNING_MS : REFRESH_MS,
+    )
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [enabled, scanning])
+
+  // The first answer is the page as it was loaded, so only a change after it
+  // is news. A scan is identified by when it finished.
+  const seen = useRef<string | null | undefined>(undefined)
+  const activity = status.data?.last_activity ?? null
+  useEffect(() => {
+    const finished = activity?.finished_at ?? null
+    if (status.data === null || finished === seen.current) return
+    const known = seen.current !== undefined
+    seen.current = finished
+    if (known && activity !== null && activity.imported + activity.repaired > 0) onImported?.()
+  }, [status.data, activity, onImported])
 
   if (status.error !== null) {
     return (
@@ -62,7 +116,7 @@ export function AutomaticImportStatus() {
     )
   }
 
-  const failures = report.last_activity?.failures ?? []
+  const failures = report.last_scan?.failures ?? []
   return (
     <div className="automatic-import" data-testid="automatic-import">
       <p className="muted">

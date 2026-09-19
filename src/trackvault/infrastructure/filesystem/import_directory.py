@@ -296,6 +296,19 @@ def _never() -> bool:
     return False
 
 
+@dataclass(frozen=True, slots=True)
+class _Offered:
+    """What a scanner remembers about a file it has offered.
+
+    Attributes:
+        state: The file as it was when offered. Anything else is a new file.
+        reason: Why it did not become tracks then, or ``None`` if it did.
+    """
+
+    state: FileState
+    reason: ImportErrorCode | None
+
+
 @dataclass(slots=True)
 class _Findings:
     """What one pass has found so far."""
@@ -303,6 +316,7 @@ class _Findings:
     seen: set[str] = field(default_factory=set)
     offered: list[tuple[str, ImportOutcome]] = field(default_factory=list)
     unchanged: int = 0
+    failing: list[tuple[str, ImportErrorCode]] = field(default_factory=list)
     waiting: list[str] = field(default_factory=list)
     unreadable: list[str] = field(default_factory=list)
     crashed: list[str] = field(default_factory=list)
@@ -312,9 +326,11 @@ class ImportDirectoryScanner:
     """Offers the import directory's finished candidates to the import use case.
 
     One scanner serves one process for as long as it scans, and remembers which
-    state of each name it has offered: an unchanged file costs a ``stat`` on the
-    next pass rather than a read, a hash and an integrity check. The memory is a
-    cache and never the duplicate authority -- see the module documentation.
+    state of each name it has offered and whether it became tracks: an unchanged
+    file costs a ``stat`` on the next pass rather than a read, a hash and an
+    integrity check, and one that failed is reported again without being read.
+    The memory is a cache and never the duplicate authority -- see the module
+    documentation.
 
     Args:
         directory: The import root. Opened afresh for every pass.
@@ -339,7 +355,7 @@ class ImportDirectoryScanner:
         self._import_tracks = import_tracks
         self._clock = clock
         self._settle_time = settle_time
-        self._offered: dict[str, FileState] = {}
+        self._offered: dict[str, _Offered] = {}
 
     def scan(self, stopping: Callable[[], bool] = _never) -> ImportScan:
         """Offer every finished candidate this scanner has not offered as it is now.
@@ -374,6 +390,7 @@ class ImportDirectoryScanner:
             finished_at=self._clock.now(),
             offered=tuple(findings.offered),
             unchanged=findings.unchanged,
+            failing=tuple(findings.failing),
             waiting=tuple(findings.waiting),
             unreadable=tuple(findings.unreadable),
             crashed=tuple(findings.crashed),
@@ -417,18 +434,21 @@ class ImportDirectoryScanner:
         if state is None:
             logger.debug("import.skipped name=%r reason=not_a_regular_file", label)
             return
-        findings.seen.add(entry.name)
-        if self._offered.get(entry.name) == state:
-            findings.unchanged += 1
-            return
-        logger.debug("import.discovered name=%r", label)
         if state.size == 0:
             # Sync tools create the name before the content, so an empty file is
-            # not a document yet. Offering it would store a raw import of
-            # nothing, which the upload endpoint refuses for the same reason.
-            logger.info("import.waiting name=%r reason=empty", label)
-            findings.waiting.append(label)
+            # not a document yet: not a candidate, like a file of another format.
+            # Writing into it changes it, and the next pass takes it then.
+            logger.debug("import.skipped name=%r reason=empty", label)
             return
+        findings.seen.add(entry.name)
+        remembered = self._offered.get(entry.name)
+        if remembered is not None and remembered.state == state:
+            if remembered.reason is None:
+                findings.unchanged += 1
+            else:
+                findings.failing.append((label, remembered.reason))
+            return
+        logger.debug("import.discovered name=%r", label)
         if self._settle_time and started_at - state.changed_at < self._settle_time:
             logger.info("import.waiting name=%r reason=recently_changed", label)
             findings.waiting.append(label)
@@ -463,7 +483,7 @@ class ImportDirectoryScanner:
             return
         findings.offered.append((label, outcome))
         if outcome.error_code not in _RETRIED_FAILURES:
-            self._offered[entry.name] = state
+            self._offered[entry.name] = _Offered(state, outcome.error_code)
         _log_offered(label, outcome)
 
 

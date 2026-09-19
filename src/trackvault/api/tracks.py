@@ -538,7 +538,10 @@ class ImportOutcomeResponse(BaseModel):
     track_ids: list[int] = Field(
         description="The tracks this produced, or the tracks a duplicate already had"
     )
-    error_code: str | None = Field(description="Why a failed attempt failed")
+    error_code: str | None = Field(
+        description="Why a failed attempt failed; for a duplicate, why the bytes the "
+        "archive already holds never became a track"
+    )
 
 
 class ImportFailureResponse(BaseModel):
