@@ -1,7 +1,9 @@
 import { vi } from 'vitest'
 import type {
+  AutomaticImport,
   AvailableYears,
   Geometry,
+  ImportScan,
   InstalledMap,
   InstalledMaps,
   MapAttribution,
@@ -297,6 +299,36 @@ export function systemInfo(overrides: Partial<SystemInfo> = {}): SystemInfo {
       metric_schema_version: 1,
     },
     upload_enabled: true,
+    ...overrides,
+  }
+}
+
+export function automaticImport(overrides: Partial<AutomaticImport> = {}): AutomaticImport {
+  return {
+    enabled: true,
+    directory: '/import',
+    interval_minutes: 15,
+    settle_minutes: 5,
+    scanning: false,
+    last_scan: importScan(),
+    last_activity: null,
+    next_scan_at: '2026-09-19T12:30:00Z',
+    ...overrides,
+  }
+}
+
+export function importScan(overrides: Partial<ImportScan> = {}): ImportScan {
+  return {
+    started_at: '2026-09-19T12:15:00Z',
+    finished_at: '2026-09-19T12:15:01Z',
+    directory_available: true,
+    discovered: 4,
+    imported: 0,
+    repaired: 0,
+    skipped: 4,
+    failed: 0,
+    waiting: 0,
+    failures: [],
     ...overrides,
   }
 }

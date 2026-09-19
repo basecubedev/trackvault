@@ -31,10 +31,14 @@ The automatic import reads the folder when TrackVault starts and every 15
 minutes after that (`TRACKVAULT_IMPORT_SCAN_INTERVAL_MINUTES`), and takes a file
 only once nothing has changed it for five minutes
 (`TRACKVAULT_IMPORT_SETTLE_MINUTES`) — so a ride that just arrived waits at least
-that long, and then for the next scan. `trackvault scan` imports it at once. Only
+that long, and then for the next scan. Until then the page counts it as still
+arriving. `trackvault scan` imports it at once. Only
 `.gpx` files directly in the folder are read; a file in a subfolder, or with a
 different ending, is left alone. If `TRACKVAULT_IMPORT_SCAN_ENABLED` is `false`,
-nothing is read until you run `scan`.
+nothing is read until you run `scan`. The top of the **Tracks** page says when
+the folder was last read and names every file that could not be imported. If it
+says the folder could not be opened, the mount is missing — see "`trackvault scan`
+finds nothing" above, and `trackvault doctor`.
 
 **Nothing answers on <http://localhost:8081/>.**
 8081 is the host port; 8080 is the container's. Check what is actually

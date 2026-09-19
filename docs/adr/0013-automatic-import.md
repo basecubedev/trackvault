@@ -110,9 +110,9 @@ reports such a file, and a file it could not read, as failed and exits
 non-zero.
 
 A folder that cannot be opened at all — a share not mounted yet — is not an
-empty folder. The scan reports it unavailable, a warning is logged, and the
-memory of offered files is kept, so a share that comes back unchanged is not
-read all over again. An error that is
+empty folder. The scan reports it unavailable, the page says the folder could
+not be opened, a warning is logged, and the memory of offered files is kept, so
+a share that comes back unchanged is not read all over again. An error that is
 not about one file — the folder cannot be listed — ends that scan, is logged
 with its traceback, and the next scan is due one interval later as usual; it
 never ends the worker, and a scan is never started while another one runs.
@@ -124,7 +124,8 @@ failed something, and when the next one is due. Both are in memory: they are a
 report on this process, not a record. `GET /api/v1/tracks/imports/automatic`
 projects them — counts per outcome in the import use case's own vocabulary, and
 the name and error code of every file that failed. It reads the status and
-cannot start a scan. Logging is quiet when a scan found nothing.
+cannot start a scan. The tracks page shows it in one line, and names the files
+that failed. Logging is quiet when a scan found nothing.
 
 ### 8. The folder is still never modified
 
@@ -135,7 +136,8 @@ folder an output of the archive, and the container mounts it read-only.
 
 Positive:
 
-- A synced ride appears without anybody running anything.
+- A synced ride appears without anybody running anything, and the tracks page
+  says when the folder was last read and which file could not be imported.
 - There is still one import implementation. Manual upload, `trackvault import`,
   `trackvault scan` and the automatic import differ only in how bytes arrive.
 - A restart cannot import anything twice, because nothing about idempotency lives

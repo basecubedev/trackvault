@@ -167,10 +167,16 @@ scan finished. There is nothing to set up — no `cron`, no command.
   other import. A folder your phone never clears, a restart, or the same ride
   under two names all end in one track. Files already imported cost almost
   nothing: an unchanged file is not even read again until TrackVault restarts.
-- **One broken file is one broken file.** The files after it are imported as
-  usual, and so are the files after one the server is not allowed to read. A
-  file that failed because the archive itself could not be written — a full
-  disk, say — is tried again on the next scan.
+- **One broken file is one broken file.** It is named on the **Tracks** page
+  with the reason, and the files after it are imported as usual. So is a file
+  the server is not allowed to read. A file that failed because the archive
+  itself could not be written — a full disk, say — is tried again on the next
+  scan.
+
+The top of the **Tracks** page says whether the automatic import is on, which
+folder it reads, when it last read it and what came of that — "nothing new" for
+most scans — and lists every file it could not import, with the reason, until a
+later scan imports or fails something else.
 
 Three settings, all optional:
 

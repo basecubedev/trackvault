@@ -11,6 +11,7 @@ import { mergeAttribution } from '../../map/style'
 import { TrackMinimap } from '../../map/TrackMinimap'
 import { Badge } from '../../components/Badge'
 import { Notice } from '../../components/Notice'
+import { AutomaticImportStatus } from './AutomaticImport'
 import { TrackImport } from './TrackImport'
 
 const PAGE_SIZE = 25
@@ -174,6 +175,8 @@ export function TrackBrowser() {
   return (
     <>
       <h1>Tracks</h1>
+
+      <AutomaticImportStatus />
 
       <div className="filters">
         <div className="field">
