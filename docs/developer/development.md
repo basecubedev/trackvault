@@ -265,6 +265,11 @@ starts the release workflow, which runs the full quality gate on that exact
 commit before anything is published; a tag containing `-` (`v1.2.3-rc1`) is
 published as a pre-release and does not become `latest`.
 
+The image of tag `v1.2.3` is `ghcr.io/basecubedev/trackvault:v1.2.3`, and a
+final release moves `latest` to it. Those are the only two names: no `1.2.3`
+or `1.2` alias beside them, because nothing refers to one and each would be a
+second answer to "which tag do I pin?".
+
 Two consequences worth knowing:
 
 - **A working tree between tags reports a development version**, such as

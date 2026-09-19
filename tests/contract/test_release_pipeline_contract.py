@@ -4,8 +4,8 @@ The images people run are the most trusted artifact this project produces, and
 two of them are published:
 
 ```
-:latest, :v1.2.3, :1.2.3, :1.2   a release tag, and nothing else
-:edge                            every commit that lands on main
+:v1.2.3, :latest   a release tag, and nothing else
+:edge              every commit that lands on main
 ```
 
 The distinction is the whole access-control model. `latest` is what an unpinned
@@ -227,12 +227,21 @@ def test_latest_is_published_only_for_a_final_release() -> None:
     assert "type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}" in recipe
 
 
-def test_the_published_tags_cover_the_documented_set() -> None:
-    """`v1.2.3`, `1.2.3` and `latest`, plus a minor series to follow."""
-    recipe = RELEASE.read_text(encoding="utf-8")
+def test_a_release_is_published_under_its_tag_and_latest_only() -> None:
+    """`v1.2.3` is the release; `latest` is the pointer an unpinned install follows.
 
-    for pattern in ("pattern=v{{version}}", "pattern={{version}}", "pattern={{major}}.{{minor}}"):
-        assert pattern in recipe, pattern
+    The image of tag `v1.2.3` is named `v1.2.3` -- the name the release notes,
+    the installer's `--tag` and the documentation all use. Aliases beside it
+    (`1.2.3`, `1.2`) are names for one image that nothing here refers to, and
+    every one of them is a second answer to "which tag do I pin?".
+    """
+    (patterns,) = _published_tag_patterns(RELEASE)
+    lines = {line.strip() for line in patterns.splitlines() if line.strip()}
+
+    assert lines == {
+        "type=semver,pattern=v{{version}}",
+        "type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}",
+    }
 
 
 def test_the_image_carries_the_metadata_a_build_can_actually_know() -> None:
