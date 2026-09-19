@@ -11,6 +11,10 @@ TrackVault is a self-hosted, source-agnostic activity and route archive for reco
 and planned geospatial tracks. GPX is the first supported exchange format, not the
 product.
 
+The rules combine a general engineering baseline with rules specific to this
+project. A project-specific rule may sharpen a general principle, never
+contradict it.
+
 ---
 
 ## 1. Scope discipline
@@ -22,8 +26,52 @@ product.
   that have no contract yet.
 - If a task turns out to be underspecified, state the assumption you made and
   keep going; ask only when proceeding either way would waste the work.
+- Change only what the task needs: no reformatting, renaming or restructuring of
+  unrelated code, no dependency upgrades, no API or UI changes and no cleanup the
+  task did not ask for.
+- **Stop at an architectural conflict.** When a request would introduce a second
+  source of truth, duplicate business logic, compromise data integrity, bypass a
+  layer boundary or duplicate existing functionality, do not implement it as
+  asked. Name the conflict and propose the smallest solution that keeps the
+  existing architecture intact.
 
-## 2. Contract-first
+## 2. Understand before changing
+
+Before a non-trivial change, read the code, tests and documentation it touches,
+and make no architectural assumption the existing implementation has not
+confirmed. Start by answering:
+
+```text
+Source of truth:
+Affected components:
+Existing functionality reused:
+Relevant tests:
+Data-integrity risks:
+Architectural constraints:
+```
+
+GitNexus and Serena belong in that analysis wherever they materially improve it
+(see Tooling rules).
+
+**Reuse before you build.** Existing project patterns are the default, in this
+order of preference:
+
+```text
+existing project pattern
+-> existing abstraction
+-> small extension
+-> focused refactoring
+-> new abstraction
+-> new dependency
+```
+
+- Reuse the existing domain types, ports, adapters, validators, API patterns, UI
+  components, configuration and test fixtures. Never build a parallel
+  implementation of something that already exists.
+- Do not rewrite working code merely because another implementation looks
+  cleaner.
+
+## 3. Contract-first
 
 Every change with business meaning follows this order:
 
@@ -39,7 +87,12 @@ Tests verify behaviour and contracts, never incidental implementation detail. Do
 not write tests that merely mirror the current internal call structure, and do
 not write brittle full-text snapshots of documentation.
 
-## 3. Single source of truth
+- A bug fix normally comes with a regression test that fails without the fix.
+- Never delete or weaken a test to make an implementation pass. If a test is
+  wrong, fix it deliberately and say why.
+- Refactor only with the tests green.
+
+## 4. Single source of truth
 
 Exactly one owner per concern. `docs/technical/architecture.md` holds the full
 authority table. In short:
@@ -77,7 +130,19 @@ authority table. In short:
 No UI and no import adapter may ever create a second, independent business truth.
 Projections are allowed to reshape data; they are not allowed to decide it.
 
-## 4. Source-agnostic architecture
+Derived data -- statistics, profiles, map series, caches, indexes -- is allowed
+when it is visibly derived from its authority and can be regenerated from it;
+stale derived data has a defined way back to current. Before adding a second
+representation of any state, answer: what is the source of truth, why is the
+extra representation needed, how is it derived, and how does it stay
+consistent? Never fix an inconsistency by synchronising competing sources when a
+single authority is possible.
+
+Configuration has one mechanism, `trackvault.config`. A default is defined once
+and reused -- no magic numbers, and changing a default never means editing
+several unrelated places.
+
+## 5. Source-agnostic architecture
 
 - **Input format is never the domain model.** `GPX != Track`, `FIT != Track`,
   `Locus != Track`, `Komoot != Track`. Formats and source applications are
@@ -95,7 +160,7 @@ Projections are allowed to reshape data; they are not allowed to decide it.
 - Adding a format means adding an adapter, not a factory hierarchy. A `Protocol`
   plus, only if genuinely needed, a small dispatcher. Keep it boring.
 
-## 5. Business invariants
+## 6. Business invariants
 
 Full detail in `docs/technical/contracts.md`. Non-negotiable:
 
@@ -238,7 +303,7 @@ Full detail in `docs/technical/contracts.md`. Non-negotiable:
   track that carries no instants at all. A kind override never changes this: it
   says what a track is, not that its clock was measured.
 
-## 6. Architecture boundaries
+## 7. Architecture boundaries
 
 Layers, inner to outer: `domain` -> `application` -> `infrastructure` / `api`.
 
@@ -258,12 +323,51 @@ Layers, inner to outer: `domain` -> `application` -> `infrastructure` / `api`.
 - A future browser UI is projection only. Browser state is never business
   authority.
 - `trackvault.main` is the composition root. Bootstrap only, never business logic.
+- The backend owns every business rule and calculation, and the API contract has
+  one authoritative definition. The frontend never re-implements a backend rule
+  or calculation; its validation may improve the experience but never replaces
+  backend validation.
+- Do not move business logic into another layer because it is convenient there.
 
 `tests/contract/test_architecture_contract.py` enforces these boundaries with an
 AST check. If a boundary genuinely has to change, change the documentation and the
 contract test in the same commit, and say so.
 
-## 7. Test isolation
+## 8. Data integrity and idempotency
+
+TrackVault holds imported and user-edited track data. Never silently discard or
+overwrite it. The business invariants above state what must hold; this section
+states how a change gets there.
+
+- Before a change touches persisted data, answer: what changes, what stays
+  unchanged, can it run again, what happens if it fails halfway, and how is it
+  recovered? Prefer safe, reversible operations where practical.
+- Anything that may run more than once is idempotent where practical: imports,
+  reprocessing, analysis and statistics, cache generation, metadata updates and
+  migrations. A second run creates no duplicate and corrupts no state. An
+  operation that is deliberately not idempotent documents why.
+- **Background and scheduled processing** -- import-folder scanning, periodic
+  statistics, maintenance -- is safe to repeat, never imports twice, keeps a
+  clear processing state and leaves no corruption after a partial failure; a
+  failed run is recoverable. Application-level scheduling is not OS-level cron;
+  use cron only when a task explicitly requires it.
+- **Persistence changes** start from the existing schema, the migrations in
+  `trackvault.infrastructure.database.migrations` and the existing data-access
+  code. They state which compatibility they keep and come with tests. A
+  persisted field is never deleted or renamed because it looks unused.
+
+## 9. Error handling and logging
+
+- Never swallow an error. Handle it in the layer that can decide what it means,
+  and do not catch broadly just to keep the application running.
+- A user-facing error says what went wrong and what to do about it. Technical
+  detail stays available for diagnostics without exposing internals to the
+  caller.
+- Logging records meaningful events at a fitting level: no excessive or
+  duplicate messages, no dumps of large structures, no secrets, and no personal
+  data beyond what a diagnosis needs (see Personal GPS data).
+
+## 10. Test isolation
 
 - Tests must pass with no internet, no external services, no real GPS files and
   no Docker. This is **enforced**, not merely intended: an autouse fixture
@@ -278,7 +382,7 @@ contract test in the same commit, and say so.
 - Never write into the developer's home directory or into `/data`. Use `tmp_path`.
 - Markers are declared in `pyproject.toml` and validated by `--strict-markers`.
 
-## 8. Deterministic tests
+## 11. Deterministic tests
 
 - No dependency on the current wall-clock time, time zone, locale, random seed,
   network latency or file system ordering.
@@ -287,14 +391,22 @@ contract test in the same commit, and say so.
   poll a start-up condition with a bounded timeout.
 - A flaky test is a defect. Fix it or delete it; never retry it into green.
 
-## 9. Security and secrets
+## 12. Security and secrets
 
 - No secrets, tokens, passwords or API keys in the repository, in tests, in
   fixtures or in log output.
 - `.env` is git-ignored and must stay that way. `.env.example` may only contain
   non-sensitive placeholder values.
 - No absolute local paths in committed files.
-- Dependencies are added deliberately, one at a time, with a stated reason.
+- Dependencies are added deliberately, one at a time, with a stated reason --
+  never for convenience. First check whether the project or an existing
+  dependency already covers the need, and weigh maintenance cost, security,
+  image size and build complexity.
+- **External input is untrusted.** Imported files, uploads, archives and
+  provider responses are validated at the boundary where they enter: malformed
+  or oversized documents, unexpected or missing values, malformed metadata,
+  invalid paths and path traversal. A file extension proves nothing about the
+  content.
 - **A path check must still be valid at open time.** The import directory and
   everything below the data directory are untrusted, whatever user the process
   runs as. Checking a path and then opening it leaves a window in which the path
@@ -304,7 +416,7 @@ contract test in the same commit, and say so.
   file. Reads stay bounded, and an open must not be able to block indefinitely.
   The configured roots themselves are operator configuration and stay trusted.
 
-## 10. Personal GPS data
+## 13. Personal GPS data
 
 GPS files are private movement data about real people.
 
@@ -336,32 +448,50 @@ GPS files are private movement data about real people.
   certain way. `tests/contract/test_private_data_contract.py` enforces the
   exclusion.
 
-## 11. Source code language
+## 14. Source code language
 
 Source code is English-only: identifiers, comments, docstrings, API field names,
 error codes and commit messages. Reports and discussion with the project owner
 are in German.
 
-## 12. Comments and docstrings
+## 15. Comments and docstrings
 
 - Docstrings explain contracts, invariants and the "why".
+- Keep comments rare. Clear names, small functions and tests explain the "what";
+  a comment explains only a "why" the code cannot show: a non-obvious reason, a
+  safety or architectural decision, a compatibility workaround, deliberately
+  unusual behaviour.
 - Do not comment obvious code. No decorative banners, no commented-out code, no
-  change logs in comments -- Git already records history.
+  change logs in comments -- Git already records history. No comments that
+  restate the code or narrate control flow, and no long explanatory blocks or
+  essays inside functions; detailed explanations belong in the documentation or
+  in a test.
 - Public modules, classes and functions carry a docstring (enforced by Ruff `D`).
+  Keep it short: the contract, not an essay.
 
-## 13. Git discipline
+## 16. Documentation
 
-- Small, logical, English commits.
+Documentation is part of the implementation. A change that introduces a reusable
+concept, an architectural decision, a configuration option or a workflow updates
+the matching document under `docs/` in the same change.
+
+## 17. Git discipline
+
+- Small, logical, English commits. A commit message describes the actual
+  change, and unrelated changes never share a commit.
+- A change that clearly belongs to an earlier, unmerged commit may be committed
+  as `fixup!`. Squashing it with `git rebase --autosquash` rewrites history and
+  happens only on the project owner's instruction.
 - Before every commit: `git status --short`, `git diff --check`, `git diff --stat`,
   and review every changed file.
 - **No push without explicit instruction from the project owner.**
 - Never run destructive Git commands: no `git reset --hard`, no `git clean -fd`,
   no force push, no history rewrite, no branch deletion on your own initiative.
-- No co-author trailers.
+- No co-author trailers unless the project owner explicitly asks for one.
 - Never commit `.env`, `.venv`, `__pycache__`, tool caches, generated reports,
   local agent/tool data or personal GPX files.
 
-## 14. Tooling rules
+## 18. Tooling rules
 
 - `uv` owns dependencies and the environment. `uv.lock` is committed and must
   stay in sync (`uv lock --check`). Never edit the lock file by hand.
@@ -370,18 +500,21 @@ are in German.
   the only test runner. Do not add a second tool for a job that already has one.
 - GitNexus answers "what can this change affect?"; Serena answers "what is the
   working tree right now?". Both complement tests and reading the code -- they
-  never replace them. Their local data is never committed.
+  never replace them. Use them to understand the existing system, never to
+  justify a refactoring the task does not need. Their local data is never
+  committed.
 - Use GitNexus impact/blast-radius analysis before changing an existing symbol
   that other code depends on, and `detect_changes` before committing. Re-index
   with `gitnexus analyze` when the index reports itself stale.
 - `gitnexus analyze` appends a generated `<!-- gitnexus:start -->` block with its
   own do/don't list to `AGENTS.md` and `CLAUDE.md`. **Remove that block again.**
-  It is a second rule source, which section 3 forbids; the agent rules contract
-  test fails while it is present. GitNexus usage is documented here instead.
+  It is a second rule source, which the single-source-of-truth section forbids;
+  the agent rules contract test fails while it is present. GitNexus usage is
+  documented here instead.
 - `.gitnexus/`, `.serena/` and `.claude/skills/gitnexus/` are generated locally
   and stay git-ignored.
 
-## 15. Validation and reporting
+## 19. Validation and reporting
 
 Before reporting a task as done, run and report the real results of:
 
@@ -400,7 +533,18 @@ git diff --check
 - If something failed, say so and show the output.
 - Report what you skipped and why, instead of quietly reducing the scope.
 
-## 16. Prohibited anti-patterns
+Then review the actual `git diff`: no unrelated change, the existing
+architecture followed, no second source of truth, and the data-integrity
+consequences understood. The final report, in German, states:
+
+```text
+Tests:
+Result:
+Changed:
+Potential follow-up:
+```
+
+## 20. Prohibited anti-patterns
 
 Do not create:
 
@@ -413,6 +557,9 @@ Do not create:
 - more than one configuration system
 - a second parsing or persistence path per input channel
 - a duplicated copy of these agent rules
+- a parallel implementation of functionality that already exists
+- a frontend copy of a backend business rule or calculation
+- a broad exception handler whose only purpose is to keep running
 - a repository pattern for a database that does not exist yet
 - abstract factories, importer managers or coordinator factories without a
   concrete need
