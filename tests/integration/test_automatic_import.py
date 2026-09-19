@@ -243,6 +243,50 @@ def test_a_folder_that_cannot_be_opened_is_reported_and_forgets_nothing(
     assert back.unchanged == 1
 
 
+def test_a_broken_file_is_reported_for_as_long_as_it_is_in_the_folder(
+    tmp_path: Path, inbox: Path
+) -> None:
+    """Importing something else does not make a broken file any less broken.
+
+    The file is not read again while it is unchanged; its reason is remembered.
+    Taking it out of the folder is what ends the report.
+    """
+    broken = _put(inbox, "a-broken.gpx", "malformed.gpx")
+    services = _services(tmp_path, inbox)
+    clock = _settled(broken)
+    scanner = _scanner(services, inbox, clock)
+    first = scanner.scan()
+
+    later = _put(inbox, "b-later.gpx")
+    clock.instant = _settled(later).instant
+    busy = scanner.scan()
+    broken.unlink()
+    gone = scanner.scan()
+
+    assert first.failures == (("a-broken.gpx", ImportErrorCode.INVALID_GPX),)
+    assert busy.count(ImportStatus.IMPORTED) == 1
+    assert busy.failures == (("a-broken.gpx", ImportErrorCode.INVALID_GPX),)
+    assert busy.had_activity is True
+    assert gone.failures == ()
+
+
+def test_a_broken_file_is_still_reported_after_a_restart(tmp_path: Path, inbox: Path) -> None:
+    """A new process knows the bytes, and the archive says why they are not a track.
+
+    Offered again, the file is a duplicate -- its bytes are held -- and the
+    import use case gives the reason the last attempt recorded.
+    """
+    broken = _put(inbox, "broken.gpx", "malformed.gpx")
+    clock = _settled(broken)
+    _scanner(_services(tmp_path, inbox), inbox, clock).scan()
+
+    restarted = _scanner(_services(tmp_path, inbox), inbox, clock).scan()
+
+    assert restarted.failures == (("broken.gpx", ImportErrorCode.INVALID_GPX),)
+    assert restarted.skipped == 0
+    assert restarted.had_activity is False
+
+
 def test_a_restart_does_not_import_again(tmp_path: Path, inbox: Path) -> None:
     """What was imported is a fact of the archive, not of the process that did it.
 
@@ -672,9 +716,9 @@ def test_the_settle_time_comes_from_the_configuration(tmp_path: Path, inbox: Pat
 def test_what_a_scan_found_stays_visible_after_quiet_scans(tmp_path: Path, inbox: Path) -> None:
     """A failure reported once must still be there when somebody looks later.
 
-    Most scans find nothing new. The status keeps the last scan that did
-    something beside the last scan, so "nothing new" never hides "one file
-    could not be imported".
+    Most scans find nothing new. A file that could not be imported is still
+    reported by every one of them, and the status keeps the last scan that did
+    something beside the last scan.
     """
     broken = _put(inbox, "broken.gpx", "malformed.gpx")
     valid = _put(inbox, "valid.gpx")
@@ -687,7 +731,8 @@ def test_what_a_scan_found_stays_visible_after_quiet_scans(tmp_path: Path, inbox
     quiet = automatic.run_due()
 
     assert quiet is not None
-    assert quiet.skipped == 2
+    assert quiet.skipped == 1
+    assert quiet.failures == (("broken.gpx", ImportErrorCode.INVALID_GPX),)
     status = automatic.status()
     assert status.last_scan == quiet
     assert status.last_activity == busy

@@ -122,7 +122,12 @@ never ends the worker, and a scan is never started while another one runs.
 
 The worker keeps the last scan and the last scan that imported, repaired or
 failed something, and when the next one is due. Both are in memory: they are a
-report on this process, not a record. `GET /api/v1/tracks/imports/automatic`
+report on this process, not a record. Every scan reports every file in the folder
+that is not a track: one this process saw fail is reported from memory without
+being read again, and after a restart the import use case supplies the reason,
+because a duplicate of bytes that never became tracks carries the error code of
+their newest attempt. So a broken file is listed for as long as it is there, and
+leaves the list once it is fixed or gone. `GET /api/v1/tracks/imports/automatic`
 projects them — counts per outcome in the import use case's own vocabulary, and
 the name and error code of every file that failed. It reads the status and
 cannot start a scan. The tracks page shows it in one line, and names the files

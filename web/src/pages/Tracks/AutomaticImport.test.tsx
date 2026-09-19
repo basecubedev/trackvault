@@ -65,7 +65,7 @@ describe('the automatic import, as the tracks page reports it', () => {
         { name: 'locked.gpx', error_code: null },
       ],
     })
-    const status = await show(automaticImport({ last_activity: failed }))
+    const status = await show(automaticImport({ last_scan: failed }))
 
     expect(status.textContent).toContain('broken.gpx')
     expect(status.textContent).toContain('could not be read as GPX')
@@ -88,12 +88,21 @@ describe('the automatic import, as the tracks page reports it', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     const same = { name: 'M\uFFFDnchen.gpx', error_code: 'invalid_gpx' }
     const status = await show(
-      automaticImport({ last_activity: importScan({ failed: 2, failures: [same, same] }) }),
+      automaticImport({ last_scan: importScan({ failed: 2, failures: [same, same] }) }),
     )
 
     expect(status.querySelectorAll('.automatic-import__failures li')).toHaveLength(2)
     expect(errors).not.toHaveBeenCalled()
     errors.mockRestore()
+  })
+
+  it('lists what is not imported now, not what the last busy scan found', async () => {
+    // The last scan describes the folder as it is: a broken file still there
+    // is in it, and one that was fixed or taken out is not.
+    const fixed = importScan({ failed: 1, failures: [{ name: 'fixed.gpx', error_code: 'invalid_gpx' }] })
+    const status = await show(automaticImport({ last_scan: importScan(), last_activity: fixed }))
+
+    expect(status.textContent).not.toContain('fixed.gpx')
   })
 
   it('does not claim a result before the folder was first read', async () => {

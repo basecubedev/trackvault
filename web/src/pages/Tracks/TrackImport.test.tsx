@@ -81,6 +81,29 @@ describe('offering files to the archive', () => {
     expect(screen.getByTestId('import-result').textContent).toMatch(/already/i)
   })
 
+  it('says why a file the archive already held is still not a track', async () => {
+    show([
+      on('/tracks/imports', {
+        status: 'duplicate',
+        sha256: 'd'.repeat(64),
+        track_ids: [],
+        error_code: 'invalid_gpx',
+      }),
+    ])
+
+    await userEvent.upload(screen.getByLabelText(/choose files/i), [gpx('broken-again.gpx')])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('import-result')).toBeInTheDocument()
+    })
+    // "Nothing to do" would send somebody looking for a track that is not
+    // there. The bytes are held; what they never became is the news.
+    const sentence = screen.getByTestId('import-result').textContent
+    expect(sentence).toMatch(/already in the archive/i)
+    expect(sentence).toContain('could not be read as GPX')
+    expect(sentence).not.toMatch(/nothing to do/i)
+  })
+
   it('says why a file the archive could not read failed', async () => {
     show([
       on('/tracks/imports', {

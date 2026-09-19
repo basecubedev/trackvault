@@ -145,6 +145,22 @@ def test_a_file_that_is_not_a_track_is_an_outcome_rather_than_a_crash(
     assert client.get("/api/v1/tracks").json()["total"] == 0
 
 
+def test_offering_a_file_that_was_never_readable_again_says_why(client: TestClient) -> None:
+    """The archive holds the bytes, so it is a duplicate -- and still not a track.
+
+    "Already in the archive, nothing to do" would send somebody looking for a
+    track that does not exist. The reason the first attempt recorded comes back
+    with the duplicate.
+    """
+    client.post(UPLOAD, content=b"this is not a gpx document")
+
+    again = client.post(UPLOAD, content=b"this is not a gpx document").json()
+
+    assert again["status"] == "duplicate"
+    assert again["track_ids"] == []
+    assert again["error_code"] == "unsupported_format"
+
+
 def test_an_oversized_upload_is_refused_by_name(client: TestClient) -> None:
     """A limit that stores the file first is not a limit."""
     settings = client.app.state.services.settings  # type: ignore[attr-defined]

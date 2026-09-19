@@ -29,9 +29,10 @@ const OFF: StateLabel = {
  * import and why. It puts the archive's counts into words and decides nothing:
  * whether a file was new, a duplicate or broken is the import's verdict.
  *
- * The file that failed is taken from the last scan that *did* something. Most
- * scans find nothing new, and a quiet quarter hour must not make a broken file
- * disappear from the page before anybody saw it.
+ * The files that failed are the last scan's, because every scan reports every
+ * file in the folder that is not a track -- including one it did not have to
+ * read again. So a broken file stays listed for as long as it is there, however
+ * much else arrives beside it, and leaves the list once it is fixed or gone.
  */
 export function AutomaticImportStatus() {
   const status = useRequest((signal) => api.readAutomaticImport(signal), [])
@@ -62,7 +63,7 @@ export function AutomaticImportStatus() {
     )
   }
 
-  const failures = report.last_activity?.failures ?? []
+  const failures = report.last_scan?.failures ?? []
   return (
     <div className="automatic-import" data-testid="automatic-import">
       <p className="muted">

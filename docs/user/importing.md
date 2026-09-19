@@ -9,7 +9,9 @@ a second format is an adapter rather than a second pipeline.
 **From the browser.** Open **Tracks** and press *Import files*. Pick one file or
 twenty; each one is offered on its own and gets its own answer — imported,
 already in the archive, or not imported with the reason in words. Nothing is
-guessed: a file the archive cannot read is named, and the rest still go in.
+guessed: a file the archive cannot read is named, and the rest still go in. A
+file whose bytes the archive already holds but could never read says so, with
+the reason, rather than "nothing to do".
 
 **A watched folder.** Drop files into `import/` — the folder mounted read-only
 at `/import` — and TrackVault imports them on its own: when it starts, and every
@@ -177,8 +179,9 @@ scan finished. There is nothing to set up — no `cron`, no command.
 
 The top of the **Tracks** page says whether the automatic import is on, which
 folder it reads, when it last read it and what came of that — "nothing new" for
-most scans — and lists every file it could not import, with the reason, until a
-later scan imports or fails something else.
+most scans — and lists every file in the folder it could not import, with the
+reason, for as long as the file is there. Fix the file, or take it out, and it
+leaves the list.
 
 Three settings, all optional:
 

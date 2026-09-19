@@ -115,12 +115,17 @@ async function offerOne(file: File): Promise<Result> {
  * The archive's four outcomes in words somebody can act on. "Duplicate" is the
  * one worth spelling out: it is not a failure and it is not an import, and
  * calling it either sends the reader looking for something that is not there.
+ * A duplicate of bytes that never became a track says why, because "nothing to
+ * do" would send the reader looking for that track.
  */
 function sentence(result: Result): string {
   if (result.state === 'sending') return 'sending…'
   if (result.state === 'refused') return result.message
   const outcome = result.outcome
   if (outcome.status === 'imported') return 'imported'
+  if (outcome.status === 'duplicate' && outcome.error_code !== null) {
+    return `already in the archive, but not as a track: ${explainImportError(outcome.error_code)}`
+  }
   if (outcome.status === 'duplicate') return 'already in the archive; nothing to do'
   if (outcome.status === 'repaired') return 'already known; the archive restored its own copy'
   return `not imported: ${explainImportError(outcome.error_code)}`

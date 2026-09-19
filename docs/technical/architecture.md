@@ -1424,6 +1424,14 @@ it does no duplicate check at all. It reads the managed raw copy -- which
 verifies the bytes against their content hash first, so a corrupt artifact can
 never become the input of a regeneration.
 
+A duplicate of bytes that never became tracks says so. When the source has no
+current generation, the duplicate carries the error code of its newest attempt
+-- read from the processing history already on record, validated like any
+persisted value, with nothing parsed or recorded to answer it. An upload of a
+known broken file then reads "already in the archive, but not as a track"
+instead of "nothing to do", and the automatic import keeps naming the file after
+a restart.
+
 Nothing reprocesses itself. There is no mass reprocessing on start-up: it would
 turn every deployment into a full re-parse of the archive.
 
