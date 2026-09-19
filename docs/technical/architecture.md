@@ -1350,6 +1350,7 @@ CLI           → parser C → DB
 | --- | --- |
 | `trackvault import <file>...` | implemented |
 | `trackvault scan` over `TRACKVAULT_IMPORT_DIR` | implemented |
+| Automatic import: the server scans `TRACKVAULT_IMPORT_DIR` on an interval | implemented -- see "Automatic import" |
 | `trackvault reprocess <sha256>` | implemented |
 | `trackvault reprocess --failed` | implemented |
 | `trackvault reprocess --outdated` | implemented |
@@ -1453,8 +1454,45 @@ who can reprocess is on the machine that holds the data anyway.
 The import directory is **input, not authority**: nothing in it is written,
 renamed, moved or deleted. Filenames are display metadata only, and a re-offered
 file is recognised as an exact duplicate and skipped. There is no file system
-watcher: the scan is explicit, which is easier to reason about and cannot hold a
-thread open for weeks.
+watcher: a scan is a pass over the folder, run by an operator or by the server
+on an interval, and it does the same thing on its first run after a restart as
+on its hundredth.
+
+#### Automatic import
+
+While the HTTP server runs, `trackvault.infrastructure.automatic_import` scans
+the import directory once at start-up and then `TRACKVAULT_IMPORT_SCAN_INTERVAL_MINUTES`
+after the previous scan ended. It is a timer around the same
+`ImportDirectoryScanner` pass `trackvault scan` runs, and every file it finds
+goes to `ImportTracks`:
+
+```
+lifespan start ─► AutomaticImport ─► ImportDirectoryScanner ─► ImportTracks
+                  (one thread,        (discovery, settle,       (the one
+                   interval)           state memory)             pipeline)
+```
+
+There is exactly one worker per application: it is built once in the service
+graph, started by the lifespan once storage is migrated, and `start` refuses a
+second thread. The command line never starts it. `TRACKVAULT_IMPORT_SCAN_ENABLED=false`
+leaves the folder to `trackvault scan` alone. Stopping is noticed between files,
+so shutdown waits for one import and never for a folder; the wait is bounded and
+the thread is a daemon, because a network mount that stopped answering can hold
+a read indefinitely.
+
+An adapter error nobody anticipated is caught around the one file whose import
+raised it, logged with its traceback, reported as a failure and offered again on
+the next pass: files are taken in name order, and a document that stopped the
+whole pass would keep every file after it out for good. A folder that cannot be
+opened at all is reported as unavailable rather than as empty, and the scanner's
+memory is kept for when it comes back. An error that is not
+about one file -- the folder cannot be listed -- ends the scan, is logged, and
+the next one is due an interval later rather than at once; a broken scan never
+ends the worker, and no scan starts while another runs.
+What the worker last did is kept in memory as a report on this process; what it
+imported is in the archive. `GET /api/v1/tracks/imports/automatic` projects that
+report through the application's `AutomaticImportMonitor` port -- read-only, so
+no route can make the worker scan. See `docs/adr/0013-automatic-import.md`.
 
 #### The AutoSync boundary
 
@@ -1478,6 +1516,38 @@ failed runs -- a sync folder changes under a scan as a matter of course. The
 non-blocking open matters on its own: opening a FIFO for reading waits for a
 writer, and a scan that can be stopped by dropping one into the folder is a
 denial of service with no attacker skill required.
+
+A candidate is a visible name whose suffix an installed adapter declares
+(`TrackImporter.file_suffixes`, compared case-insensitively). Everything else in
+the folder is neither read nor stored: a photo offered to `ImportTracks` would
+become a raw import with a failed run in every archive sharing the folder. It
+stays where it is instead, so an adapter that learns its format later still finds
+it. The suffix chooses what is offered and nothing more; `detects` still decides
+from the content what the bytes are.
+
+**Only finished files are read.** A sync tool writes a file in pieces, and half a
+GPX document is either unreadable or -- worse -- a readable prefix that becomes a
+short, wrong track. `ImportDirectoryScanner` therefore reads a candidate only
+once its change time is at least the settle time old
+(`TRACKVAULT_IMPORT_SETTLE_MINUTES`, five by default, because a recorder writing
+a point a minute into a synced folder is quiet for a minute at a time), only if
+it is not empty, and only if the open file is in exactly the state it looked at,
+before and after the read. The change time
+is the kernel's: every write and rename sets it and nothing sets it back, which a
+modification time a copy tool may preserve cannot promise. Anything else is
+*waiting*, which is not a verdict; a later pass takes it. A scan an operator runs
+by hand uses no settle time -- they have already decided the folder is ready --
+and keeps the before-and-after check.
+
+**Remembering is a cache, never the duplicate authority.** A scanner remembers
+which state of which name it has offered, so a later pass costs a `stat` per
+unchanged file instead of a read, a hash and an integrity check of the managed
+copy. That memory lives in the process and dies with it, deliberately: the
+archive's content hash is what makes a re-offer a no-op, so a restarted server
+offers every file once more, gets `duplicate` for each, and cannot import
+anything twice. Persisting the memory would have been a second record of "what
+was imported", with its own migration, backup and restore semantics, to save one
+read per file per restart.
 
 The configured root itself stays trusted and may be a symbolic link, exactly as
 the managed raw storage root does. `read_bounded` remains for paths an operator
@@ -1734,7 +1804,7 @@ Open on purpose, and not to be pre-empted by "preparation" code:
   trusted network; every endpoint assumes that. The one endpoint that *writes*
   can be refused outright with `TRACKVAULT_UPLOAD_ENABLED=false`; the reads are
   open to anyone who can reach the port either way.
-- a file system watcher, as opposed to the explicit scan
+- a file system watcher, as opposed to the scan the server runs on an interval
 - Android client or companion app
 - sensor schemas beyond heart rate and cadence: power, temperature, FIT
   developer fields. The two that are implemented are read from the Garmin

@@ -73,6 +73,15 @@ class TrackImporter(Protocol):
         """Return the media type recorded as a hint on an accepted raw import."""
         ...
 
+    @property
+    def file_suffixes(self) -> tuple[str, ...]:
+        """Return the lower-case file name suffixes this format is exchanged under.
+
+        Used only to choose which files of a directory are offered at all. What
+        the offered content *is* stays the decision of :meth:`detects`.
+        """
+        ...
+
     def detects(self, content: bytes) -> bool:
         """Report whether this adapter recognises the content as its own format.
 

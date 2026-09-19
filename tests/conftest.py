@@ -34,6 +34,18 @@ def _without_browser_assets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
 
 @pytest.fixture(autouse=True)
+def _without_automatic_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compose applications that do not read an import directory on their own.
+
+    A developer's ``.env`` may point ``TRACKVAULT_IMPORT_DIR`` at a folder of
+    real recordings, and an application an unrelated test composes would start
+    reading it in the background. The tests about the automatic import switch it
+    on explicitly.
+    """
+    monkeypatch.setenv("TRACKVAULT_IMPORT_SCAN_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
 def _without_external_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refuse every connection that would leave this machine.
 

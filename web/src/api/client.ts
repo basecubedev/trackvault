@@ -21,6 +21,8 @@ export type TrackProfile = components['schemas']['TrackProfileResponse']
 export type ProfileSample = components['schemas']['ProfileSampleResponse']
 export type Geometry = components['schemas']['GeometryResponse']
 export type ImportOutcome = components['schemas']['ImportOutcomeResponse']
+export type AutomaticImport = components['schemas']['AutomaticImportResponse']
+export type ImportScan = components['schemas']['ImportScanResponse']
 export type YearStatistics = components['schemas']['YearResponse']
 export type MonthlyStatistics = components['schemas']['MonthlyResponse']
 export type OverallStatistics = components['schemas']['OverallResponse']
@@ -141,6 +143,10 @@ export const api = {
   readOverall: (query: Query, signal?: AbortSignal) =>
     get<OverallStatistics>('/statistics/overall', query, signal),
   readSystemInfo: (signal?: AbortSignal) => get<SystemInfo>('/system/info', {}, signal),
+  // What the server's own scan of the import folder last did. A report, not a
+  // control: nothing in the browser can make the server scan.
+  readAutomaticImport: (signal?: AbortSignal) =>
+    get<AutomaticImport>('/tracks/imports/automatic', {}, signal),
 
   /**
    * Offer one file to the archive.

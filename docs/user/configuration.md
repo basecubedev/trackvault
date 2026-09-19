@@ -12,7 +12,10 @@ this way is not read.
 | `TRACKVAULT_HOST` | `127.0.0.1` | Interface the HTTP server binds to |
 | `TRACKVAULT_PORT` | `8080` | Port the application binds *inside* the container |
 | `TRACKVAULT_DATA_DIR` | `data` | Holds *all* persistent data: the database and every original import |
-| `TRACKVAULT_IMPORT_DIR` | unset | Directory `trackvault scan` reads. Unset disables the feature. Never modified. |
+| `TRACKVAULT_IMPORT_DIR` | unset | Directory new files are imported from — automatically while the server runs, and by `trackvault scan`. Unset disables both. Never modified. |
+| `TRACKVAULT_IMPORT_SCAN_ENABLED` | `true` | Whether the running server reads the import directory on its own. `false` leaves `trackvault scan` as the only way in from the folder. |
+| `TRACKVAULT_IMPORT_SCAN_INTERVAL_MINUTES` | `15` | Minutes between the end of one automatic scan and the start of the next, from 1 to 10080 (a week). |
+| `TRACKVAULT_IMPORT_SETTLE_MINUTES` | `5` | Minutes a file must have been left alone before the automatic import reads it, from 1 to 1440. Raise it if a recorder writes into the synced folder with longer pauses. |
 | `TRACKVAULT_BACKUP_DIR` | `backups/` beside the data directory | Where `trackvault backup create` writes. Outside the data directory on purpose: a backup kept inside what it protects is lost with it. |
 | `TRACKVAULT_UPLOAD_ENABLED` | `true` | Whether the browser interface may add files. Set it to `false` to refuse the capability: uploading is unauthenticated, and every read works without it. |
 | `TRACKVAULT_IMPORT_MAX_BYTES` | `16777216` | Largest accepted input file |

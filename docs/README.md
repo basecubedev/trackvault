@@ -37,6 +37,7 @@ TrackVault. It stays short on purpose; everything it summarises is here in full.
 | [adr/0010-offline-map-packages-and-local-basemap-delivery.md](adr/0010-offline-map-packages-and-local-basemap-delivery.md) | Why a public tile server is not an offline-download authority, the map package as a replaceable external dataset, atomic installation, and serving tiles from the archive itself |
 | [adr/0011-web-upload.md](adr/0011-web-upload.md) | Why the browser may offer a file to the archive, what bounds that endpoint, and why it is a caller of the import use case rather than a second path |
 | [adr/0012-export-archive-and-restore.md](adr/0012-export-archive-and-restore.md) | Three exports rather than one, why the archive is a plain tar.gz, the manifest and its stated omissions, and the validate-before-publish restore |
+| [adr/0013-automatic-import.md](adr/0013-automatic-import.md) | Why the server reads the import directory on an interval rather than through cron or a watcher, which files it takes and when, and why the content hash rather than a scan ledger keeps it from importing twice |
 | [legal/third-party-notices.md](legal/third-party-notices.md) | The canonical third-party dependency list, the licence policy and the audits that keep it honest, and what the map does and does not ship |
 
 Three documents are protected by executable contract tests in `tests/contract/`:

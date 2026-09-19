@@ -89,6 +89,13 @@ class NormalizeRawImport:
         """
         return self._processing
 
+    @property
+    def file_suffixes(self) -> frozenset[str]:
+        """Return every file name suffix an installed adapter is exchanged under."""
+        return frozenset(
+            suffix for importer in self._importers for suffix in importer.file_suffixes
+        )
+
     def importer_for(self, content: bytes) -> TrackImporter | None:
         """Return the adapter that recognises the content, if there is one."""
         return next((importer for importer in self._importers if importer.detects(content)), None)

@@ -33,6 +33,7 @@ from trackvault.application.processing_status import GetProcessingStatus
 from trackvault.application.reprocess import ReprocessRawImport
 from trackvault.config import Settings
 from trackvault.infrastructure.archive import recover_interrupted_restore
+from trackvault.infrastructure.automatic_import import AutomaticImport
 from trackvault.infrastructure.clock import SystemClock
 from trackvault.infrastructure.database import SqliteTrackStore
 from trackvault.infrastructure.database.map_store import SqliteMapPackageStore
@@ -130,6 +131,9 @@ class TrackServices:
             exposed so a deployment can state which algorithms produced the
             numbers a reader is looking at.
         maps: The offline map capability.
+        automatic_import: Reading the import directory on an interval. Built
+            here so that every process has the same one, and started only by
+            the server's lifespan -- a command-line run never scans on its own.
     """
 
     settings: Settings
@@ -146,6 +150,7 @@ class TrackServices:
     create_archive: CreateArchive
     restore_archive: RestoreArchive
     maps: MapServices
+    automatic_import: AutomaticImport
 
     def prepare_storage(self) -> None:
         """Bring the deployment to a readable state before serving anything.
@@ -185,19 +190,20 @@ def build_services(settings: Settings) -> TrackServices:
     # reprocessing path. Two would be two answers to "how long is this track",
     # and the second one is the one nobody reruns when an algorithm changes.
     analyze = AnalyzeTrack(repository=store, clock=clock, analysis=InstalledAnalysis())
+    import_tracks = ImportTracks(
+        raw_store=raw_store,
+        repository=store,
+        clock=clock,
+        normalize=normalize,
+        analyze=analyze,
+    )
     return TrackServices(
         maps=build_map_services(settings, store, clock),
         settings=settings,
         clock=clock,
         store=store,
         raw_store=raw_store,
-        import_tracks=ImportTracks(
-            raw_store=raw_store,
-            repository=store,
-            clock=clock,
-            normalize=normalize,
-            analyze=analyze,
-        ),
+        import_tracks=import_tracks,
         reprocess=ReprocessRawImport(
             raw_store=raw_store,
             repository=store,
@@ -226,6 +232,17 @@ def build_services(settings: Settings) -> TrackServices:
         # which is what makes an archive from a newer build a refusal rather
         # than a silent downgrade.
         restore_archive=RestoreArchive(installed_schema_version=SCHEMA_VERSION),
+        # The same use case the command line and the upload endpoint call, so
+        # a file found in the folder becomes exactly the track it would have
+        # become any other way.
+        automatic_import=AutomaticImport(
+            directory=settings.import_dir,
+            enabled=settings.import_scan_enabled,
+            import_tracks=import_tracks,
+            interval=settings.import_scan_interval,
+            clock=clock,
+            settle_time=settings.import_settle_time,
+        ),
     )
 
 

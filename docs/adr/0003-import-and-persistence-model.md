@@ -168,7 +168,8 @@ Trade-offs, accepted:
   than an honest `UNKNOWN`.
 - **A file system watcher for the import directory.** Rejected: an explicit scan
   is easier to reason about, cannot leak a thread, and loses nothing because the
-  duplicate check makes rescanning free.
+  duplicate check makes rescanning free. *(ADR 0013 has the server run that
+  scan on an interval; a watcher stays rejected.)*
 - **An authenticated upload endpoint.** *(Superseded by ADR 0011, which adds an
   unauthenticated one, bounded and switchable, for a trusted network.)*
   Deferred: authentication is a decision of

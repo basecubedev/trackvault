@@ -5,11 +5,12 @@ module may read environment variables or invent its own configuration mechanism,
 and no business rule belongs here.
 """
 
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from trackvault.application.maps import DEFAULT_MAX_DOWNLOAD_BYTES
@@ -43,6 +44,22 @@ class Settings(BaseSettings):
         import_dir: Directory the server scans for new files, for example a phone
             auto-sync target. Unset disables the feature. The directory is input
             only: nothing in it is written, renamed or deleted.
+        import_scan_enabled: Whether the running server reads ``import_dir`` on
+            its own, every ``import_scan_interval_minutes``. **On unless somebody
+            turns it off**: configuring a folder is already saying it should be
+            read. Off leaves ``trackvault scan`` as the only way in from the
+            folder.
+        import_scan_interval_minutes: Minutes between the end of one automatic
+            scan and the start of the next, from one minute to one week. A scan
+            of an unchanged folder costs a directory listing, so the interval is
+            about how soon a synced ride appears rather than about load.
+        import_settle_minutes: How long a file in the import directory must
+            have been left alone before the automatic import reads it, from one
+            minute to one day. Five by default: a sync tool that writes through
+            a temporary name delivers a finished file at once, but a recorder
+            that writes a point a minute into a synced folder produces a file
+            that is quiet for a minute at a time and still growing -- and a
+            half imported early is a second track that cannot be taken back.
         backup_dir: Where ``trackvault backup create`` writes. Deliberately *not*
             inside the data directory by default: a backup that lives inside the
             thing it protects is lost with it, and one written into the import
@@ -94,6 +111,9 @@ class Settings(BaseSettings):
     port: int = 8080
     data_dir: Path = Path("data")
     import_dir: Path | None = None
+    import_scan_enabled: bool = True
+    import_scan_interval_minutes: int = Field(default=15, ge=1, le=7 * 24 * 60)
+    import_settle_minutes: int = Field(default=5, ge=1, le=24 * 60)
     backup_dir: Path | None = None
 
     import_max_bytes: int = 16 * 1024 * 1024
@@ -131,6 +151,16 @@ class Settings(BaseSettings):
     def aggregation_timezone(self) -> ZoneInfo:
         """Return the zone month and year boundaries are drawn in."""
         return ZoneInfo(self.timezone)
+
+    @property
+    def import_scan_interval(self) -> timedelta:
+        """Return the time between two automatic scans of the import directory."""
+        return timedelta(minutes=self.import_scan_interval_minutes)
+
+    @property
+    def import_settle_time(self) -> timedelta:
+        """Return how long a file must be left alone before it is read."""
+        return timedelta(minutes=self.import_settle_minutes)
 
     @property
     def database_path(self) -> Path:

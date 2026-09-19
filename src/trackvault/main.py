@@ -118,6 +118,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # has to know where configuration lives.
         app.state.upload_enabled = services.settings.upload_enabled
         app.state.import_tracks = services.import_tracks
+        # Read-only to the API: a route can ask what the worker did, and has no
+        # way to make it scan.
+        app.state.automatic_import = services.automatic_import
         app.state.maps_enabled = services.maps.enabled
         app.state.map_catalog = services.maps.catalog
         app.state.map_installed = services.maps.installed
@@ -131,7 +134,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.map_remove = services.maps.remove
         app.state.map_repository = services.maps.repository
         app.state.map_tiles = services.maps.tiles
+        # Last, once storage is current: the first scan runs on the worker's own
+        # thread and never delays the server answering its first request.
+        services.automatic_import.start()
         yield
+        services.automatic_import.stop()
         services.maps.jobs.shutdown()
 
     app = FastAPI(
