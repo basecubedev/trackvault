@@ -161,6 +161,28 @@ def test_a_build_that_was_not_told_a_version_says_so() -> None:
     assert _version_argument_default() == UNKNOWN_VERSION
 
 
+def test_every_stage_inherits_the_one_version_default() -> None:
+    """A stage with a default of its own describes another release when told none.
+
+    The builder installs the distribution under the global default. A runtime
+    stage that declared a default of its own would label that image with a
+    release the distribution inside it does not claim -- exactly the
+    disagreement one argument exists to rule out, and one the container tests
+    never see, because they always pass a version.
+    """
+    recipe = DOCKERFILE.read_text(encoding="utf-8")
+    stages = recipe.split("\nFROM ")[1:]
+    declarations = [
+        line.strip()
+        for stage in stages
+        for line in stage.splitlines()
+        if line.startswith("ARG TRACKVAULT_VERSION")
+    ]
+
+    assert declarations, "no stage takes the version argument"
+    assert all(line == "ARG TRACKVAULT_VERSION" for line in declarations), declarations
+
+
 def test_the_image_claims_no_metadata_the_build_cannot_know() -> None:
     """No empty placeholders.
 

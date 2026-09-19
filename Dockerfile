@@ -71,11 +71,13 @@ RUN uv sync --locked --no-dev --no-editable --no-cache
 FROM python:3.13-slim-bookworm AS runtime
 
 # The same argument the builder stage installed the distribution with, so the
-# label and `trackvault.__version__` inside the image answer identically.
+# label and `trackvault.__version__` inside the image answer identically. No
+# default of its own: it inherits the global one, which is what keeps the two
+# identical when nobody passes a version at all.
 # Deliberately absent: `revision` and `source`. An ordinary
 # `docker compose build` knows neither, and an empty label is a worse statement
 # than no label.
-ARG TRACKVAULT_VERSION=0.1.0
+ARG TRACKVAULT_VERSION
 
 LABEL org.opencontainers.image.title="TrackVault" \
       org.opencontainers.image.description="Self-hosted archive for recorded and planned activity tracks." \
