@@ -181,7 +181,8 @@ The top of the **Tracks** page says whether the automatic import is on, which
 folder it reads, when it last read it and what came of that — "nothing new" for
 most scans — and lists every file in the folder it could not import, with the
 reason, for as long as the file is there. Fix the file, or take it out, and it
-leaves the list.
+leaves the list. The line keeps itself up to date while the page is open, and
+the track list below it catches up as soon as a scan brings something new.
 
 Three settings, all optional:
 

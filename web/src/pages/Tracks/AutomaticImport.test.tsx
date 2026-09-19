@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { automaticImport, importScan, on, stubArchive } from '../../test-fixtures'
 import { AutomaticImportStatus } from './AutomaticImport'
@@ -21,8 +21,16 @@ async function show(body: unknown): Promise<HTMLElement> {
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
+
+/** Let the page's own clock run on, and whatever it asked for arrive. */
+async function later(milliseconds: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds)
+  })
+}
 
 describe('the automatic import, as the tracks page reports it', () => {
   it('says that it is on, which folder it reads and how often', async () => {
@@ -128,5 +136,54 @@ describe('the automatic import, as the tracks page reports it', () => {
     const status = await show(automaticImport({ enabled: false, directory: null, last_scan: null }))
 
     expect(status.textContent).toMatch(/no import folder is configured/i)
+  })
+
+  it('asks again soon while a scan runs, so "reading the folder now" does not outlive it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    let current = automaticImport({ scanning: true })
+    stubArchive([(url) => (url.includes('/tracks/imports/automatic') ? current : undefined)])
+    render(<AutomaticImportStatus />)
+    await waitFor(() => {
+      expect(screen.getByTestId('automatic-import').textContent).toMatch(/reading the folder now/i)
+    })
+
+    current = automaticImport()
+    await later(5_000)
+
+    expect(screen.getByTestId('automatic-import').textContent).toMatch(/last read/i)
+  })
+
+  it('tells the page when a later scan imported something, and not before', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const onImported = vi.fn()
+    const earlier = importScan({ finished_at: '2026-09-19T12:00:01Z', imported: 1, skipped: 3 })
+    let current = automaticImport({ last_activity: earlier })
+    stubArchive([(url) => (url.includes('/tracks/imports/automatic') ? current : undefined)])
+    render(<AutomaticImportStatus onImported={onImported} />)
+    await waitFor(() => {
+      expect(screen.getByTestId('automatic-import')).toBeInTheDocument()
+    })
+
+    await later(60_000)
+    expect(onImported).not.toHaveBeenCalled()
+
+    const newer = importScan({ finished_at: '2026-09-19T12:15:01Z', imported: 2, skipped: 4 })
+    current = automaticImport({ last_scan: newer, last_activity: newer })
+    await later(60_000)
+
+    expect(onImported).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not keep asking while the automatic import is off', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const stub = stubArchive([on('/tracks/imports/automatic', automaticImport({ enabled: false }))])
+    render(<AutomaticImportStatus />)
+    await waitFor(() => {
+      expect(screen.getByTestId('automatic-import')).toBeInTheDocument()
+    })
+
+    await later(10 * 60_000)
+
+    expect(stub.requested.filter((url) => url.includes('/tracks/imports/automatic'))).toHaveLength(1)
   })
 })

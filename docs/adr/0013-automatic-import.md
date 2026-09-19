@@ -131,7 +131,9 @@ leaves the list once it is fixed or gone. `GET /api/v1/tracks/imports/automatic`
 projects them — counts per outcome in the import use case's own vocabulary, and
 the name and error code of every file that failed. It reads the status and
 cannot start a scan. The tracks page shows it in one line, and names the files
-that failed. Logging is quiet when a scan found nothing.
+that failed. It asks again every minute while the import is on — every few
+seconds while a scan runs — and reloads the track list when a scan imported
+something. Logging is quiet when a scan found nothing.
 
 ### 8. The folder is still never modified
 
