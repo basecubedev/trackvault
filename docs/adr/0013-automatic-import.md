@@ -65,10 +65,11 @@ A candidate is read once its kernel change time is at least the settle time
 old — `TRACKVAULT_IMPORT_SETTLE_MINUTES`, five by default — and only if the open
 file is in exactly the state that was looked at before and after the read. The
 change time is set by the kernel on every write and rename and cannot be set
-back, which a modification time preserved by a copy tool cannot promise. An
-empty file is not a document yet either: sync tools create the name before the
-content. A file that fails any of these is *waiting* and is taken by a later
-scan. `trackvault scan` keeps the before-and-after check but no settle time: an
+back, which a modification time preserved by a copy tool cannot promise. A file
+that fails either check is *waiting* and is taken by a later scan. An empty
+file is not a candidate at all: sync tools create the name before the content,
+and one left behind would otherwise be "still arriving" forever. Writing into
+it changes it, and the next scan takes it then. `trackvault scan` keeps the before-and-after check but no settle time: an
 operator running it has decided the folder is ready.
 
 Five minutes rather than one because of recorders that write into a synced

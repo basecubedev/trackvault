@@ -417,18 +417,17 @@ class ImportDirectoryScanner:
         if state is None:
             logger.debug("import.skipped name=%r reason=not_a_regular_file", label)
             return
+        if state.size == 0:
+            # Sync tools create the name before the content, so an empty file is
+            # not a document yet: not a candidate, like a file of another format.
+            # Writing into it changes it, and the next pass takes it then.
+            logger.debug("import.skipped name=%r reason=empty", label)
+            return
         findings.seen.add(entry.name)
         if self._offered.get(entry.name) == state:
             findings.unchanged += 1
             return
         logger.debug("import.discovered name=%r", label)
-        if state.size == 0:
-            # Sync tools create the name before the content, so an empty file is
-            # not a document yet. Offering it would store a raw import of
-            # nothing, which the upload endpoint refuses for the same reason.
-            logger.info("import.waiting name=%r reason=empty", label)
-            findings.waiting.append(label)
-            return
         if self._settle_time and started_at - state.changed_at < self._settle_time:
             logger.info("import.waiting name=%r reason=recently_changed", label)
             findings.waiting.append(label)

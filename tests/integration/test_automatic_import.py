@@ -528,21 +528,30 @@ def test_a_file_that_cannot_even_be_looked_at_is_reported(
     assert dict(scan.offered)["b-valid.gpx"].status is ImportStatus.IMPORTED
 
 
-def test_an_empty_file_is_waiting_rather_than_imported(tmp_path: Path, inbox: Path) -> None:
+def test_an_empty_file_is_left_alone_until_it_has_content(tmp_path: Path, inbox: Path) -> None:
     """Sync tools create the name before the content; an empty file is not a document yet.
 
     Offering it would store a raw import of nothing, which the upload endpoint
-    refuses for the same reason.
+    refuses for the same reason. Calling it "still arriving" would be wrong the
+    other way round: an empty file left behind would arrive forever. So it is
+    not a candidate at all, like a file of another format, until something is
+    written into it -- which changes it, and the next scan takes it.
     """
     placeholder = inbox / "placeholder.gpx"
     placeholder.write_bytes(b"")
     services = _services(tmp_path, inbox)
+    clock = _settled(placeholder)
+    scanner = _scanner(services, inbox, clock)
 
-    scan = _scanner(services, inbox, _settled(placeholder)).scan()
+    empty = scanner.scan()
+    shutil.copy(FIXTURES / "recorded-measurements.gpx", placeholder)
+    clock.instant = _settled(placeholder).instant
+    written = scanner.scan()
 
-    assert scan.waiting == ("placeholder.gpx",)
-    assert scan.offered == ()
-    assert services.store.processing_snapshots() == ()
+    assert empty.discovered == 0
+    assert empty.waiting == ()
+    assert empty.failures == ()
+    assert written.count(ImportStatus.IMPORTED) == 1
 
 
 def test_a_file_name_cannot_forge_a_log_line(

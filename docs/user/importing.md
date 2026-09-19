@@ -65,8 +65,9 @@ import fails rather than overwriting the evidence.
 
 `scan` gives every `.gpx` file in the folder a line of its own: what the import
 made of it, or `unreadable`, `error` or `waiting` when there is no verdict.
-`waiting` is a file that changed while it was being read, or is still empty; the
-next scan takes it, and it does not count as a failure. Anything else without a
+`waiting` is a file that changed while it was being read; the next scan takes it,
+and it does not count as a failure. An empty file gets no line: it is not a
+document yet. Anything else without a
 verdict makes `scan` exit non-zero, like a failed import.
 
 `reprocess` answers a different question. Recognising a content hash makes an
@@ -154,8 +155,9 @@ scan finished. There is nothing to set up — no `cron`, no command.
   folder. Subfolders, hidden files and everything else are left alone.
 - **Only finished files.** A file is imported once nothing has changed it for
   five minutes, and only if it does not change while it is being read. A file
-  your sync tool is still copying — or an empty file it created ahead of the
-  content — is *waiting* and is taken by a later scan, never imported half way.
+  your sync tool is still copying is *waiting* and is taken by a later scan,
+  never imported half way. An empty file it created ahead of the content is
+  left alone until the content is there.
 - **Sync finished recordings.** A recorder that writes into the synced folder
   *while* it records produces a file that grows with pauses in between. If a
   pause lasts longer than the settle time, the first half is imported as a track
