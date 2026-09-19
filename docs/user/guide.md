@@ -227,13 +227,13 @@ right now, stay exactly right.
 
 ### What the archive concluded, and why
 
-![The heart rate and cadence chart beside the classification panel, which lists the evidence found in the document and offers buttons to correct the kind](../images/track-evidence.png)
+![The heart rate and cadence chart above the classification panel, which lists the evidence found in the document and offers buttons to correct the kind](../images/track-evidence.png)
 
 If the recording carried **heart rate or cadence**, they get their own chart,
 passed through exactly as the sensors reported them. A gap is a reading the
 sensor missed; a cadence of zero is a reading, not a gap.
 
-Beside it, **what kind of track this is** shows its work. Every piece of
+Below it, **what kind of track this is** shows its work. Every piece of
 evidence the document carried is listed with what it argued for. Notice that
 several of them decide nothing on their own: a file having timestamps does not
 make it a recording, because a route planner writes plausible times onto
@@ -252,6 +252,45 @@ your own, and to keep a note.
 
 The file keeps saying what it said — your title is stored beside it, not written
 into it — and **Reset to source title** hands the display back to the document.
+
+### Arranging the page the way you read it
+
+![The track page while it is being arranged: each widget has a bar to drag it by and a corner to resize it, and a toolbar offers Add widget, Undo, Reset to default, Cancel and Done](../images/track-layout.png)
+
+Not everybody reads a track the same way. If you plan routes, you want a large
+map; if you compare efforts, you want the numbers and the profile together and
+rarely look at where the file came from.
+
+Press **Customize layout** and the page becomes a grid you can arrange:
+
+- **Drag a widget by its bar** to move it. The others make room, and nothing
+  ever ends up on top of anything else.
+- **Drag the corner** to resize it, or use the **⋯** menu for *Small*,
+  *Medium*, *Large* and *Full width* without aiming at anything.
+- **Hide** what you do not read from that same menu. **Add widget** brings it
+  back, with a line describing each one so you do not have to add it to find
+  out.
+- **Without a mouse**: move the focus to a widget's bar with Tab, then use the
+  arrow keys to move it and Shift with an arrow key to resize it. Each change is
+  read out.
+
+Nothing is saved until you press **Done**. **Undo** (or Ctrl+Z) takes back the
+last step, **Cancel** throws the lot away, and **Reset to default** puts back
+the arrangement TrackVault ships with. If you try to leave the page with changes
+you have not saved, you are asked first.
+
+The arrangement is stored in the archive rather than in the browser, so it is
+the same on your laptop and your phone, it survives clearing your browser data,
+and it is in your backup. A phone gets its own arrangement in two columns —
+every panel full width, the small cards in pairs — and it follows the one you
+made for the big screen until you arrange it separately there too. Each width is
+kept only once you have arranged it, so rearranging your phone leaves the big
+screen free to follow later improvements.
+
+What the page *says* stays where it is: the title, the badges and every warning
+about the numbers sit above the widgets and cannot be moved or hidden, and the
+map's credits travel with the map. Arranging changes where a number is drawn,
+never which number it is.
 
 ---
 

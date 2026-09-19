@@ -82,6 +82,13 @@ If a track's metrics were derived by algorithms this build no longer runs, the
 headline figures are left blank and the page says why — while the map and the
 chart, which are derived now, stay exactly right.
 
+**Customize layout** turns the page into a grid you can arrange: move a widget
+by its bar or the arrow keys, resize it by its corner, hide what you do not
+read, and add it back later. The arrangement is kept by the archive, so it is
+the same on every device and it is in your backup; a narrow screen gets its own
+two-column version of it. The title, the badges and every warning about the
+numbers stay above the widgets, where no arrangement can move them.
+
 ## What the numbers mean
 
 All stored values are SI; the interface converts for reading and never back.
@@ -137,6 +144,9 @@ new ones.
 | `PUT /api/v1/tracks/{id}/classification` | Correct the kind: `{"kind": "recorded"}` |
 | `DELETE /api/v1/tracks/{id}/classification` | Withdraw the correction |
 | `PATCH /api/v1/tracks/{id}/metadata` | Your own title and note: `{"title": "…"}` |
+| `GET /api/v1/layouts/track-detail` | How you arranged the track page, or `default` when you have not |
+| `PUT /api/v1/layouts/track-detail` | Store an arrangement |
+| `DELETE /api/v1/layouts/track-detail` | Forget it, and draw the default again |
 | `GET /api/v1/statistics/years` | Which years this archive holds tracks in |
 | `GET /api/v1/statistics/year/{year}` | Total one year |
 | `GET /api/v1/statistics/year/{year}/monthly` | Total each of its twelve months |
