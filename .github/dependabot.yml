@@ -1,0 +1,58 @@
+version: 2
+
+# What watches the dependencies between releases.
+#
+# The alternative is a person remembering to run `npm audit` and `pip-audit`,
+# which works until the week it matters. Dependabot opens the pull request, CI
+# runs the same gate it runs for everybody, and a green one is a minute's work.
+#
+# Patches and minors arrive grouped, one pull request per ecosystem per week.
+# Ungrouped, a quiet week produces eight pull requests that each rerun the whole
+# suite, and the review that follows is eight times the same judgement. Majors
+# are deliberately left out of the groups: a major is a change to the code, not
+# to a number, and it deserves a pull request of its own to fail in.
+#
+# The Dockerfile's base images are not watched. `node:24` and
+# `python:3.13-slim-bookworm` are pinned to a line on purpose -- `requires-python`
+# in pyproject.toml states `>=3.13,<3.14`, so an offer of Python 3.14 is an offer
+# this project has already declined. The digests inside those lines move on their
+# own with every rebuild.
+
+updates:
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      browser:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      python:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # The actions are pinned to major tags (`actions/checkout@v4`), so the only
+  # thing to offer here is the next major -- which is exactly the one worth
+  # reading before it is merged.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5

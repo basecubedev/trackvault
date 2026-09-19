@@ -327,6 +327,32 @@ dependency in it against `uv.lock` and `package-lock.json` for existence,
 version, licence and a stated purpose. Bumping a dependency therefore means
 updating that document in the same commit.
 
+## Advisories
+
+`.github/dependabot.yml` reads the three locked sets weekly — the browser's
+`package-lock.json`, the Python `uv.lock`, and the actions the workflows pin —
+and opens a pull request that CI gates like any other. Patches and minors arrive
+grouped, one pull request per ecosystem; a major arrives alone, because a major
+is a change to the code rather than to a number.
+
+The same question is answered locally without waiting for a Monday:
+
+```bash
+cd web && npm audit
+uv export --no-emit-project --format requirements-txt \
+  | uvx pip-audit -r /dev/stdin --disable-pip
+```
+
+Every dependency is pinned exactly, so `npm audit fix` declines each finding as
+*outside the stated dependency range* and changes nothing at all. The pins are
+the point, so the pins are what moves — by hand, or by the pull request
+Dependabot opens.
+
+`tests/contract/test_dependency_watch_contract.py` checks both directions:
+every manifest in the repository is watched, and every watch names a directory
+that holds one. A lock file added later cannot arrive unwatched, and a watch
+left behind by a directory that moved cannot go on looking like cover.
+
 ## Measuring a large track
 
 ```bash
