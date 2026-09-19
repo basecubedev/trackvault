@@ -509,6 +509,7 @@ def test_the_api_publishes_exactly_the_implemented_surface(client: TestClient) -
         "/api/v1/maps/coverage",
         "/api/v1/maps/credits",
         "/api/v1/maps/tiles/{delivery_id}/{zoom}/{column}/{row}.mvt",
+        "/api/v1/layouts/track-detail",
     }
 
 

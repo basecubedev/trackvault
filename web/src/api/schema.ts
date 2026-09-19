@@ -4,6 +4,41 @@
  */
 
 export interface paths {
+    "/api/v1/layouts/track-detail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How the owner arranged the track page
+         * @description Return the stored arrangement, or say why the page should draw its default.
+         *
+         *     Always ``200``: no arrangement and an unreadable one are answers about the
+         *     archive, not failed requests.
+         */
+        get: operations["read_track_layout_api_v1_layouts_track_detail_get"];
+        /**
+         * Store the owner's arrangement of the track page
+         * @description Store a whole arrangement, replacing the previous one.
+         *
+         *     A tile that overlaps another, a widget named twice, a tile hanging off the
+         *     grid or a document that arranges no width class at all is refused with
+         *     ``layout_invalid`` and nothing is stored.
+         */
+        put: operations["save_track_layout_api_v1_layouts_track_detail_put"];
+        post?: never;
+        /**
+         * Forget the arrangement of the track page
+         * @description Remove the stored arrangement. The page draws its default again.
+         */
+        delete: operations["reset_track_layout_api_v1_layouts_track_detail_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/maps": {
         parameters: {
             query?: never;
@@ -1355,6 +1390,75 @@ export interface components {
             jobs: components["schemas"]["JobResponse"][];
         };
         /**
+         * LayoutErrorBody
+         * @description Why an arrangement was refused.
+         */
+        LayoutErrorBody: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+        };
+        /**
+         * LayoutErrorResponse
+         * @description A refused arrangement, in the archive's own envelope.
+         */
+        LayoutErrorResponse: {
+            error: components["schemas"]["LayoutErrorBody"];
+        };
+        /**
+         * LayoutGridDocument
+         * @description The arrangement for one width class.
+         */
+        LayoutGridDocument: {
+            /** Columns */
+            columns: number;
+            /**
+             * Hidden
+             * @description Widgets the owner took off the page, so the page can offer them back
+             */
+            hidden: string[];
+            /** Tiles */
+            tiles: components["schemas"]["LayoutTileDocument"][];
+        };
+        /**
+         * LayoutState
+         * @description What the archive holds for a page's arrangement.
+         * @enum {string}
+         */
+        LayoutState: "default" | "custom" | "unreadable";
+        /**
+         * LayoutTileDocument
+         * @description One widget on the grid, in whole cells.
+         */
+        LayoutTileDocument: {
+            /**
+             * Height
+             * @description Rows it spans
+             */
+            height: number;
+            /**
+             * Widget
+             * @description Which widget, by the key the page gives it
+             */
+            widget: string;
+            /**
+             * Width
+             * @description Columns it spans
+             */
+            width: number;
+            /**
+             * X
+             * @description First column, from zero
+             */
+            x: number;
+            /**
+             * Y
+             * @description First row, from zero
+             */
+            y: number;
+        };
+        /**
          * LocatedCountryResponse
          * @description One country a track was approximately in.
          */
@@ -1473,6 +1577,37 @@ export interface components {
              * @description One bucket per year the archive holds something for, oldest first
              */
             years: components["schemas"]["YearBucketResponse"][];
+        };
+        /**
+         * PageLayoutDocument
+         * @description Everything the owner arranged on the page.
+         *
+         *     A class is ``null`` when the owner arranged none of it and the page draws
+         *     its own -- including ``wide``, so that arranging a phone does not store a
+         *     copy of today's wide default. All three fields are required rather than
+         *     optional so that "left out" and "not arranged" cannot mean two different
+         *     things, and all three ``null`` is refused: that is what forgetting the
+         *     arrangement is for.
+         */
+        PageLayoutDocument: {
+            medium: components["schemas"]["LayoutGridDocument"] | null;
+            narrow: components["schemas"]["LayoutGridDocument"] | null;
+            wide: components["schemas"]["LayoutGridDocument"] | null;
+        };
+        /**
+         * PageLayoutResponse
+         * @description What the archive holds for the page's arrangement.
+         */
+        PageLayoutResponse: {
+            /** @description The arrangement, when custom */
+            layout: components["schemas"]["PageLayoutDocument"] | null;
+            /** @description default: nothing stored, draw the default; custom: the owner's arrangement; unreadable: something is stored that this build cannot read */
+            state: components["schemas"]["LayoutState"];
+            /**
+             * Updated At
+             * @description When it was saved
+             */
+            updated_at: string | null;
         };
         /**
          * PointResponse
@@ -2201,6 +2336,79 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    read_track_layout_api_v1_layouts_track_detail_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageLayoutResponse"];
+                };
+            };
+        };
+    };
+    save_track_layout_api_v1_layouts_track_detail_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PageLayoutDocument"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageLayoutResponse"];
+                };
+            };
+            /** @description Not a drawable grid */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LayoutErrorResponse"];
+                };
+            };
+        };
+    };
+    reset_track_layout_api_v1_layouts_track_detail_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageLayoutResponse"];
+                };
+            };
+        };
+    };
     list_installed_maps_api_v1_maps_get: {
         parameters: {
             query?: never;

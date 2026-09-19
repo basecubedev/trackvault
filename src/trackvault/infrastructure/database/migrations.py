@@ -332,6 +332,16 @@ CREATE INDEX ix_map_install_jobs_state ON map_install_jobs(state);
 """
 
 
+_SCHEMA_11 = """
+CREATE TABLE page_layouts (
+    page           TEXT    PRIMARY KEY,
+    format_version INTEGER NOT NULL,
+    document       TEXT    NOT NULL,
+    updated_at     TEXT    NOT NULL
+);
+"""
+
+
 def _migrate_to_1(connection: sqlite3.Connection) -> None:
     """Create the first productive schema: imports, runs, tracks and geometry."""
     _execute_all(connection, _SCHEMA_1)
@@ -536,6 +546,26 @@ def _migrate_to_10(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_to_11(connection: sqlite3.Connection) -> None:
+    """Keep the owner's arrangement of a page.
+
+    One row per page, holding the arrangement as one document. It is
+    presentation, so it references nothing: removing every track leaves it, and
+    arranging the page changes no track. It lives in this database rather than
+    in a browser because it is still somebody's work -- this way it is the same
+    on every device and a backup carries it.
+
+    A document rather than a table of tiles. The arrangement is read and written
+    whole, never queried by tile, and ``format_version`` says which shape the
+    document has, so a later shape is a new version a reader can refuse rather
+    than a column it misreads.
+
+    Nothing is back-filled: nobody has arranged anything yet, and a stored copy
+    of the default would hide every later improvement to it.
+    """
+    _execute_all(connection, _SCHEMA_11)
+
+
 MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_to_1,
     _migrate_to_2,
@@ -547,6 +577,7 @@ MIGRATIONS: tuple[Callable[[sqlite3.Connection], None], ...] = (
     _migrate_to_8,
     _migrate_to_9,
     _migrate_to_10,
+    _migrate_to_11,
 )
 
 SCHEMA_VERSION = len(MIGRATIONS)
