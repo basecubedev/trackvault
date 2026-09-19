@@ -1487,6 +1487,28 @@ stays where it is instead, so an adapter that learns its format later still find
 it. The suffix chooses what is offered and nothing more; `detects` still decides
 from the content what the bytes are.
 
+**Only finished files are read.** A sync tool writes a file in pieces, and half a
+GPX document is either unreadable or -- worse -- a readable prefix that becomes a
+short, wrong track. `ImportDirectoryScanner` therefore reads a candidate only
+once its change time is at least the settle time old, only if it is not empty,
+and only if the open file is in exactly the state it looked at, before and after
+the read. The change time
+is the kernel's: every write and rename sets it and nothing sets it back, which a
+modification time a copy tool may preserve cannot promise. Anything else is
+*waiting*, which is not a verdict; a later pass takes it. A scan an operator runs
+by hand uses no settle time -- they have already decided the folder is ready --
+and keeps the before-and-after check.
+
+**Remembering is a cache, never the duplicate authority.** A scanner remembers
+which state of which name it has offered, so a later pass costs a `stat` per
+unchanged file instead of a read, a hash and an integrity check of the managed
+copy. That memory lives in the process and dies with it, deliberately: the
+archive's content hash is what makes a re-offer a no-op, so a restarted server
+offers every file once more, gets `duplicate` for each, and cannot import
+anything twice. Persisting the memory would have been a second record of "what
+was imported", with its own migration, backup and restore semantics, to save one
+read per file per restart.
+
 The configured root itself stays trusted and may be a symbolic link, exactly as
 the managed raw storage root does. `read_bounded` remains for paths an operator
 names on the command line: those were chosen deliberately.

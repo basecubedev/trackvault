@@ -21,6 +21,7 @@ from trackvault.domain import InputChannel
 from trackvault.infrastructure.assembly import build_services
 from trackvault.infrastructure.database import SqliteTrackStore
 from trackvault.infrastructure.filesystem import import_directory, scan_import_directory
+from trackvault.infrastructure.gpx import GpxImporter
 
 pytestmark = [pytest.mark.integration, pytest.mark.persistence]
 
@@ -240,6 +241,87 @@ def test_the_command_line_scan_uses_the_configured_directory(tmp_path: Path, inb
 
     assert main(["scan"], settings=settings) == EXIT_FAILED  # the inbox holds a broken file
     assert len(SqliteTrackStore(settings.database_path).list_tracks(TrackQuery()).tracks) == 2
+
+
+def test_the_command_line_scan_names_a_file_it_could_not_read(
+    tmp_path: Path, inbox: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A file the scan could not read is a failed file, not a missing line."""
+    (inbox / "malformed.gpx").unlink()
+    shutil.copy(FIXTURES / "ambiguous-minimal.gpx", inbox / "unreadable.gpx")
+    real_open = os.open
+
+    def refuse_one(path: object, flags: int, /, *args: object, **kwargs: object) -> int:
+        if path == "unreadable.gpx":
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_open(path, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(import_directory.os, "open", refuse_one)
+
+    code = main(["scan"], settings=_settings(tmp_path, inbox))
+
+    assert code == EXIT_FAILED
+    assert any(
+        line.startswith("unreadable") and line.endswith("unreadable.gpx")
+        for line in capsys.readouterr().out.splitlines()
+    )
+
+
+def test_the_command_line_scan_names_a_file_whose_import_broke(
+    tmp_path: Path, inbox: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An import that stopped on an error is reported, and the scan still fails."""
+    (inbox / "malformed.gpx").unlink()
+    content = (inbox / "generic-external-link.gpx").read_bytes()
+    real_import = GpxImporter.import_tracks
+
+    def failing(self: GpxImporter, offered: bytes, limits: object) -> object:
+        if offered == content:
+            raise RuntimeError("an adapter defect")
+        return real_import(self, offered, limits)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(GpxImporter, "import_tracks", failing)
+
+    code = main(["scan"], settings=_settings(tmp_path, inbox))
+
+    assert code == EXIT_FAILED
+    lines = capsys.readouterr().out.splitlines()
+    assert any(
+        line.startswith("error") and line.endswith("generic-external-link.gpx") for line in lines
+    )
+    assert any(line.startswith("imported") for line in lines)
+
+
+def test_the_command_line_scan_names_a_file_that_is_still_arriving(
+    tmp_path: Path, inbox: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A file being written during the scan gets a line, and is not a failure.
+
+    It is not imported now and will be next time, which is neither an error
+    worth a non-zero exit nor something to leave out of the summary.
+    """
+    (inbox / "malformed.gpx").unlink()
+    arriving = inbox / "generic-external-link.gpx"
+    real_read = import_directory.ImportDirectory.read
+
+    def read_after_a_write(
+        self: import_directory.ImportDirectory,
+        entry: import_directory.ImportDirectoryEntry,
+        max_bytes: int,
+        expected: import_directory.FileState | None = None,
+    ) -> bytes | None:
+        if entry.name == arriving.name:
+            with arriving.open("ab") as writer:
+                writer.write(b"<!-- still arriving -->")
+        return real_read(self, entry, max_bytes, expected)
+
+    monkeypatch.setattr(import_directory.ImportDirectory, "read", read_after_a_write)
+
+    code = main(["scan"], settings=_settings(tmp_path, inbox))
+
+    assert code == EXIT_OK
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.startswith("waiting") and line.endswith(arriving.name) for line in lines)
 
 
 def test_scanning_without_a_configured_directory_says_so(tmp_path: Path) -> None:

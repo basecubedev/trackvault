@@ -45,7 +45,7 @@ from trackvault.infrastructure.archive import (
 from trackvault.infrastructure.assembly import TrackServices, build_services
 from trackvault.infrastructure.database.migrations import SCHEMA_VERSION
 from trackvault.infrastructure.diagnostics import observe
-from trackvault.infrastructure.filesystem import read_bounded, scan_import_directory
+from trackvault.infrastructure.filesystem import ImportDirectoryScanner, read_bounded
 from trackvault.infrastructure.private_data import create_private_directory
 from trackvault.main import create_app
 
@@ -211,14 +211,19 @@ class _Attempt:
 
     Attributes:
         label: The file name, for display.
-        outcome: What the import use case reported, or ``None`` if the bytes
-            never reached it.
-        detail: Why the file could not be read, when that is what happened.
+        outcome: What the import use case reported, or ``None`` if it reached no
+            verdict.
+        detail: Why there is no verdict, when there is none.
+        state: The word the summary shows when there is no verdict.
+        failed: Whether having no verdict is a failure. A file still being
+            written is not: the next scan takes it.
     """
 
     label: str
     outcome: ImportOutcome | None = None
     detail: str = ""
+    state: str = "unreadable"
+    failed: bool = True
 
 
 def _report(attempts: Sequence[_Attempt]) -> int:
@@ -231,8 +236,8 @@ def _report(attempts: Sequence[_Attempt]) -> int:
     for attempt in attempts:
         outcome = attempt.outcome
         if outcome is None:
-            sys.stdout.write(f"{'unreadable':<9} {attempt.detail}  {attempt.label}\n")
-            failed += 1
+            sys.stdout.write(f"{attempt.state:<9} {attempt.detail}  {attempt.label}\n")
+            failed += attempt.failed
             continue
         detail = f" {outcome.error_code.value}" if outcome.error_code else ""
         tracks = f" tracks={len(outcome.track_ids)}" if outcome.track_ids else ""
@@ -434,10 +439,16 @@ def _scan(services: TrackServices) -> int:
             "no import directory configured; set TRACKVAULT_IMPORT_DIR to enable scanning\n"
         )
         return EXIT_DISABLED
+    scan = ImportDirectoryScanner(directory, services.import_tracks, clock=services.clock).scan()
     return _report(
         [
-            _Attempt(label, outcome)
-            for label, outcome in scan_import_directory(directory, services.import_tracks)
+            *(_Attempt(label, outcome) for label, outcome in scan.offered),
+            *(_Attempt(label, detail="cannot be read") for label in scan.unreadable),
+            *(_Attempt(label, detail="see the log", state="error") for label in scan.crashed),
+            *(
+                _Attempt(label, detail="still being written", state="waiting", failed=False)
+                for label in scan.waiting
+            ),
         ]
     )
 

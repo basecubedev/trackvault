@@ -61,6 +61,12 @@ holds. If the managed copy was lost, offering the same file again restores it
 and reports `repaired`; if the copy is there but no longer matches its hash, the
 import fails rather than overwriting the evidence.
 
+`scan` gives every `.gpx` file in the folder a line of its own: what the import
+made of it, or `unreadable`, `error` or `waiting` when there is no verdict.
+`waiting` is a file that changed while it was being read, or is still empty; the
+next scan takes it, and it does not count as a failure. Anything else without a
+verdict makes `scan` exit non-zero, like a failed import.
+
 `reprocess` answers a different question. Recognising a content hash makes an
 import a duplicate; whether the *normalized* data of those bytes is still
 current is not the same statement. After an importer or classifier upgrade — or
