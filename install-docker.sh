@@ -70,7 +70,7 @@ Version selection:
 
 After installing:
   docker compose up -d                                      start it
-  docker compose exec trackvault trackvault scan            import from ./import
+  docker compose exec trackvault trackvault scan            import from ./import now
   docker compose exec trackvault trackvault doctor          check the deployment
   docker compose exec trackvault trackvault backup create   write a backup
 USAGE
@@ -171,9 +171,10 @@ services:
     environment:
       # Everything persistent. Backing this up backs up the whole archive.
       TRACKVAULT_DATA_DIR: /data
-      # Where `trackvault scan` looks. Mounted read-only below, which is the mount
-      # enforcing what the application already promises: nothing in the import
-      # folder is written, renamed, moved or deleted.
+      # Where new files are imported from, every 15 minutes and by `trackvault
+      # scan`. Mounted read-only below, which is the mount enforcing what the
+      # application already promises: nothing in the import folder is written,
+      # renamed, moved or deleted.
       TRACKVAULT_IMPORT_DIR: /import
       # Where `trackvault backup create` writes. Deliberately not inside /data: a
       # backup kept in the directory it protects is lost with it.
@@ -287,6 +288,7 @@ note ""
 note "TrackVault is starting on http://localhost:$port"
 note ""
 note "  Put GPX files in:  $import_path"
-note "  Then import them:  docker compose exec trackvault trackvault scan"
+note "  The next scan (every 15 minutes) imports them, or at once:"
+note "                     docker compose exec trackvault trackvault scan"
 note "  Check the archive: docker compose exec trackvault trackvault doctor"
 note "  Back it up:        docker compose exec trackvault trackvault backup create"

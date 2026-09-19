@@ -341,7 +341,8 @@ def _import_directory(observation: DeploymentObservation) -> DiagnosticCheck:
         return DiagnosticCheck(
             "import_directory",
             CheckStatus.WARNING,
-            "TRACKVAULT_IMPORT_DIR is not set, so `trackvault scan` is disabled",
+            "TRACKVAULT_IMPORT_DIR is not set, so neither the automatic import "
+            "nor `trackvault scan` has a folder to read",
         )
     if not observation.import_directory_readable:
         return DiagnosticCheck(

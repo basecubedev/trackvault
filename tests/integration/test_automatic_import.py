@@ -1,4 +1,4 @@
-"""Scanning the import directory: which files are read, when, and only once.
+"""The automatic import: the import directory, scanned while the server runs.
 
 Nothing here is a second import path. A scan reads the directory and hands each
 candidate to the one ``ImportTracks`` use case, exactly like ``trackvault scan``
@@ -14,10 +14,12 @@ file system and the clock is set relative to it, so "written a moment ago" and
 import logging
 import os
 import shutil
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from trackvault.application import ImportErrorCode
 from trackvault.application.import_tracks import ImportStatus
@@ -25,13 +27,16 @@ from trackvault.application.ports import TrackQuery
 from trackvault.cli import EXIT_OK, main
 from trackvault.config import Settings
 from trackvault.infrastructure.assembly import TrackServices, build_services
+from trackvault.infrastructure.automatic_import import WORKER_THREAD_NAME, AutomaticImport
 from trackvault.infrastructure.filesystem import ImportDirectoryScanner, import_directory
 from trackvault.infrastructure.gpx import GpxImporter
+from trackvault.main import create_app
 
 pytestmark = [pytest.mark.integration, pytest.mark.persistence]
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "gpx"
 SETTLE = timedelta(seconds=30)
+LONG_AGO = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class SettableClock:
@@ -56,9 +61,21 @@ def inbox(tmp_path: Path) -> Path:
 
 def _services(tmp_path: Path, inbox: Path) -> TrackServices:
     """Return a freshly wired archive in a throwaway data directory."""
-    services = build_services(Settings(data_dir=tmp_path / "data", import_dir=inbox))
+    services = build_services(_configured(tmp_path, inbox))
     services.prepare_storage()
     return services
+
+
+def _configured(tmp_path: Path, inbox: Path | None, **overrides: object) -> Settings:
+    """Return settings with the automatic import switched on, unless overridden."""
+    return Settings.model_validate(
+        {
+            "data_dir": tmp_path / "data",
+            "import_dir": inbox,
+            "import_scan_enabled": True,
+            **overrides,
+        }
+    )
 
 
 def _put(inbox: Path, name: str, fixture: str = "recorded-measurements.gpx") -> Path:
@@ -461,6 +478,27 @@ def test_a_file_that_breaks_the_import_does_not_keep_the_others_out(
     assert again.crashed == ("a-breaks.gpx",), "a broken import is tried again, not remembered"
 
 
+def test_the_automatic_import_never_runs_two_scans_at_once(
+    tmp_path: Path, inbox: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A scan that is still running is not joined by a second one."""
+    track = _put(inbox, "ride.gpx")
+    services = _services(tmp_path, inbox)
+    clock = _settled(track)
+    automatic = _automatic(services, inbox, clock)
+    during: list[object] = []
+    real_import = GpxImporter.import_tracks
+
+    def import_while_asking_again(self: GpxImporter, content: bytes, limits: object) -> object:
+        during.append(automatic.run_due())
+        return real_import(self, content, limits)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(GpxImporter, "import_tracks", import_while_asking_again)
+
+    assert automatic.run_due() is not None
+    assert during == [None]
+
+
 def test_a_file_that_cannot_even_be_looked_at_is_reported(
     tmp_path: Path, inbox: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -534,3 +572,231 @@ def test_a_scan_that_is_asked_to_stop_stops_between_files(tmp_path: Path, inbox:
 
     assert [name for name, _ in scan.offered] == ["a.gpx"]
     assert _track_count(services) == 1
+
+
+# --- Scheduling --------------------------------------------------------------
+
+INTERVAL = timedelta(minutes=15)
+
+
+def _automatic(
+    services: TrackServices, inbox: Path, clock: SettableClock, *, enabled: bool = True
+) -> AutomaticImport:
+    """Return the automatic import as the server wires it, on a test clock."""
+    return AutomaticImport(
+        directory=inbox,
+        enabled=enabled,
+        import_tracks=services.import_tracks,
+        interval=INTERVAL,
+        clock=clock,
+        settle_time=SETTLE,
+    )
+
+
+def _worker_threads() -> set[threading.Thread]:
+    """Return the automatic import threads that are alive right now."""
+    return {thread for thread in threading.enumerate() if thread.name == WORKER_THREAD_NAME}
+
+
+def test_the_first_scan_is_due_as_soon_as_the_import_starts(tmp_path: Path, inbox: Path) -> None:
+    """Starting the server is when the folder is first read, not a quarter hour later."""
+    track = _put(inbox, "ride.gpx")
+    services = _services(tmp_path, inbox)
+    clock = _settled(track)
+    automatic = _automatic(services, inbox, clock)
+
+    scan = automatic.run_due()
+
+    assert scan is not None
+    assert scan.count(ImportStatus.IMPORTED) == 1
+    status = automatic.status()
+    assert status.last_scan == scan
+    assert status.next_scan_at == scan.finished_at + INTERVAL
+
+
+def test_no_scan_runs_before_the_interval_has_passed(tmp_path: Path, inbox: Path) -> None:
+    """The interval is a promise about how often the folder is read."""
+    first = _put(inbox, "first.gpx")
+    services = _services(tmp_path, inbox)
+    clock = _settled(first)
+    automatic = _automatic(services, inbox, clock)
+    automatic.run_due()
+    _put(inbox, "second.gpx", "generic-external-link.gpx")
+
+    clock.instant += INTERVAL - timedelta(seconds=1)
+
+    assert automatic.run_due() is None
+    assert _track_count(services) == 1
+
+
+def test_the_next_scan_runs_once_the_interval_has_passed(tmp_path: Path, inbox: Path) -> None:
+    """A file that arrives between two scans is imported by the second."""
+    first = _put(inbox, "first.gpx")
+    services = _services(tmp_path, inbox)
+    clock = _settled(first)
+    automatic = _automatic(services, inbox, clock)
+    automatic.run_due()
+    second = _put(inbox, "second.gpx", "generic-external-link.gpx")
+
+    clock.instant = max(clock.instant + INTERVAL, _settled(second).instant)
+    scan = automatic.run_due()
+
+    assert scan is not None
+    assert [name for name, _ in scan.offered] == ["second.gpx"]
+    assert _track_count(services) == 2
+
+
+def test_the_interval_comes_from_the_configuration(tmp_path: Path, inbox: Path) -> None:
+    """How often the folder is read is deployment configuration, stated once."""
+    services = build_services(_configured(tmp_path, inbox, import_scan_interval_minutes=5))
+
+    assert services.automatic_import.status().interval == timedelta(minutes=5)
+
+
+def test_the_settle_time_comes_from_the_configuration(tmp_path: Path, inbox: Path) -> None:
+    """How long a file must be left alone is deployment configuration, stated once."""
+    services = build_services(_configured(tmp_path, inbox, import_settle_minutes=7))
+
+    assert services.automatic_import.status().settle_time == timedelta(minutes=7)
+
+
+def test_what_a_scan_found_stays_visible_after_quiet_scans(tmp_path: Path, inbox: Path) -> None:
+    """A failure reported once must still be there when somebody looks later.
+
+    Most scans find nothing new. The status keeps the last scan that did
+    something beside the last scan, so "nothing new" never hides "one file
+    could not be imported".
+    """
+    broken = _put(inbox, "broken.gpx", "malformed.gpx")
+    valid = _put(inbox, "valid.gpx")
+    services = _services(tmp_path, inbox)
+    clock = _settled(broken, valid)
+    automatic = _automatic(services, inbox, clock)
+    busy = automatic.run_due()
+
+    clock.instant += INTERVAL
+    quiet = automatic.run_due()
+
+    assert quiet is not None
+    assert quiet.skipped == 2
+    status = automatic.status()
+    assert status.last_scan == quiet
+    assert status.last_activity == busy
+
+
+def test_a_scan_that_breaks_still_schedules_the_next(
+    tmp_path: Path, inbox: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A folder that cannot be read right now is retried, not hammered.
+
+    Listing the folder fails, as it does when a network mount goes away under a
+    running server. That ends the scan rather than one file; the next attempt is
+    due one interval later rather than immediately, and nothing claims to be
+    scanning.
+    """
+    track = _put(inbox, "ride.gpx")
+    services = _services(tmp_path, inbox)
+    clock = _settled(track)
+    automatic = _automatic(services, inbox, clock)
+
+    def unreachable(_: object) -> list[str]:
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(import_directory.os, "listdir", unreachable)
+
+    with pytest.raises(OSError, match="Input/output"):
+        automatic.run_due()
+
+    status = automatic.status()
+    assert status.scanning is False
+    assert status.next_scan_at == clock.instant + INTERVAL
+    assert automatic.run_due() is None
+
+
+# --- Switched off ------------------------------------------------------------
+
+
+def test_a_disabled_automatic_import_never_reads_the_folder(tmp_path: Path, inbox: Path) -> None:
+    """Switched off means the folder is not read, not read and ignored."""
+    track = _put(inbox, "ride.gpx")
+    services = _services(tmp_path, inbox)
+    automatic = _automatic(services, inbox, _settled(track), enabled=False)
+    before = _worker_threads()
+
+    automatic.start()
+    scan = automatic.run_due()
+    automatic.stop()
+
+    assert scan is None
+    assert _worker_threads() == before
+    assert services.store.processing_snapshots() == ()
+    assert automatic.status().enabled is False
+    assert automatic.status().directory == str(inbox)
+
+
+def test_the_switch_comes_from_the_configuration(tmp_path: Path, inbox: Path) -> None:
+    """``TRACKVAULT_IMPORT_SCAN_ENABLED=false`` leaves only ``trackvault scan``."""
+    services = build_services(_configured(tmp_path, inbox, import_scan_enabled=False))
+
+    assert services.automatic_import.status().enabled is False
+
+
+def test_without_an_import_directory_there_is_nothing_to_scan(tmp_path: Path) -> None:
+    """No folder configured is not a folder to guess."""
+    services = build_services(_configured(tmp_path, None))
+
+    status = services.automatic_import.status()
+
+    assert status.enabled is False
+    assert status.directory is None
+
+
+# --- Starting and stopping ---------------------------------------------------
+
+
+def test_the_worker_stops_cleanly(tmp_path: Path, inbox: Path) -> None:
+    """Stopping leaves no thread behind, whatever the worker was doing."""
+    _put(inbox, "ride.gpx")
+    services = _services(tmp_path, inbox)
+    automatic = _automatic(services, inbox, SettableClock(LONG_AGO))
+    before = _worker_threads()
+
+    automatic.start()
+    assert len(_worker_threads() - before) == 1
+    automatic.stop()
+
+    assert _worker_threads() == before
+    assert automatic.run_due() is None
+
+
+def test_one_automatic_import_runs_one_worker(tmp_path: Path, inbox: Path) -> None:
+    """Two loops over one folder would be two scans racing for every file."""
+    services = _services(tmp_path, inbox)
+    automatic = _automatic(services, inbox, SettableClock(LONG_AGO))
+    automatic.start()
+    try:
+        with pytest.raises(RuntimeError, match="already"):
+            automatic.start()
+    finally:
+        automatic.stop()
+
+
+def test_the_server_runs_the_automatic_import_while_it_serves(tmp_path: Path, inbox: Path) -> None:
+    """The worker belongs to the application's lifetime and to nothing else."""
+    settings = _configured(tmp_path, inbox)
+    before = _worker_threads()
+
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/healthz").status_code == 200
+        assert len(_worker_threads() - before) == 1
+
+    assert _worker_threads() == before
+
+
+def test_a_server_without_automatic_import_starts_no_worker(tmp_path: Path, inbox: Path) -> None:
+    """Switched off in the configuration means no thread at all."""
+    settings = _configured(tmp_path, inbox, import_scan_enabled=False)
+    before = _worker_threads()
+
+    with TestClient(create_app(settings)):
+        assert _worker_threads() == before

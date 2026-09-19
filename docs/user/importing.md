@@ -12,9 +12,11 @@ already in the archive, or not imported with the reason in words. Nothing is
 guessed: a file the archive cannot read is named, and the rest still go in.
 
 **A watched folder.** Drop files into `import/` — the folder mounted read-only
-at `/import` — and run `docker compose exec trackvault trackvault scan`. This is the
-path for a phone that auto-syncs to the server, and for the hundred files you
-are not going to pick in a file dialog. **The folder is never modified**:
+at `/import` — and TrackVault imports them on its own: when it starts, and every
+15 minutes after that (see [Automatic import](#automatic-import)). To import
+right away, run `docker compose exec trackvault trackvault scan`. This is the path
+for a phone that auto-syncs to the server, and for the hundred files you are not
+going to pick in a file dialog. **The folder is never modified**:
 nothing in it is written, renamed, moved or deleted. Only files named like a
 format TrackVault reads are offered — today that is `*.gpx`, in any case
 (`.gpx`, `.GPX`, `.Gpx`). Hidden files and everything else are left alone rather
@@ -35,7 +37,7 @@ what is offered; whether a file really is GPX is still decided by its content.
 
 ```bash
 trackvault import path/to/track.gpx another.gpx
-trackvault scan                        # imports new files from TRACKVAULT_IMPORT_DIR
+trackvault scan                        # imports new files from TRACKVAULT_IMPORT_DIR, now
 trackvault reprocess <sha256>          # normalize a stored source again
 trackvault reprocess --failed          # ...every source whose last attempt failed
 trackvault reprocess --outdated        # ...every source an upgrade would change
@@ -88,7 +90,9 @@ host folder, e.g. ~/sync/locus
         ↓  read-only mount
 /import inside the container
         ↓  TRACKVAULT_IMPORT_DIR
-trackvault scan  →  ImportTracks  →  archive
+automatic import, every 15 minutes   (or: trackvault scan, right now)
+        ↓
+ImportTracks  →  archive
 ```
 
 **1. Install TrackVault.** It creates an `import/` folder for you.
@@ -123,7 +127,7 @@ docker compose exec trackvault trackvault doctor
 if it says it cannot be read, the mount is pointing somewhere that does not
 exist on the host.
 
-**5. Import what is there:**
+**5. Wait for the next scan, or import what is there right now:**
 
 ```bash
 docker compose exec trackvault trackvault scan
@@ -140,17 +144,46 @@ never clears does not become forty copies of one ride.
 
 **6. Open the browser.** The tracks are there.
 
-### Running the scan regularly
+### Automatic import
 
-There is deliberately no file system watcher. A scan is explicit, cannot hold a
-thread open for weeks, and is easy to reason about. If you want it automatic,
-that is one line of `cron` on the host:
+As long as TrackVault is running and an import directory is configured, it reads
+that folder on its own: once when it starts, then 15 minutes after the previous
+scan finished. There is nothing to set up — no `cron`, no command.
 
-```cron
-*/30 * * * * cd /home/you/trackvault && docker compose exec -T trackvault trackvault scan >/dev/null
+- **What is picked up:** files ending in `.gpx`, in any case, directly in the
+  folder. Subfolders, hidden files and everything else are left alone.
+- **Only finished files.** A file is imported once nothing has changed it for
+  five minutes, and only if it does not change while it is being read. A file
+  your sync tool is still copying — or an empty file it created ahead of the
+  content — is *waiting* and is taken by a later scan, never imported half way.
+- **Sync finished recordings.** A recorder that writes into the synced folder
+  *while* it records produces a file that grows with pauses in between. If a
+  pause lasts longer than the settle time, the first half is imported as a track
+  of its own, and the whole recording as a second one later. Locus AutoSync and
+  similar tools sync a track once it is saved and are not affected; for a
+  recorder that is, raise `TRACKVAULT_IMPORT_SETTLE_MINUTES` above its longest
+  pause, or let it write elsewhere and move finished files in.
+- **Never twice.** A file is recognised by its content, the same way as every
+  other import. A folder your phone never clears, a restart, or the same ride
+  under two names all end in one track. Files already imported cost almost
+  nothing: an unchanged file is not even read again until TrackVault restarts.
+- **One broken file is one broken file.** The files after it are imported as
+  usual, and so are the files after one the server is not allowed to read. A
+  file that failed because the archive itself could not be written — a full
+  disk, say — is tried again on the next scan.
+
+Three settings, all optional:
+
+```bash
+# in .env
+TRACKVAULT_IMPORT_SCAN_INTERVAL_MINUTES=5    # scan more often (1 to 10080)
+TRACKVAULT_IMPORT_SETTLE_MINUTES=15          # wait longer for a file to finish
+TRACKVAULT_IMPORT_SCAN_ENABLED=false         # only import when you run `scan`
 ```
 
-`scan` exits non-zero if any file failed, so a cron mail means something real.
+`trackvault scan` keeps working whether or not the automatic import is on — use
+it when you do not want to wait. It does not wait for a file to settle: running
+it is you saying the folder is ready.
 
 ### The folder is never modified
 

@@ -10,7 +10,7 @@ trackvault/
 ├── docker-compose.yml    written by the installer; --force replaces it
 ├── .env                  your settings; edit this, not the compose file
 ├── data/                 the archive: database, your originals, installed maps
-├── import/               drop files here for `trackvault scan` to read
+├── import/               drop files here; they are imported automatically
 └── backups/              where `trackvault backup create` writes
 ```
 

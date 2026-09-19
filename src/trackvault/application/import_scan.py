@@ -12,10 +12,13 @@ waiting      still being written; a later scan offers it
 unreadable   named like a track but could not be read as a regular file
 crashed      offered, but the import stopped on an error it did not anticipate
 ```
+
+The running server scans on an interval, and :class:`AutomaticImportStatus` is
+what it can say about that to somebody who is not reading its log.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from trackvault.application.errors import ImportErrorCode
 from trackvault.application.import_tracks import ImportOutcome, ImportStatus
@@ -94,5 +97,40 @@ class ImportScan:
         unfinished = (*self.unreadable, *self.crashed)
         return rejected + tuple((name, None) for name in unfinished)
 
+    @property
+    def had_activity(self) -> bool:
+        """Return whether the pass imported, repaired or failed anything."""
+        return bool(self.failures) or any(
+            outcome.status is not ImportStatus.DUPLICATE for _, outcome in self.offered
+        )
 
-__all__ = ["ImportScan"]
+
+@dataclass(frozen=True, slots=True)
+class AutomaticImportStatus:
+    """What the automatic import is doing, right now.
+
+    Attributes:
+        enabled: Whether the server reads the import directory on its own.
+        directory: The import directory as the server sees it, or ``None``
+            when none is configured. Inside the container that is ``/import``.
+        interval: Time between the end of one scan and the start of the next.
+        settle_time: How long a file must have been left alone to be read.
+        scanning: Whether a scan is running at this moment.
+        last_scan: The most recent scan, which usually found nothing new.
+        last_activity: The most recent scan that imported, repaired or failed
+            anything. Kept beside ``last_scan`` so that a quiet quarter hour
+            never hides the file that could not be imported before it.
+        next_scan_at: When the next scan is due, once one is scheduled.
+    """
+
+    enabled: bool
+    directory: str | None
+    interval: timedelta
+    settle_time: timedelta
+    scanning: bool = False
+    last_scan: ImportScan | None = None
+    last_activity: ImportScan | None = None
+    next_scan_at: datetime | None = None
+
+
+__all__ = ["AutomaticImportStatus", "ImportScan"]

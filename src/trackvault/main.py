@@ -131,7 +131,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.map_remove = services.maps.remove
         app.state.map_repository = services.maps.repository
         app.state.map_tiles = services.maps.tiles
+        # Last, once storage is current: the first scan runs on the worker's own
+        # thread and never delays the server answering its first request.
+        services.automatic_import.start()
         yield
+        services.automatic_import.stop()
         services.maps.jobs.shutdown()
 
     app = FastAPI(

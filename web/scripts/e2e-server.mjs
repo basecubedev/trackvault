@@ -53,6 +53,9 @@ const server = spawn(
       // otherwise, and the browser tests cover the capability somebody
       // switched on rather than a default they did not choose.
       TRACKVAULT_UPLOAD_ENABLED: 'true',
+      // Off, whatever a developer's .env says: a folder read in the background
+      // would put tracks into an archive the scenarios expect to start empty.
+      TRACKVAULT_IMPORT_SCAN_ENABLED: 'false',
     },
     stdio: 'inherit',
   },

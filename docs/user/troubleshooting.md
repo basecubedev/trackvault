@@ -26,6 +26,16 @@ docker compose exec trackvault ls -la /import
 If that is empty, the mount is pointing somewhere else. Never pass a host path
 to a command running inside the container.
 
+**A file in the import folder does not show up.**
+The automatic import reads the folder when TrackVault starts and every 15
+minutes after that (`TRACKVAULT_IMPORT_SCAN_INTERVAL_MINUTES`), and takes a file
+only once nothing has changed it for five minutes
+(`TRACKVAULT_IMPORT_SETTLE_MINUTES`) — so a ride that just arrived waits at least
+that long, and then for the next scan. `trackvault scan` imports it at once. Only
+`.gpx` files directly in the folder are read; a file in a subfolder, or with a
+different ending, is left alone. If `TRACKVAULT_IMPORT_SCAN_ENABLED` is `false`,
+nothing is read until you run `scan`.
+
 **Nothing answers on <http://localhost:8081/>.**
 8081 is the host port; 8080 is the container's. Check what is actually
 published, and that `TRACKVAULT_HTTP_PORT` in `.env` is what you think it is:

@@ -71,14 +71,16 @@ Locus Map (or any recorder)
         ↓  AutoSync / Syncthing / Nextcloud / rsync
 host folder, e.g. ~/sync/locus   →  import/ in your installation
         ↓  read-only mount
-trackvault scan
+automatic import, every 15 minutes
         ↓
 Dashboard · Track browser · Track detail
 ```
 
 Point your phone's sync target at the `import/` folder the installer made — or
 point TrackVault at a folder you already sync to, by setting
-`TRACKVAULT_IMPORT_PATH` in `.env`. Then:
+`TRACKVAULT_IMPORT_PATH` in `.env`. TrackVault reads that folder on its own,
+when it starts and every 15 minutes after that, and takes a file only once it has
+finished arriving. To import right away:
 
 ```bash
 docker compose exec trackvault trackvault scan

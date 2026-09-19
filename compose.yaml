@@ -30,9 +30,11 @@ services:
       # installed maps keep working.
       # TRACKVAULT_MAPS_ENABLED: "false"
       #
-      # Where `trackvault scan` looks for new files. The directory below is
-      # mounted read-only, which is the mount enforcing what the application
+      # Where new files are imported from: automatically every 15 minutes while
+      # the server runs, and by `trackvault scan` on demand. The directory below
+      # is mounted read-only, which is the mount enforcing what the application
       # already promises: nothing in it is written, renamed, moved or deleted.
+      # TRACKVAULT_IMPORT_SCAN_ENABLED: "false" leaves only `trackvault scan`.
       TRACKVAULT_IMPORT_DIR: /import
       #
       # Where `trackvault backup create` writes. Outside /data on purpose: a
@@ -56,7 +58,9 @@ services:
       # Installed offline maps live here too, so they survive a recreate and
       # never enter the image. They can be hundreds of megabytes each.
       - trackvault-data:/data
-      # Drop files here and run `docker compose exec trackvault trackvault scan`.
+      # Drop files here; the next scan, every 15 minutes, imports the ones that
+      # have finished arriving. `docker compose exec trackvault trackvault scan`
+      # imports them at once.
       # A host directory rather than a volume, because the whole point is that
       # you can put files into it from outside the container. It ships with the
       # repository as an empty folder so that this mount never has to create it:
