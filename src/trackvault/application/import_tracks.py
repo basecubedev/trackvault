@@ -153,6 +153,16 @@ class ImportTracks:
         """
         return self._normalize.limits
 
+    @property
+    def file_suffixes(self) -> frozenset[str]:
+        """Return the file name suffixes an installed adapter can read.
+
+        A directory scan offers only files named like this, and takes the set
+        from here so that installing an adapter is also what makes its files
+        discoverable. The suffix never decides what content *is*.
+        """
+        return self._normalize.file_suffixes
+
     def __call__(self, request: ImportRequest) -> ImportOutcome:
         """Run one import attempt and report what happened."""
         content = request.content

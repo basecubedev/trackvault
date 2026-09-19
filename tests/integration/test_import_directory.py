@@ -173,6 +173,39 @@ def test_an_unreadable_file_is_skipped_rather_than_fatal(
     assert results["recorded-measurements.gpx"].status is ImportStatus.IMPORTED
 
 
+def test_only_files_an_installed_importer_claims_are_offered(tmp_path: Path, inbox: Path) -> None:
+    """A sync folder holds more than tracks, and none of the rest is evidence.
+
+    Offering a photo or a note would store it as a raw import with a failed run,
+    on every archive that shares the folder. It stays in the folder instead,
+    untouched, so an importer that learns its format later still finds it.
+    """
+    (inbox / "notes.txt").write_text("not a track", encoding="utf-8")
+    (inbox / "photo.jpg").write_bytes(b"\xff\xd8\xff\xe0")
+    services = build_services(_settings(tmp_path, inbox))
+    services.prepare_storage()
+
+    results = dict(scan_import_directory(inbox, services.import_tracks))
+
+    assert "notes.txt" not in results
+    assert "photo.jpg" not in results
+    assert len(services.store.processing_snapshots()) == len(results) == 3
+
+
+@pytest.mark.parametrize("name", ["RIDE.GPX", "Walk.Gpx"])
+def test_the_file_suffix_is_recognised_whatever_its_case(tmp_path: Path, name: str) -> None:
+    """Phones and older systems write upper-case suffixes; the file is the same."""
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    shutil.copy(FIXTURES / "recorded-measurements.gpx", inbox / name)
+    services = build_services(_settings(tmp_path, inbox))
+    services.prepare_storage()
+
+    results = dict(scan_import_directory(inbox, services.import_tracks))
+
+    assert results[name].status is ImportStatus.IMPORTED
+
+
 def test_a_missing_import_directory_is_not_an_error(tmp_path: Path) -> None:
     """A sync target that does not exist yet simply has nothing to offer."""
     services = build_services(_settings(tmp_path))

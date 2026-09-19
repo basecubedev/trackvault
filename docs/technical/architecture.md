@@ -1479,6 +1479,14 @@ non-blocking open matters on its own: opening a FIFO for reading waits for a
 writer, and a scan that can be stopped by dropping one into the folder is a
 denial of service with no attacker skill required.
 
+A candidate is a visible name whose suffix an installed adapter declares
+(`TrackImporter.file_suffixes`, compared case-insensitively). Everything else in
+the folder is neither read nor stored: a photo offered to `ImportTracks` would
+become a raw import with a failed run in every archive sharing the folder. It
+stays where it is instead, so an adapter that learns its format later still finds
+it. The suffix chooses what is offered and nothing more; `detects` still decides
+from the content what the bytes are.
+
 The configured root itself stays trusted and may be a symbolic link, exactly as
 the managed raw storage root does. `read_bounded` remains for paths an operator
 names on the command line: those were chosen deliberately.

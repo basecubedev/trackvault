@@ -186,13 +186,18 @@ def scan_import_directory(
     Returns:
         One ``(filename, outcome)`` pair per file that could be read, in scan
         order. A file that could not be read does not stop the ones after it.
+        A name no installed adapter is exchanged under is not a candidate at
+        all: it is neither read nor reported, and stays where it is.
     """
     max_bytes = import_tracks.limits.max_bytes
+    suffixes = tuple(import_tracks.file_suffixes)
     results = []
     with open_import_directory(directory) as inbox:
         if inbox is None:
             return []
         for entry in inbox.entries():
+            if not entry.name.lower().endswith(suffixes):
+                continue
             content = inbox.read(entry, max_bytes)
             if content is None:
                 continue

@@ -66,6 +66,7 @@ from trackvault.infrastructure.gpx.parsing import (
 
 GPX_FORMAT_ID = "gpx"
 GPX_MEDIA_TYPE = "application/gpx+xml"
+GPX_FILE_SUFFIXES = (".gpx",)
 GPX_IMPORTER_VERSION = "2"
 """What this adapter turns a document into.
 
@@ -111,6 +112,11 @@ class GpxImporter:
     def media_type(self) -> str:
         """Return the media type hint recorded on an accepted raw import."""
         return GPX_MEDIA_TYPE
+
+    @property
+    def file_suffixes(self) -> tuple[str, ...]:
+        """Return the suffix GPX documents are exchanged under."""
+        return GPX_FILE_SUFFIXES
 
     def detects(self, content: bytes) -> bool:
         """Report whether the content is a GPX document.

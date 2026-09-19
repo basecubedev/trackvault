@@ -15,9 +15,12 @@ guessed: a file the archive cannot read is named, and the rest still go in.
 at `/import` — and run `docker compose exec trackvault trackvault scan`. This is the
 path for a phone that auto-syncs to the server, and for the hundred files you
 are not going to pick in a file dialog. **The folder is never modified**:
-nothing in it is written, renamed, moved or deleted. Hidden files are skipped
-rather than reported as failures — a synced folder is full of `.DS_Store` and
-half-written downloads, and none of them is a track.
+nothing in it is written, renamed, moved or deleted. Only files named like a
+format TrackVault reads are offered — today that is `*.gpx`, in any case
+(`.gpx`, `.GPX`, `.Gpx`). Hidden files and everything else are left alone rather
+than reported as failures: a synced folder is full of `.DS_Store`, photos and
+half-written downloads, and none of them is a track. The suffix only decides
+what is offered; whether a file really is GPX is still decided by its content.
 
 **On the machine itself**, with the commands below.
 
