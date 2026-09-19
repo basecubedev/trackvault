@@ -33,6 +33,7 @@ from trackvault.domain.analysis import (
     TrackAnalysis,
 )
 from trackvault.domain.maps import MapBounds
+from trackvault.domain.page_layout import LayoutPage, PageLayout
 
 
 class AnalysisAvailability(StrEnum):
@@ -806,4 +807,42 @@ class TrackRepository(Protocol):
         "undated" and "dated by something unverifiable" call for different
         reactions.
         """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class StoredPageLayout:
+    """A page arrangement as the archive holds it.
+
+    Attributes:
+        layout: The arrangement, or ``None`` when a row exists that this build
+            cannot read. Unreadable is its own answer rather than an absent
+            one: the owner arranged *something*, and the page says so instead
+            of silently drawing the default as if nobody had.
+        updated_at: When it was last saved, or ``None`` when even that part of
+            the row cannot be read.
+    """
+
+    layout: PageLayout | None
+    updated_at: datetime | None
+
+
+class PageLayoutRepository(Protocol):
+    """Where the owner's page arrangements are kept."""
+
+    def read_page_layout(self, page: LayoutPage) -> StoredPageLayout | None:
+        """Return the stored arrangement of a page, or ``None`` if there is none.
+
+        What comes back out is validated before it is returned. A row that fails
+        is reported with ``layout=None`` and left where it is: a read is not the
+        place to delete somebody's work.
+        """
+        ...
+
+    def save_page_layout(self, page: LayoutPage, layout: PageLayout, at: datetime) -> None:
+        """Store a page's arrangement, replacing whatever was stored before."""
+        ...
+
+    def delete_page_layout(self, page: LayoutPage) -> None:
+        """Remove a page's arrangement, so the page draws its default again."""
         ...

@@ -202,7 +202,7 @@ h3 { font-size: 0.95rem; margin: 0 0 0.35rem; }
 }
 /* Full width, so the report opens under the row rather than beside it. */
 .track-row__details { flex: 1 0 100%; border-top: 1px solid var(--border); margin-top: 0.4rem; padding-top: 0.8rem; }
-.track-row__details .detail-grid { margin-top: 0.6rem; }
+.track-row__details .board { margin-top: 0.6rem; }
 
 .track-row__title { font-weight: 600; flex: 1 1 14rem; }
 .track-row__meta { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; color: var(--muted); font-size: 0.85rem; }
@@ -220,12 +220,6 @@ button {
 }
 button[disabled] { opacity: 0.5; cursor: default; }
 button.primary { background: var(--accent); color: #fff; border-color: transparent; }
-
-.detail-grid { display: grid; gap: var(--gap); grid-template-columns: 1fr; }
-@media (min-width: 1000px) {
-  .detail-grid { grid-template-columns: 1fr 1fr; }
-  .detail-grid .full { grid-column: 1 / -1; }
-}
 
 .map { width: 100%; height: 380px; border-radius: var(--radius); overflow: hidden; background: #dfe6ec; }
 @media (prefers-color-scheme: dark) { .map { background: #232a30; } }
@@ -459,3 +453,177 @@ button.link {
 .automatic-import__failures { margin: 0.3rem 0 0; padding-left: 1.2rem; }
 
 .track-place { white-space: nowrap; }
+
+/* --- Widget board --------------------------------------------------------
+ *
+ * A grid of whole cells: columns share the width, rows have one fixed height,
+ * and a tile's size is exactly what its owner chose -- content that does not
+ * fit scrolls inside it. On a narrow screen rows grow to fit their text
+ * instead, because a scrolling box inside a scrolling phone is nobody's choice.
+ */
+
+.board { margin-top: var(--gap); }
+
+.board__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 0.6rem;
+}
+.board__toolbar--editing {
+  justify-content: space-between;
+  align-items: flex-start;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+.board__hint { flex: 1 1 22rem; margin: 0; font-size: 0.85rem; color: var(--muted); }
+.board__hint p { margin: 0 0 0.2rem; }
+.board__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.board__error { flex-basis: 100%; margin: 0; color: var(--bad); font-size: 0.9rem; }
+.board__notice { margin-bottom: 0.6rem; }
+
+.board__tray { flex-basis: 100%; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+.board__tray ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.board__tray li { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; font-size: 0.9rem; }
+.board__tray p { margin: 0; }
+.board__tray-name { font-weight: 600; }
+
+.board__grid {
+  --layout-row: 48px;
+  --columns: 12;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
+  grid-auto-rows: var(--layout-row);
+  gap: var(--gap);
+}
+.board__grid[data-width-class='narrow'] { grid-auto-rows: minmax(var(--layout-row), auto); }
+
+/* While arranging, the cells themselves are drawn: a column is a tinted band,
+   a gap between rows is cut out of it in the page's own background. */
+.board__grid--editing {
+  --cell: color-mix(in srgb, var(--accent) 8%, transparent);
+  background-image:
+    linear-gradient(to bottom, transparent calc(100% - var(--gap)), var(--bg) calc(100% - var(--gap))),
+    linear-gradient(to right, var(--cell) calc(100% - var(--gap)), transparent calc(100% - var(--gap)));
+  background-size: calc((100% + var(--gap)) / var(--columns)) calc(var(--layout-row) + var(--gap));
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /* The tile is what its numbers are sized against, not the window. */
+  container-type: inline-size;
+}
+.tile__content { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.tile__content > .card,
+.tile__content > .panel { flex: 1 1 auto; min-height: 0; }
+.board__grid:not([data-width-class='narrow']) .tile__content > .panel { overflow: auto; }
+.tile .panel > h2:first-child,
+.tile .panel > h3:first-child { margin-top: 0; }
+.tile .card__value { font-size: clamp(1.05rem, 11cqi, 1.6rem); }
+
+/* A map or a chart takes whatever height its tile has left. */
+.panel--fill { display: flex; flex-direction: column; }
+.panel--fill > .map,
+.panel--fill > .chart { flex: 1 1 auto; height: auto; min-height: 12rem; }
+
+.tile__placeholder { display: flex; align-items: center; justify-content: center; text-align: center; border-style: dashed; }
+
+.tile--editing {
+  border-radius: var(--radius);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  background: var(--surface);
+}
+/* The bar is a stacking context of its own, so an open menu cannot rise above
+   the tiles below it from inside. The whole tile rises instead -- without this
+   a small card's menu is drawn behind the next widget's bar, and "Hide"
+   catches a drag instead of a click. */
+.tile--menu-open { z-index: 6; }
+.tile--editing > .tile__content { opacity: 0.75; }
+.tile--moving { outline-style: dashed; }
+.tile--moving > .tile__content { opacity: 0.25; }
+
+.tile__bar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 2;
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  padding: 0.25rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-bottom: 1px solid var(--accent);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.tile__handle {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2rem;
+  padding: 0.2rem 0.5rem;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: grab;
+  touch-action: none;
+}
+.tile__handle:active { cursor: grabbing; }
+.tile__grip { margin-right: 0.35rem; color: var(--accent); }
+.tile__menu-button { flex: 0 0 auto; min-height: 2rem; padding: 0.2rem 0.55rem; }
+.tile__menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0.25rem;
+  z-index: 3;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 9rem;
+  padding: 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.tile__menu button { text-align: left; }
+.tile__menu button[aria-pressed='true'] { border-color: var(--accent); font-weight: 600; }
+.tile__resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 1.5rem;
+  height: 1.5rem;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--accent) 50%);
+  border-bottom-right-radius: var(--radius);
+}
+
+.board__ghost {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  padding: 0.4rem 0.6rem;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 0.85rem;
+  font-weight: 600;
+}

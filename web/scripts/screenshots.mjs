@@ -176,6 +176,19 @@ async function capture(browser, base, emptyBase) {
   await settle(page)
   await shot(page, 'track-title', { until: '[data-testid="title-editor"]', pad: 10 })
 
+  // The page while it is being arranged: the bars, the corners and the toolbar
+  // that saves. Taken over the same recording, with the title editor closed
+  // again so the picture is of one thing.
+  await page.locator('.title-editor').getByRole('button', { name: 'Cancel' }).click()
+  await page.getByTestId('customize-layout').click()
+  await settle(page)
+  await shot(page, 'track-layout', {
+    from: '[data-testid="layout-toolbar"]',
+    until: '[data-testid="tile-map"]',
+    pad: 10,
+  })
+  await page.getByTestId('layout-toolbar').getByRole('button', { name: 'Cancel' }).click()
+
   await page.goto(`${base}/maps`)
   await settle(page)
   // The catalog below the installed package is the deployment's own provider,

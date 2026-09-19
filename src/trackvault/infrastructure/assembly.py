@@ -28,6 +28,7 @@ from trackvault.application.maps import (
     SuggestMapRegions,
 )
 from trackvault.application.normalization import NormalizeRawImport
+from trackvault.application.page_layout import PageLayouts
 from trackvault.application.processing import InstalledProcessing
 from trackvault.application.processing_status import GetProcessingStatus
 from trackvault.application.reprocess import ReprocessRawImport
@@ -36,6 +37,7 @@ from trackvault.infrastructure.archive import recover_interrupted_restore
 from trackvault.infrastructure.automatic_import import AutomaticImport
 from trackvault.infrastructure.clock import SystemClock
 from trackvault.infrastructure.database import SqliteTrackStore
+from trackvault.infrastructure.database.layout_store import SqlitePageLayoutStore
 from trackvault.infrastructure.database.map_store import SqliteMapPackageStore
 from trackvault.infrastructure.database.migrations import SCHEMA_VERSION
 from trackvault.infrastructure.filesystem import FilesystemRawImportStore
@@ -134,6 +136,8 @@ class TrackServices:
         automatic_import: Reading the import directory on an interval. Built
             here so that every process has the same one, and started only by
             the server's lifespan -- a command-line run never scans on its own.
+        page_layouts: How the owner arranged a page. Presentation, kept in the
+            archive's database so a backup carries it.
     """
 
     settings: Settings
@@ -151,6 +155,7 @@ class TrackServices:
     restore_archive: RestoreArchive
     maps: MapServices
     automatic_import: AutomaticImport
+    page_layouts: PageLayouts
 
     def prepare_storage(self) -> None:
         """Bring the deployment to a readable state before serving anything.
@@ -243,6 +248,7 @@ def build_services(settings: Settings) -> TrackServices:
             clock=clock,
             settle_time=settings.import_settle_time,
         ),
+        page_layouts=PageLayouts(repository=SqlitePageLayoutStore(store), clock=clock),
     )
 
 

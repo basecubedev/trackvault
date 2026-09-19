@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from trackvault import __version__
 from trackvault.api.health import router as health_router
+from trackvault.api.layouts import router as layouts_router
 from trackvault.api.maps import router as maps_router
 from trackvault.api.security import apply_security_headers
 from trackvault.api.statistics import router as statistics_router
@@ -121,6 +122,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Read-only to the API: a route can ask what the worker did, and has no
         # way to make it scan.
         app.state.automatic_import = services.automatic_import
+        # Presentation, and still the owner's work: kept in the archive so the
+        # page is arranged the same way on every device.
+        app.state.page_layouts = services.page_layouts
         app.state.maps_enabled = services.maps.enabled
         app.state.map_catalog = services.maps.catalog
         app.state.map_installed = services.maps.installed
@@ -154,6 +158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tracks_router)
     app.include_router(statistics_router)
     app.include_router(maps_router)
+    app.include_router(layouts_router)
     # Mounted last, because its catch-all route must never shadow an endpoint.
     # A build that ships without browser assets serves the API and nothing else,
     # which is exactly what a development run and a test want.

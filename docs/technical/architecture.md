@@ -322,6 +322,20 @@ no layer uses `icon-image`. Every URL in a composed style is same-origin.
 Attribution comes out of the installed package's own metadata and is rendered
 beside every map that is drawn. See `docs/legal/third-party-notices.md`.
 
+The track report is a **board of widgets the owner can arrange**: twelve columns
+on a wide screen, whole cells, drag or arrow keys to move, a corner or Shift and
+an arrow key to resize, and a menu for one-click sizes and hiding. The
+arrangement is stored by the *archive* (`page_layouts`, `/api/v1/layouts/track-detail`)
+rather than by one browser, because it is the owner's work and belongs in the
+backup with the rest of it — and it is **presentation only**: the archive
+vouches for the shape of a grid, and what a widget means stays the page's
+vocabulary, exactly as the colour of a map line does. What the report *says* is
+not arrangeable: the title, the state badges, the analysis notice and the timing
+caveat sit above the board, and map attribution travels inside the map widget.
+The arithmetic of moving, resizing, compacting and deriving a narrower
+arrangement is pure functions in `web/src/layout`, tested without a browser. See
+`docs/adr/0014-arrangeable-track-report.md`.
+
 A track list draws one small map per row, as a picture rather than a map
 component, and keeps the finished picture in the browser's own IndexedDB so a
 second visit does not draw it again. That store is **projection only** in the
@@ -1767,6 +1781,7 @@ Exactly one component owns each concern. Everything else is a projection.
 | Profile and map series | the current normalized geometry plus the installed analysis algorithms |
 | Presentation projections | decimation and simplification; never normalization, never written back |
 | Browser/frontend state | projection only |
+| The arrangement of a page | `page_layouts` — the owner's, presentation only; a widget's meaning stays the page's |
 | Installed map packages | a database row **and** a managed file that hashes to it — either alone is `INVALID` |
 | Map attribution | the installed package's own metadata, never a build-time string |
 | Which map draws behind a track | `SelectMapCoverage`, from installed coverage and the provider's region tree |

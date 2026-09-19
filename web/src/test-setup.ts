@@ -67,6 +67,20 @@ if (typeof URL.createObjectURL !== 'function') {
   URL.revokeObjectURL = (): void => {}
 }
 
+/**
+ * Pointer capture, which `jsdom` does not implement.
+ *
+ * A drag needs it and a browser has had it for a decade; stubbing it here keeps
+ * the gap in the test environment rather than in the code under test.
+ */
+if (typeof Element.prototype.setPointerCapture !== 'function') {
+  Element.prototype.setPointerCapture = function capture(): void {}
+  Element.prototype.releasePointerCapture = function release(): void {}
+  Element.prototype.hasPointerCapture = function held(): boolean {
+    return false
+  }
+}
+
 const environment = globalThis as unknown as Record<string, unknown>
 
 environment['ResizeObserver'] ??= ResizeObserverStub

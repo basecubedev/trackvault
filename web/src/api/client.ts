@@ -33,6 +33,8 @@ export type AnalysisAvailability = components['schemas']['AnalysisAvailability']
 export type AggregationScope = components['schemas']['AggregationScope']
 export type TemporalEvidence = components['schemas']['TemporalEvidence']
 export type TrackOrder = components['schemas']['TrackOrder']
+export type PageLayout = components['schemas']['PageLayoutDocument']
+export type LayoutReading = components['schemas']['PageLayoutResponse']
 
 export type InstalledMaps = components['schemas']['InstalledMapsResponse']
 export type InstalledMap = components['schemas']['InstalledMapResponse']
@@ -242,5 +244,33 @@ export const api = {
     })
     if (!response.ok) throw await apiError(response)
     return (await response.json()) as Track
+  },
+
+  // --- The arrangement of the track page ------------------------------------
+  //
+  // Presentation, and still the owner's work: kept by the archive so it is the
+  // same on every device. Saving sends the whole arrangement; resetting forgets
+  // it, and the page draws its own default again.
+
+  readTrackLayout: (signal?: AbortSignal) =>
+    get<LayoutReading>('/layouts/track-detail', {}, signal),
+
+  async saveTrackLayout(layout: PageLayout): Promise<LayoutReading> {
+    const response = await fetch('/api/v1/layouts/track-detail', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(layout),
+    })
+    if (!response.ok) throw await apiError(response)
+    return (await response.json()) as LayoutReading
+  },
+
+  async resetTrackLayout(): Promise<LayoutReading> {
+    const response = await fetch('/api/v1/layouts/track-detail', {
+      method: 'DELETE',
+      headers: { accept: 'application/json' },
+    })
+    if (!response.ok) throw await apiError(response)
+    return (await response.json()) as LayoutReading
   },
 }

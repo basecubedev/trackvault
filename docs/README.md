@@ -38,6 +38,7 @@ TrackVault. It stays short on purpose; everything it summarises is here in full.
 | [adr/0011-web-upload.md](adr/0011-web-upload.md) | Why the browser may offer a file to the archive, what bounds that endpoint, and why it is a caller of the import use case rather than a second path |
 | [adr/0012-export-archive-and-restore.md](adr/0012-export-archive-and-restore.md) | Three exports rather than one, why the archive is a plain tar.gz, the manifest and its stated omissions, and the validate-before-publish restore |
 | [adr/0013-automatic-import.md](adr/0013-automatic-import.md) | Why the server reads the import directory on an interval rather than through cron or a watcher, which files it takes and when, and why the content hash rather than a scan ledger keeps it from importing twice |
+| [adr/0014-arrangeable-track-report.md](adr/0014-arrangeable-track-report.md) | Why the track report is a grid of widgets rather than floating windows, why the arrangement is stored by the archive rather than by one browser, what must stay unarrangeable, and how a narrower screen gets an arrangement nobody made |
 | [legal/third-party-notices.md](legal/third-party-notices.md) | The canonical third-party dependency list, the licence policy and the audits that keep it honest, and what the map does and does not ship |
 
 Three documents are protected by executable contract tests in `tests/contract/`:
