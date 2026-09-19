@@ -40,9 +40,12 @@ function show(routes: ApiRoute[]) {
   return stub
 }
 
+const DEFAULT_LAYOUT = { state: 'default', layout: null, updated_at: null }
+
 function archive(current: Track = track(), ...extra: ApiRoute[]) {
   return [
     ...extra,
+    on('/layouts/track-detail', DEFAULT_LAYOUT),
     on('/profile', profile()),
     on('/analysis', analysis()),
     on('/api/v1/tracks/7', current),
@@ -395,5 +398,97 @@ describe('a recording with sensors', () => {
     // An empty chart with two axes and no line is a page claiming data it has
     // not got.
     expect(screen.queryByTestId('sensor-panel')).not.toBeInTheDocument()
+  })
+})
+
+describe('the arrangement of the report', () => {
+  const profileFirst = {
+    state: 'custom',
+    updated_at: '2026-09-19T10:00:00Z',
+    layout: {
+      wide: {
+        columns: 12,
+        tiles: [
+          { widget: 'profile', x: 0, y: 0, width: 12, height: 9 },
+          { widget: 'map', x: 0, y: 9, width: 12, height: 9 },
+        ],
+        hidden: ['classification'],
+      },
+      medium: null,
+      narrow: null,
+    },
+  }
+
+  it('is drawn the way the owner arranged it, on every track', async () => {
+    show(archive(track(), on('/layouts/track-detail', profileFirst)))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('track-title').textContent).toBe('Talaia')
+    })
+    const headings = screen.getAllByRole('heading').map((node) => node.textContent)
+    expect(headings.slice(0, 3)).toEqual(['Talaia', 'Elevation and speed', 'Where it went'])
+    expect(screen.queryByTestId('evidence-list')).not.toBeInTheDocument()
+    // Widgets the stored arrangement never mentioned are shown, not lost.
+    expect(screen.getByTestId('calendar-basis')).toBeInTheDocument()
+  })
+
+  it('keeps every caveat above the widgets, where no arrangement can move it', async () => {
+    const stale = track({
+      analysis: { status: 'outdated', distance_m: null, elevation_gain_m: null, elapsed_duration_s: null, moving_duration_s: null },
+    })
+    show(archive(stale, on('/layouts/track-detail', profileFirst)))
+
+    const notice = await screen.findByTestId('analysis-notice')
+    const board = screen.getByTestId('widget-board')
+    expect(notice.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('is saved to the archive when the owner is done arranging', async () => {
+    const user = userEvent.setup()
+    const stub = show(
+      archive(track(), (url) =>
+        url.includes('/layouts/track-detail') ? { ...profileFirst, state: 'custom' } : undefined,
+      ),
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('customize-layout')).toBeEnabled()
+    })
+
+    await user.click(screen.getByTestId('customize-layout'))
+    screen.getByTestId('move-metric.distance').focus()
+    await user.keyboard('{ArrowRight}')
+    await user.click(screen.getByTestId('save-layout'))
+
+    await waitFor(() => {
+      expect(stub.writes).toHaveLength(1)
+    })
+    const [write] = stub.writes
+    expect(write?.method).toBe('PUT')
+    expect(write?.url).toBe('/api/v1/layouts/track-detail')
+    const body = write?.body as { wide: { tiles: { widget: string; x: number }[] } }
+    expect(body.wide.tiles.find((tile) => tile.widget === 'metric.distance')?.x).toBe(2)
+    expect(body.wide.tiles.find((tile) => tile.widget === 'metric.elevation-gain')?.x).toBe(0)
+  })
+
+  it('says so when the stored arrangement cannot be read, instead of pretending there is none', async () => {
+    show(
+      archive(
+        track(),
+        on('/layouts/track-detail', { state: 'unreadable', layout: null, updated_at: null }),
+      ),
+    )
+
+    expect(await screen.findByTestId('layout-unreadable')).toBeInTheDocument()
+    expect(screen.getByTestId('customize-layout')).toBeEnabled()
+  })
+
+  it('is not offered for editing when it could not be loaded at all', async () => {
+    show([failing('/layouts/track-detail'), ...archive()])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('customize-layout')).toBeDisabled()
+    })
+    expect(screen.getByText(/could not be loaded/)).toBeInTheDocument()
+    expect(screen.getByTestId('detail-distance')).toBeInTheDocument()
   })
 })

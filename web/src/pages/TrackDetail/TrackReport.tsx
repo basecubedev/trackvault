@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { api, type Track, type TrackKind } from '../../api/client'
 import { evidenceLeaning, explainEvidence, explainQuality } from '../../api/explanations'
 import {
@@ -19,8 +19,11 @@ import { boundsOf, boundsQuery, profileToFeatureCollection } from '../../map/geo
 import { MapOffer } from '../../map/MapOffer'
 import { MAP_THEMES, type MapTheme } from '../../map/style'
 import { TrackMap } from '../../map/TrackMap'
+import { WidgetBoard } from '../../layout/WidgetBoard'
 import { useHovered, useHoverStore } from './hover'
+import { useTrackLayout } from './layout'
 import { TitleEditor } from './TitleEditor'
+import { DEFAULT_TRACK_LAYOUT, TRACK_WIDGETS } from './widgets'
 import { usePrefersDark } from '../../charts/theme'
 import { flatten, hasSensorReadings, profileOption, sampleAt, sensorOption } from './profileChart'
 
@@ -50,15 +53,26 @@ const PROFILE_SAMPLES = 2000
  * The map and the chart are drawn from the *same* samples, so a chart cursor
  * and a map marker address one position by `(segment_index, point_index)`
  * rather than by the browser searching for a nearby coordinate.
+ *
+ * Below the title, the badges and the notices, the report is a board of
+ * widgets the owner can arrange. What the report *says* is not arrangeable:
+ * the title, the state badges and every caveat stay above the board, where no
+ * rearrangement can separate a number from the warning that qualifies it.
  */
 export function TrackReport({
   trackId: id,
   headingLevel = 1,
   onChanged,
+  customizable = false,
 }: {
   trackId: number
   /** 1 on the track's own page, 2 where a page of its own already has one. */
   headingLevel?: 1 | 2
+  /**
+   * Whether the owner may rearrange the report here. On the track's own page;
+   * not in a list row, where the same arrangement is drawn but not edited.
+   */
+  customizable?: boolean
   /**
    * Fired when a correction changed something a caller may be showing too.
    *
@@ -72,6 +86,7 @@ export function TrackReport({
   const [showRaw, setShowRaw] = useState(false)
   const [theme, setTheme] = useState<MapTheme>('outdoor')
   const hover = useHoverStore()
+  const layout = useTrackLayout()
 
   const track = useRequest((signal) => api.readTrack(id, signal), [id])
   const analysis = useRequest((signal) => api.readAnalysis(id, signal), [id, override])
@@ -170,6 +185,330 @@ export function TrackReport({
   const metrics = analysis.data
   const usable = current.analysis.status === 'current'
 
+  // Every widget the board can place, already rendered. The board moves the
+  // frames around them and never these: a drag re-renders nothing in here.
+  const widgets: Record<string, ReactNode> = {
+    'metric.distance': (
+      <Metric
+        label="Distance"
+        testId="detail-distance"
+        value={formatDistance(usable ? metrics?.geometry.distance_m : null)}
+      />
+    ),
+    'metric.elevation-gain': (
+      <Metric
+        label="Elevation gain"
+        value={formatElevation(usable ? metrics?.geometry.elevation_gain_m : null)}
+      />
+    ),
+    'metric.moving': (
+      <Metric
+        label={durationHeading('Moving', current.timeline.is_actual_activity_timing)}
+        value={formatDuration(usable ? metrics?.timed_path.moving_duration_s : null)}
+      />
+    ),
+    'metric.elapsed': (
+      <Metric
+        label={durationHeading('Elapsed', current.timeline.is_actual_activity_timing)}
+        value={formatDuration(usable ? metrics?.timed_path.elapsed_duration_s : null)}
+        note={timing.text}
+      />
+    ),
+    'metric.moving-average': (
+      <Metric
+        label={durationHeading('Moving average', current.timeline.is_actual_activity_timing)}
+        value={formatSpeed(usable ? metrics?.timed_path.moving_average_speed_mps : null)}
+      />
+    ),
+    'metric.maximum-sustained': (
+      <Metric
+        label={durationHeading('Maximum sustained', current.timeline.is_actual_activity_timing)}
+        value={formatSpeed(usable ? metrics?.timed_path.maximum_sustained_speed_mps : null)}
+      />
+    ),
+    map: (
+      <section className="panel panel--fill">
+        <Section>Where it went</Section>
+        {profile.data === null ? (
+          <p className="chart-fallback">
+            {profile.error ?? 'Loading the shape of this track…'}
+            {profile.error !== null && (
+              <>
+                {' '}
+                <button type="button" onClick={profile.reload}>
+                  Retry
+                </button>
+              </>
+            )}
+          </p>
+        ) : (
+          <TrackMap
+            collection={collection}
+            samples={positions}
+            coverage={coverage.data}
+            theme={theme}
+            hover={hover}
+          />
+        )}
+        <div className="filters">
+          <div className="field">
+            <label htmlFor={`map-theme-${String(id)}`}>Basemap</label>
+            <select
+              id={`map-theme-${String(id)}`}
+              value={theme}
+              data-testid="map-theme"
+              onChange={(event) => {
+                setTheme(event.target.value as MapTheme)
+              }}
+            >
+              {MAP_THEMES.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <p className="muted">
+          {collection.features.length} segment{collection.features.length === 1 ? '' : 's'}, drawn
+          separately.
+        </p>
+        {theme !== 'none' && coverage.data !== null && coverage.data.sources.length === 0 && (
+          <MapOffer coverage={coverage.data} />
+        )}
+        {coverage.data !== null && coverage.data.sources.length > 0 && (
+          <p className="map-attribution" data-testid="map-attribution">
+            {coverage.data.sources.map((source) => source.attribution.required_text).join(' · ')}
+            {' — packaged by '}
+            {coverage.data.sources[0]?.attribution.provider}
+            {', '}
+            {coverage.data.sources[0]?.attribution.license_name}
+          </p>
+        )}
+      </section>
+    ),
+    profile: (
+      <section className="panel panel--fill">
+        <Section>Elevation and speed</Section>
+        <div className="filters">
+          <div className="field">
+            <label htmlFor={`elevation-series-${String(id)}`}>Elevation</label>
+            <select
+              id={`elevation-series-${String(id)}`}
+              value={showRaw ? 'both' : 'filtered'}
+              onChange={(event) => {
+                setShowRaw(event.target.value === 'both')
+              }}
+            >
+              <option value="filtered">Filtered</option>
+              <option value="both">Filtered and raw</option>
+            </select>
+          </div>
+        </div>
+        {profile.data === null ? (
+          <p className="chart-fallback">{profile.error ?? 'Loading…'}</p>
+        ) : (
+          <>
+            <LazyChart
+              height="fill"
+              option={option}
+              hover={hover}
+              label={`Elevation and speed of ${displayTitle(current)} against distance`}
+            />
+            {!hasSpeed && (
+              <p className="muted" data-testid="no-speed">
+                Speed unavailable for this track.
+              </p>
+            )}
+            <HoverReadout store={hover} samples={flat} />
+            <p className="muted">
+              {profile.data.sample_count} of {profile.data.total_sample_count} positions shown.
+              The chart keeps every turning point and both extremes, so the summit is the summit.
+            </p>
+          </>
+        )}
+      </section>
+    ),
+    sensors: sensors ? (
+      <section className="panel panel--fill" data-testid="sensor-panel">
+        <Section>Heart rate and cadence</Section>
+        <LazyChart
+          height="fill"
+          option={sensorChart}
+          hover={hover}
+          label={`Heart rate and cadence of ${displayTitle(current)} against distance`}
+        />
+        <p className="muted">
+          What the sensors reported, passed through as measured. A gap is a reading the sensor
+          missed; a cadence of zero is a reading.
+        </p>
+      </section>
+    ) : null,
+    classification: (
+      <section className="panel">
+        <Section>What kind of track this is</Section>
+        <p className="muted">
+          The archive weighed what the document actually showed. A correction below outranks it
+          from now on and survives reprocessing — but it says what the track <em>is</em>, not that
+          its clock was measured.
+        </p>
+        <dl className="definition">
+          <dt>Detected</dt>
+          <dd>
+            {kindLabel(current.classification.detected_kind).text} (confidence{' '}
+            {current.classification.confidence.toFixed(2)})
+          </dd>
+          <dt>Effective</dt>
+          <dd data-testid="effective-kind">
+            {kindLabel(current.classification.effective_kind).text}
+            {current.classification.is_overridden && ' — your correction'}
+          </dd>
+        </dl>
+        <Sub>What the document showed</Sub>
+        <ul className="evidence" data-testid="evidence-list">
+          {current.classification.evidence.length === 0 && (
+            <li className="muted">Nothing that decides either way.</li>
+          )}
+          {current.classification.evidence.map((code) => (
+            <li key={code}>
+              {explainEvidence(code)}
+              <span className="muted"> — {leaningLabel(evidenceLeaning(code))}</span>
+            </li>
+          ))}
+        </ul>
+        <fieldset className="corrections">
+          <legend>Correct the kind</legend>
+          <div className="pager">
+            <button
+              type="button"
+              className={current.classification.is_overridden ? '' : 'primary'}
+              disabled={!current.classification.is_overridden}
+              onClick={() => {
+                void correct(null)
+              }}
+              data-testid="reset-override"
+            >
+              Use detected
+            </button>
+            {(['recorded', 'planned', 'unknown'] as const).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                className={current.classification.override === kind ? 'primary' : ''}
+                aria-pressed={current.classification.override === kind}
+                onClick={() => {
+                  void correct(kind)
+                }}
+                data-testid={`set-${kind}`}
+              >
+                {kindLabel(kind).text}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      </section>
+    ),
+    source: (
+      <section className="panel">
+        <Section>Where this track came from</Section>
+        <dl className="definition">
+          <dt>Format</dt>
+          <dd>
+            {current.source.exchange_format} {current.source.format_version ?? ''}
+          </dd>
+          <dt>Created by</dt>
+          <dd>{current.source.creator ?? '—'}</dd>
+          <dt>Title in the file</dt>
+          <dd>{current.metadata.source_title ?? '—'}</dd>
+          <dt>Positions</dt>
+          <dd>
+            {current.point_count} in {current.segment_count} segment
+            {current.segment_count === 1 ? '' : 's'}
+          </dd>
+          <dt>Timeline</dt>
+          <dd>
+            {formatInstantWithTime(current.timeline.started_at)} –{' '}
+            {formatInstantWithTime(current.timeline.ended_at)}
+          </dd>
+          <dt>Roughly where</dt>
+          <dd data-testid="detail-place">
+            {current.approximate_location === null
+              ? '—'
+              : `${current.approximate_location.regions.join(' · ')}${
+                  current.approximate_location.countries.length > 0
+                    ? ` (${current.approximate_location.countries
+                        .map((country) => country.name)
+                        .join(', ')})`
+                    : ''
+                }`}
+            {current.approximate_location !== null && (
+              <span className="muted">
+                {' '}
+                — approximate: compared as rectangles, so a track near a border can be named
+                for the wrong side.
+              </span>
+            )}
+          </dd>
+          <dt>Calendar</dt>
+          <dd data-testid="calendar-basis">
+            {current.timeline.is_actual_calendar_time
+              ? 'Dated by observed timing'
+              : 'Not placed in a calendar period'}
+          </dd>
+        </dl>
+      </section>
+    ),
+    derivation: metrics ? (
+      <section className="panel">
+        <Section>How the numbers were derived</Section>
+        {current.timeline.is_actual_activity_timing && usable && (
+          <TimeBreakdown
+            moving={metrics.timed_path.moving_duration_s}
+            stopped={metrics.timed_path.stopped_duration_s}
+            unobserved={metrics.timed_path.unobserved_gap_duration_s}
+            unattributed={metrics.timed_path.unattributed_duration_s}
+          />
+        )}
+        {metrics.quality.length > 0 && (
+          <>
+            <Sub>What was awkward about the data</Sub>
+            <ul className="evidence" data-testid="quality-list">
+              {metrics.quality.map((flag) => (
+                <li key={flag}>{explainQuality(flag)}</li>
+              ))}
+            </ul>
+          </>
+        )}
+        <details className="technical">
+          <summary>Technical detail</summary>
+          <dl className="definition">
+            <dt>Analysis state</dt>
+            <dd>{status.text}</dd>
+            <dt>Derived at</dt>
+            <dd>{formatInstantWithTime(metrics.analyzed_at)}</dd>
+            <dt>Algorithms</dt>
+            <dd>
+              {metrics.profile
+                ? `${metrics.profile.distance_algorithm}/${metrics.profile.distance_algorithm_version}, ${metrics.profile.movement_algorithm}/${metrics.profile.movement_algorithm_version}, ${metrics.profile.elevation_algorithm}/${metrics.profile.elevation_algorithm_version}`
+                : '—'}
+            </dd>
+            <dt>Extension schemas</dt>
+            <dd>{current.source.extension_namespaces.join(', ') || 'none'}</dd>
+            <dt>Source hash</dt>
+            <dd>
+              <code>{current.raw_import_sha256.slice(0, 12)}</code>
+            </dd>
+          </dl>
+        </details>
+      </section>
+    ) : null,
+  }
+  const available = (widget: string): boolean => {
+    if (widget === 'sensors') return sensors
+    if (widget === 'derivation') return metrics !== null
+    return true
+  }
+
   return (
     <>
       <TitleEditor
@@ -205,35 +544,6 @@ export function TrackReport({
         </Notice>
       )}
 
-      <div className="cards">
-        <Metric
-          label="Distance"
-          testId="detail-distance"
-          value={formatDistance(usable ? metrics?.geometry.distance_m : null)}
-        />
-        <Metric
-          label="Elevation gain"
-          value={formatElevation(usable ? metrics?.geometry.elevation_gain_m : null)}
-        />
-        <Metric
-          label={durationHeading('Moving', current.timeline.is_actual_activity_timing)}
-          value={formatDuration(usable ? metrics?.timed_path.moving_duration_s : null)}
-        />
-        <Metric
-          label={durationHeading('Elapsed', current.timeline.is_actual_activity_timing)}
-          value={formatDuration(usable ? metrics?.timed_path.elapsed_duration_s : null)}
-          note={timing.text}
-        />
-        <Metric
-          label={durationHeading('Moving average', current.timeline.is_actual_activity_timing)}
-          value={formatSpeed(usable ? metrics?.timed_path.moving_average_speed_mps : null)}
-        />
-        <Metric
-          label={durationHeading('Maximum sustained', current.timeline.is_actual_activity_timing)}
-          value={formatSpeed(usable ? metrics?.timed_path.maximum_sustained_speed_mps : null)}
-        />
-      </div>
-
       {!current.timeline.is_actual_activity_timing && (
         <p className="muted" data-testid="timing-caveat">
           {timing.text}. These durations describe the path's own clock and are not verified as time
@@ -241,281 +551,41 @@ export function TrackReport({
         </p>
       )}
 
-      <div className="detail-grid">
-        <section className="panel">
-          <Section>Where it went</Section>
-          {profile.data === null ? (
-            <p className="chart-fallback">
-              {profile.error ?? 'Loading the shape of this track…'}
-              {profile.error !== null && (
-                <>
-                  {' '}
-                  <button type="button" onClick={profile.reload}>
-                    Retry
-                  </button>
-                </>
-              )}
-            </p>
-          ) : (
-            <TrackMap
-              collection={collection}
-              samples={positions}
-              coverage={coverage.data}
-              theme={theme}
-              hover={hover}
-            />
-          )}
-          <div className="filters">
-            <div className="field">
-              <label htmlFor={`map-theme-${String(id)}`}>Basemap</label>
-              <select
-                id={`map-theme-${String(id)}`}
-                value={theme}
-                data-testid="map-theme"
-                onChange={(event) => {
-                  setTheme(event.target.value as MapTheme)
-                }}
-              >
-                {MAP_THEMES.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <p className="muted">
-            {collection.features.length} segment{collection.features.length === 1 ? '' : 's'}, drawn
-            separately.
-          </p>
-          {theme !== 'none' && coverage.data !== null && coverage.data.sources.length === 0 && (
-            <MapOffer coverage={coverage.data} />
-          )}
-          {coverage.data !== null && coverage.data.sources.length > 0 && (
-            <p className="map-attribution" data-testid="map-attribution">
-              {coverage.data.sources.map((source) => source.attribution.required_text).join(' · ')}
-              {' — packaged by '}
-              {coverage.data.sources[0]?.attribution.provider}
-              {', '}
-              {coverage.data.sources[0]?.attribution.license_name}
-            </p>
-          )}
-        </section>
-
-        <section className="panel">
-          <Section>Elevation and speed</Section>
-          <div className="filters">
-            <div className="field">
-              <label htmlFor={`elevation-series-${String(id)}`}>Elevation</label>
-              <select
-                id={`elevation-series-${String(id)}`}
-                value={showRaw ? 'both' : 'filtered'}
-                onChange={(event) => {
-                  setShowRaw(event.target.value === 'both')
-                }}
-              >
-                <option value="filtered">Filtered</option>
-                <option value="both">Filtered and raw</option>
-              </select>
-            </div>
-          </div>
-          {profile.data === null ? (
-            <p className="chart-fallback">{profile.error ?? 'Loading…'}</p>
-          ) : (
-            <>
-              <LazyChart
-                option={option}
-                hover={hover}
-                label={`Elevation and speed of ${displayTitle(current)} against distance`}
-              />
-              {!hasSpeed && (
-                <p className="muted" data-testid="no-speed">
-                  Speed unavailable for this track.
-                </p>
-              )}
-              <HoverReadout store={hover} samples={flat} />
-              <p className="muted">
-                {profile.data.sample_count} of {profile.data.total_sample_count} positions shown.
-                The chart keeps every turning point and both extremes, so the summit is the summit.
-              </p>
-            </>
-          )}
-        </section>
-
-        {sensors && (
-          <section className="panel" data-testid="sensor-panel">
-            <Section>Heart rate and cadence</Section>
-            <LazyChart
-              option={sensorChart}
-              hover={hover}
-              label={`Heart rate and cadence of ${displayTitle(current)} against distance`}
-            />
-            <p className="muted">
-              What the sensors reported, passed through as measured. A gap is a reading the sensor
-              missed; a cadence of zero is a reading.
-            </p>
-          </section>
-        )}
-
-        <section className="panel">
-          <Section>What kind of track this is</Section>
-          <p className="muted">
-            The archive weighed what the document actually showed. A correction below outranks it
-            from now on and survives reprocessing — but it says what the track <em>is</em>, not that
-            its clock was measured.
-          </p>
-          <dl className="definition">
-            <dt>Detected</dt>
-            <dd>
-              {kindLabel(current.classification.detected_kind).text} (confidence{' '}
-              {current.classification.confidence.toFixed(2)})
-            </dd>
-            <dt>Effective</dt>
-            <dd data-testid="effective-kind">
-              {kindLabel(current.classification.effective_kind).text}
-              {current.classification.is_overridden && ' — your correction'}
-            </dd>
-          </dl>
-          <Sub>What the document showed</Sub>
-          <ul className="evidence" data-testid="evidence-list">
-            {current.classification.evidence.length === 0 && (
-              <li className="muted">Nothing that decides either way.</li>
-            )}
-            {current.classification.evidence.map((code) => (
-              <li key={code}>
-                {explainEvidence(code)}
-                <span className="muted"> — {leaningLabel(evidenceLeaning(code))}</span>
-              </li>
-            ))}
-          </ul>
-          <fieldset className="corrections">
-            <legend>Correct the kind</legend>
-            <div className="pager">
-              <button
-                type="button"
-                className={current.classification.is_overridden ? '' : 'primary'}
-                disabled={!current.classification.is_overridden}
-                onClick={() => {
-                  void correct(null)
-                }}
-                data-testid="reset-override"
-              >
-                Use detected
-              </button>
-              {(['recorded', 'planned', 'unknown'] as const).map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  className={current.classification.override === kind ? 'primary' : ''}
-                  aria-pressed={current.classification.override === kind}
-                  onClick={() => {
-                    void correct(kind)
-                  }}
-                  data-testid={`set-${kind}`}
-                >
-                  {kindLabel(kind).text}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-        </section>
-
-        <section className="panel">
-          <Section>Where this track came from</Section>
-          <dl className="definition">
-            <dt>Format</dt>
-            <dd>
-              {current.source.exchange_format} {current.source.format_version ?? ''}
-            </dd>
-            <dt>Created by</dt>
-            <dd>{current.source.creator ?? '—'}</dd>
-            <dt>Title in the file</dt>
-            <dd>{current.metadata.source_title ?? '—'}</dd>
-            <dt>Positions</dt>
-            <dd>
-              {current.point_count} in {current.segment_count} segment
-              {current.segment_count === 1 ? '' : 's'}
-            </dd>
-            <dt>Timeline</dt>
-            <dd>
-              {formatInstantWithTime(current.timeline.started_at)} –{' '}
-              {formatInstantWithTime(current.timeline.ended_at)}
-            </dd>
-            <dt>Roughly where</dt>
-            <dd data-testid="detail-place">
-              {current.approximate_location === null
-                ? '—'
-                : `${current.approximate_location.regions.join(' · ')}${
-                    current.approximate_location.countries.length > 0
-                      ? ` (${current.approximate_location.countries
-                          .map((country) => country.name)
-                          .join(', ')})`
-                      : ''
-                  }`}
-              {current.approximate_location !== null && (
-                <span className="muted">
-                  {' '}
-                  — approximate: compared as rectangles, so a track near a border can be named
-                  for the wrong side.
+      {layout.settled && (
+        <WidgetBoard
+          label="Track details"
+          catalog={TRACK_WIDGETS}
+          defaults={DEFAULT_TRACK_LAYOUT}
+          stored={layout.stored}
+          widgets={widgets}
+          available={available}
+          unavailableHint={unavailableHint}
+          editable={customizable}
+          blocked={layout.blocked}
+          notice={
+            layout.unreadable ? (
+              <Notice>
+                <span data-testid="layout-unreadable">
+                  The saved layout of this page could not be read, so the default is shown.
+                  Arranging the page and saving replaces it.
                 </span>
-              )}
-            </dd>
-            <dt>Calendar</dt>
-            <dd data-testid="calendar-basis">
-              {current.timeline.is_actual_calendar_time
-                ? 'Dated by observed timing'
-                : 'Not placed in a calendar period'}
-            </dd>
-          </dl>
-        </section>
-
-        {metrics && (
-          <section className="panel full">
-            <Section>How the numbers were derived</Section>
-            {current.timeline.is_actual_activity_timing && usable && (
-              <TimeBreakdown
-                moving={metrics.timed_path.moving_duration_s}
-                stopped={metrics.timed_path.stopped_duration_s}
-                unobserved={metrics.timed_path.unobserved_gap_duration_s}
-                unattributed={metrics.timed_path.unattributed_duration_s}
-              />
-            )}
-            {metrics.quality.length > 0 && (
-              <>
-                <Sub>What was awkward about the data</Sub>
-                <ul className="evidence" data-testid="quality-list">
-                  {metrics.quality.map((flag) => (
-                    <li key={flag}>{explainQuality(flag)}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-            <details className="technical">
-              <summary>Technical detail</summary>
-              <dl className="definition">
-                <dt>Analysis state</dt>
-                <dd>{status.text}</dd>
-                <dt>Derived at</dt>
-                <dd>{formatInstantWithTime(metrics.analyzed_at)}</dd>
-                <dt>Algorithms</dt>
-                <dd>
-                  {metrics.profile
-                    ? `${metrics.profile.distance_algorithm}/${metrics.profile.distance_algorithm_version}, ${metrics.profile.movement_algorithm}/${metrics.profile.movement_algorithm_version}, ${metrics.profile.elevation_algorithm}/${metrics.profile.elevation_algorithm_version}`
-                    : '—'}
-                </dd>
-                <dt>Extension schemas</dt>
-                <dd>{current.source.extension_namespaces.join(', ') || 'none'}</dd>
-                <dt>Source hash</dt>
-                <dd>
-                  <code>{current.raw_import_sha256.slice(0, 12)}</code>
-                </dd>
-              </dl>
-            </details>
-          </section>
-        )}
-      </div>
+              </Notice>
+            ) : null
+          }
+          onSave={layout.save}
+        />
+      )}
     </>
   )
+}
+
+/** What an empty widget says while the page is being arranged. */
+function unavailableHint(widget: string): string {
+  if (widget === 'sensors') {
+    return 'Shown for tracks where a sensor measured heart rate or cadence. This one has neither.'
+  }
+  if (widget === 'derivation') return 'Shown once the analysis of this track has been read.'
+  return 'Nothing to show here for this track.'
 }
 
 /**

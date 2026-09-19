@@ -19,6 +19,9 @@ import { echarts, type EChartsOption } from './echarts'
  * the chart writes the sample to the store; the map's marker follows. Moving it
  * over the map writes there instead, and this shows the matching tooltip
  * through ECharts' own API.
+ *
+ * The chart follows the size of its own box rather than the window's: inside a
+ * widget the owner resizes, the window never changes and the box does.
  */
 export function Chart({
   option,
@@ -27,7 +30,8 @@ export function Chart({
   label,
 }: {
   option: EChartsOption
-  height?: number
+  /** Pixels, or `fill` to take whatever height the surrounding box gives it. */
+  height?: number | 'fill'
   hover?: HoverStore
   label: string
 }) {
@@ -40,10 +44,10 @@ export function Chart({
     if (!container.current) return
     const instance = echarts.init(container.current)
     chart.current = instance
-    const resize = () => {
+    const observer = new ResizeObserver(() => {
       instance.resize()
-    }
-    window.addEventListener('resize', resize)
+    })
+    observer.observe(container.current)
 
     instance.getZr().on('mousemove', (event: { offsetX: number; offsetY: number }) => {
       const target = store.current
@@ -61,7 +65,7 @@ export function Chart({
     })
 
     return () => {
-      window.removeEventListener('resize', resize)
+      observer.disconnect()
       instance.dispose()
       chart.current = null
     }
@@ -91,8 +95,8 @@ export function Chart({
   return (
     <div
       ref={container}
-      className="chart"
-      style={{ height }}
+      className={height === 'fill' ? 'chart chart--fill' : 'chart'}
+      style={height === 'fill' ? undefined : { height }}
       role="img"
       aria-label={label}
       data-testid="chart"

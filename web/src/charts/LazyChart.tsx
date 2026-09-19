@@ -22,14 +22,18 @@ export function LazyChart({
   label,
 }: {
   option: EChartsOption
-  height?: number
+  height?: number | 'fill'
   hover?: HoverStore
   label: string
 }) {
   return (
     <Suspense
       fallback={
-        <div className="chart chart--pending" style={{ height }} role="status">
+        <div
+          className={`chart chart--pending${height === 'fill' ? ' chart--fill' : ''}`}
+          style={height === 'fill' ? undefined : { height }}
+          role="status"
+        >
           <span className="muted">Loading chart…</span>
         </div>
       }

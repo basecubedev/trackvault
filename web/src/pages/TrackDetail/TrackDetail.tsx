@@ -8,6 +8,10 @@ import { TrackReport } from './TrackReport'
  * `TrackReport`, which is the same component a row in the track list opens. A
  * second rendering of a track here would be a second answer to every question
  * the report answers, and they would drift.
+ *
+ * It is also the one place the report can be rearranged. A row in the list
+ * draws the same arrangement and offers no editing: arranging a page inside a
+ * list of other things is arranging something nobody is looking at whole.
  */
 export function TrackDetail() {
   const { trackId } = useParams()
@@ -22,7 +26,7 @@ export function TrackDetail() {
         */}
         <Link to="/tracks?kind=all">← All tracks</Link>
       </p>
-      <TrackReport trackId={Number(trackId)} />
+      <TrackReport trackId={Number(trackId)} customizable />
     </>
   )
 }
