@@ -1,6 +1,7 @@
 import type { Map as MapLibreMap, StyleSpecification } from 'maplibre-gl'
 import type { Bounds, FeatureCollection } from './geojson'
 import type { BasemapStyle, MapTheme } from './style'
+import { pointAtBundledWorker } from './worker'
 
 /**
  * Drawing one track small, once, and handing back a picture of it.
@@ -100,7 +101,8 @@ export async function renderTrackMinimap({
     // Imported here rather than at the top of the module: the track list is a
     // page of rows, and it should not download a rendering library before
     // anybody has scrolled to a map.
-    const maplibregl = (await import('maplibre-gl')).default
+    const maplibregl = await import('maplibre-gl')
+    pointAtBundledWorker(maplibregl)
     const map = new maplibregl.Map({
       container: frame,
       style: style as StyleSpecification,

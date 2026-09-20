@@ -157,15 +157,23 @@ def test_the_policy_allows_only_what_the_map_and_charts_genuinely_need(
 ) -> None:
     """Two allowances, and neither of them is a remote host.
 
-    MapLibre builds its tile worker from a blob URL and its glyph atlases as
-    in-memory images; MapLibre and ECharts both set style attributes on
-    elements. Those are the exceptions, they are local by construction, and
-    listing them here is what stops a third one being added quietly.
+    MapLibre builds its glyph atlases as in-memory images; MapLibre and ECharts
+    both set style attributes on elements. Those are the exceptions, they are
+    local by construction, and listing them here is what stops a third one being
+    added quietly.
+
+    Workers are no longer among them. A blob worker is a script assembled at
+    runtime, which is the shape `script-src 'self'` exists to refuse, so the
+    directive is pinned to this origin and a library that went back to blobs
+    would fail here rather than quietly widen the policy.
     """
     policy = client.get("/healthz").headers["content-security-policy"]
 
-    assert "worker-src blob:" in policy
-    assert "img-src 'self' data: blob:" in policy
+    assert "worker-src 'self'" in policy
+    assert "child-src 'self'" in policy
+    assert [directive.strip() for directive in policy.split(";") if "blob:" in directive] == [
+        "img-src 'self' data: blob:"
+    ]
     assert "style-src 'self' 'unsafe-inline'" in policy
     assert "http://" not in policy
     assert "https://" not in policy
