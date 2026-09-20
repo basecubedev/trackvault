@@ -130,7 +130,7 @@ Everything here is bundled into the assets the container serves.
 | `react-dom` | 19.2.0 | Browser renderer for React | MIT | <https://github.com/facebook/react> |
 | `react-router-dom` | 7.18.4 | Client-side routing | MIT | <https://github.com/remix-run/react-router> |
 | `maplibre-gl` | 6.10.0 | MapLibre GL JS, the interactive track map | BSD-3-Clause | <https://github.com/maplibre/maplibre-gl-js> |
-| `echarts` | 5.6.0 | Apache ECharts: monthly chart and track profiles | Apache-2.0 | <https://github.com/apache/echarts> |
+| `echarts` | 6.1.0 | Apache ECharts: monthly chart and track profiles | Apache-2.0 | <https://github.com/apache/echarts> |
 
 ## Browser — build and test
 

@@ -19,7 +19,7 @@
     "licenses": "node scripts/audit-licenses.mjs"
   },
   "dependencies": {
-    "echarts": "5.6.0",
+    "echarts": "6.1.0",
     "maplibre-gl": "6.10.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
