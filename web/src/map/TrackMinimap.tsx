@@ -59,7 +59,6 @@ export function TrackMinimap({
 }) {
   const frame = useRef<HTMLDivElement | null>(null)
   const [wanted, setWanted] = useState(false)
-  const [picture, setPicture] = useState<Blob | null>(null)
   const [address, setAddress] = useState<string | null>(null)
   const [unavailable, setUnavailable] = useState(false)
 
@@ -124,7 +123,7 @@ export function TrackMinimap({
       )
       const drawn = await renderedMinimap(key, () => renderTrackMinimap(request))
       if (gone()) return
-      setPicture(drawn)
+      setAddress(URL.createObjectURL(drawn))
     }
 
     draw().catch(() => {
@@ -136,19 +135,17 @@ export function TrackMinimap({
     }
   }, [wanted, trackId])
 
-  // The address the browser shows the picture under, and the only thing that
-  // ever revokes it. A picture handed to `<img>` and then forgotten is memory
-  // held for the life of the document, which on a list of rows is every picture
-  // a reader scrolled past.
+  // The address is minted where the picture arrives, and this is the only thing
+  // that ever revokes it: when it is replaced, and when the row goes away. A
+  // picture handed to `<img>` and then forgotten is memory held for the life of
+  // the document, which on a list of rows is every picture a reader scrolled
+  // past.
   useEffect(() => {
-    if (picture === null) return
-    const url = URL.createObjectURL(picture)
-    setAddress(url)
+    if (address === null) return
     return () => {
-      URL.revokeObjectURL(url)
-      setAddress(null)
+      URL.revokeObjectURL(address)
     }
-  }, [picture])
+  }, [address])
 
   return (
     <div

@@ -37,8 +37,13 @@ export function Chart({
 }) {
   const container = useRef<HTMLDivElement | null>(null)
   const chart = useRef<echarts.ECharts | null>(null)
+  // Held in a ref rather than re-subscribed: the ZRender handlers below are
+  // registered once for the life of the instance, and they need whichever store
+  // is current when the pointer moves, not the one that existed on mount.
   const store = useRef(hover)
-  store.current = hover
+  useEffect(() => {
+    store.current = hover
+  }, [hover])
 
   useEffect(() => {
     if (!container.current) return

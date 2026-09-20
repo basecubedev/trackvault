@@ -264,8 +264,13 @@ export function WidgetBoard({
 
   const [widthClass, setWidthClass] = useState<WidthClass>('wide')
   const [session, setSession] = useState<Session | null>(null)
+  // Read by `undo` and `redo`, which are registered as keyboard shortcuts once
+  // and must see the session as it is when a key is pressed rather than as it
+  // was when they were created.
   const sessionRef = useRef<Session | null>(null)
-  sessionRef.current = session
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
   const [gesture, setGestureState] = useState<Gesture | null>(null)
   const gestureRef = useRef<Gesture | null>(null)
   const [trayOpen, setTrayOpen] = useState(false)
@@ -273,7 +278,7 @@ export function WidgetBoard({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
-  const [focusTarget, setFocusTarget] = useState<string | null>(null)
+  const [focusRequest, setFocusRequest] = useState<{ readonly target: string } | null>(null)
   const pointer = useRef({ x: 0, y: 0 })
   const scroll = useRef<{ direction: number; frame: number | null }>({ direction: 0, frame: null })
 
@@ -314,17 +319,27 @@ export function WidgetBoard({
   )
   useLeaveGuard(dirty)
 
+  // A request to move the focus after the next render, because the element it
+  // names is usually one this render is about to create -- a tile that was just
+  // added, or the button a menu was closed from. The request is a fresh object
+  // every time rather than a name that has to be cleared afterwards: asking for
+  // the same element twice is two requests, and clearing it here would be a
+  // second render for nothing.
   useEffect(() => {
-    if (focusTarget === null) return
+    if (focusRequest === null) return
+    const { target } = focusRequest
     const element =
-      focusTarget === '@customize'
+      target === '@customize'
         ? customize.current
-        : focusTarget === '@add'
+        : target === '@add'
           ? addButton.current
-          : (handles.current.get(focusTarget) ?? null)
+          : (handles.current.get(target) ?? null)
     element?.focus()
-    setFocusTarget(null)
-  }, [focusTarget, session])
+  }, [focusRequest])
+
+  const focusAfterRender = useCallback((target: string) => {
+    setFocusRequest({ target })
+  }, [])
 
   const setGesture = useCallback((next: Gesture | null) => {
     gestureRef.current = next
@@ -459,7 +474,7 @@ export function WidgetBoard({
     setError(null)
     setAnnouncement('Arranging the page. Press Done to keep your changes.')
     const first = readingOrder(gridOf(saved, widthClass, catalog).tiles)[0]
-    if (first) setFocusTarget(first.widget)
+    if (first) focusAfterRender(first.widget)
   }
 
   function end(message: string) {
@@ -470,7 +485,7 @@ export function WidgetBoard({
     setMenu(null)
     setError(null)
     setAnnouncement(message)
-    setFocusTarget('@customize')
+    focusAfterRender('@customize')
   }
 
   async function done() {
@@ -684,17 +699,17 @@ export function WidgetBoard({
       setAnnouncement(`${labelOf(widget)} already has that size.`)
       // The button that was clicked has just been unmounted with the menu, so
       // the focus goes back to the widget rather than to the document.
-      setFocusTarget(widget)
+      focusAfterRender(widget)
       return
     }
     commit(next, `${labelOf(widget)} is now ${describeSize(placed)}.`)
-    setFocusTarget(widget)
+    focusAfterRender(widget)
   }
 
   function hideWidget(widget: string) {
     setMenu(null)
     commit(hide(current, widget), `${labelOf(widget)} hidden. Add it back with “Add widget”.`)
-    setFocusTarget('@add')
+    focusAfterRender('@add')
   }
 
   function showWidget(widget: string) {
@@ -706,7 +721,7 @@ export function WidgetBoard({
         ? previous
         : { ...previous, order: [...previous.order, widget] },
     )
-    setFocusTarget(widget)
+    focusAfterRender(widget)
   }
 
   function resetView() {
@@ -913,7 +928,7 @@ export function WidgetBoard({
                       onKeyDown={(event) => {
                         if (event.key === 'Escape') {
                           setMenu(null)
-                          setFocusTarget(tile.widget)
+                          focusAfterRender(tile.widget)
                         }
                       }}
                     >
