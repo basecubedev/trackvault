@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { Activity, AnalysisAvailability, Track, TrackKind, TrackOrder } from '../../api/client'
 import { api } from '../../api/client'
@@ -16,6 +16,24 @@ import { TrackImport } from './TrackImport'
 
 const PAGE_SIZE = 25
 const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1)
+
+/**
+ * What the previews on one selection have to credit, and which selection that
+ * was learned for.
+ *
+ * The two belong together. Attribution is collected one drawn map at a time,
+ * and the next selection may be somewhere the archive holds no map for at all
+ * -- so what is credited has to stop applying the moment the selection changes.
+ * Carrying the selection in the value is how that happens by itself, rather
+ * than by an effect that empties the list one render too late.
+ */
+interface Attribution {
+  readonly selection: string
+  readonly lines: readonly string[]
+}
+
+/** One shared empty list, so a selection with nothing to credit renders once. */
+const NOTHING_CREDITED: readonly string[] = []
 
 /** Every filter this page understands, so resetting is one list rather than six. */
 const FILTERS = ['kind', 'activity', 'year', 'month', 'analysis_status'] as const
@@ -103,13 +121,19 @@ export function TrackBrowser() {
   // at a time, because which package belongs behind a track is decided per
   // track -- and it is forgotten when the selection changes, since the next
   // page may be somewhere the archive holds no map for at all.
-  const [credited, setCredited] = useState<readonly string[]>([])
-  useEffect(() => {
-    setCredited([])
-  }, [selection])
-  const credit = useCallback((lines: readonly string[]) => {
-    setCredited((seen) => mergeAttribution(seen, lines))
-  }, [])
+  // It is remembered together with the selection it was learned for, so a new
+  // selection reads as nothing credited without anything having to clear it.
+  const [attribution, setAttribution] = useState<Attribution | null>(null)
+  const credited = attribution?.selection === selection ? attribution.lines : NOTHING_CREDITED
+  const credit = useCallback(
+    (lines: readonly string[]) => {
+      setAttribution((seen) => ({
+        selection,
+        lines: mergeAttribution(seen?.selection === selection ? seen.lines : [], lines),
+      }))
+    },
+    [selection],
+  )
 
   // Which years exist at all, for the filter and for telling an empty archive
   // apart from an empty selection. One extra request on a page that is already

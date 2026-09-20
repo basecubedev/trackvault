@@ -17,34 +17,50 @@ export interface RequestState<T> {
   readonly reload: () => void
 }
 
+/**
+ * What one finished request left behind, and which request that was.
+ *
+ * The answer and the question it answers are one value. Asked separately, they
+ * drift for exactly one render: the dependencies change, the page renders the
+ * previous answer as though it were settled, and only then does an effect run
+ * to say it is loading again. Kept together, "this answer is not for the
+ * request you are asking about" is something render can simply read.
+ */
+interface Outcome<T> {
+  readonly data: T | null
+  readonly error: string | null
+  readonly request: readonly unknown[]
+}
+
 export function useRequest<T>(
   run: (signal: AbortSignal) => Promise<T>,
   dependencies: readonly unknown[],
 ): RequestState<T> {
-  const [data, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<Outcome<T> | null>(null)
   const [attempt, setAttempt] = useState(0)
 
   const reload = useCallback(() => {
     setAttempt((value) => value + 1)
   }, [])
 
+  const request = [...dependencies, attempt]
+  const settled = outcome !== null && sameRequest(outcome.request, request)
+
   useEffect(() => {
     const controller = new AbortController()
-    setLoading(true)
-    setError(null)
+    const asked = [...dependencies, attempt]
     run(controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted) {
-          setData(value)
-          setLoading(false)
-        }
+        if (controller.signal.aborted) return
+        setOutcome({ data: value, error: null, request: asked })
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return
-        setError(describe(cause))
-        setLoading(false)
+        setOutcome((previous) => ({
+          data: previous?.data ?? null,
+          error: describe(cause),
+          request: asked,
+        }))
       })
     return () => {
       controller.abort()
@@ -56,7 +72,21 @@ export function useRequest<T>(
      
   }, [...dependencies, attempt])
 
-  return { data, loading, error, reload }
+  return {
+    // A failed request keeps showing what was there before, which is what the
+    // error notice is written to sit beside.
+    data: outcome?.data ?? null,
+    loading: !settled,
+    error: settled ? outcome.error : null,
+    reload,
+  }
+}
+
+/** Whether two dependency lists describe the same question. */
+function sameRequest(asked: readonly unknown[], wanted: readonly unknown[]): boolean {
+  return (
+    asked.length === wanted.length && asked.every((value, index) => Object.is(value, wanted[index]))
+  )
 }
 
 /** Project an error onto something a reader can act on. */
