@@ -126,8 +126,8 @@ Everything here is bundled into the assets the container serves.
 
 | Package | Version | Purpose | Licence | Upstream |
 | --- | --- | --- | --- | --- |
-| `react` | 19.2.0 | User interface | MIT | <https://github.com/facebook/react> |
-| `react-dom` | 19.2.0 | Browser renderer for React | MIT | <https://github.com/facebook/react> |
+| `react` | 19.3.0 | User interface | MIT | <https://github.com/facebook/react> |
+| `react-dom` | 19.3.0 | Browser renderer for React | MIT | <https://github.com/facebook/react> |
 | `react-router-dom` | 7.18.4 | Client-side routing | MIT | <https://github.com/remix-run/react-router> |
 | `maplibre-gl` | 6.10.0 | MapLibre GL JS, the interactive track map | BSD-3-Clause | <https://github.com/maplibre/maplibre-gl-js> |
 | `echarts` | 6.1.0 | Apache ECharts: monthly chart and track profiles | Apache-2.0 | <https://github.com/apache/echarts> |
@@ -139,7 +139,7 @@ Everything here is bundled into the assets the container serves.
 | `vite` | 7.3.6 | Bundler and development server | MIT |
 | `@vitejs/plugin-react` | 5.0.4 | React support for Vite | MIT |
 | `typescript` | 5.9.3 | Type checker | Apache-2.0 |
-| `typescript-eslint` | 8.66.0 | Type-aware linting | MIT |
+| `typescript-eslint` | 8.70.0 | Type-aware linting | MIT |
 | `eslint` | 9.39.0 | Linter | MIT |
 | `@eslint/js` | 9.39.0 | ESLint's own recommended rules | MIT |
 | `eslint-plugin-react-hooks` | 6.1.1 | Hook rules | MIT |
@@ -147,14 +147,14 @@ Everything here is bundled into the assets the container serves.
 | `vitest` | 4.1.11 | Unit and component test runner | MIT |
 | `jsdom` | 27.0.0 | Browser environment for component tests | MIT |
 | `fake-indexeddb` | 6.2.5 | The one browser API `jsdom` does not implement, for the minimap cache tests | Apache-2.0 |
-| `@testing-library/react` | 16.3.0 | Component testing | MIT |
-| `@testing-library/user-event` | 14.6.1 | Simulating real user interaction in component tests | MIT |
+| `@testing-library/react` | 16.3.3 | Component testing | MIT |
+| `@testing-library/user-event` | 14.6.7 | Simulating real user interaction in component tests | MIT |
 | `@testing-library/jest-dom` | 6.9.1 | Assertions about rendered markup | MIT |
-| `@playwright/test` | 1.57.0 | Browser end-to-end tests | Apache-2.0 |
+| `@playwright/test` | 1.63.0 | Browser end-to-end tests | Apache-2.0 |
 | `openapi-typescript` | 7.13.0 | Generates the API types from the backend schema | MIT |
-| `@types/node` | 26.2.0 | Type definitions for the Node build scripts | MIT |
-| `@types/react` | 19.2.2 | Type definitions for React | MIT |
-| `@types/react-dom` | 19.2.1 | Type definitions for React DOM | MIT |
+| `@types/node` | 26.6.1 | Type definitions for the Node build scripts | MIT |
+| `@types/react` | 19.3.0 | Type definitions for React | MIT |
+| `@types/react-dom` | 19.3.0 | Type definitions for React DOM | MIT |
 
 ## Map data, tiles and fonts
 
