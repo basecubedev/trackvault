@@ -353,6 +353,19 @@ every manifest in the repository is watched, and every watch names a directory
 that holds one. A lock file added later cannot arrive unwatched, and a watch
 left behind by a directory that moved cannot go on looking like cover.
 
+Where the pin belongs to somebody else, `overrides` in `web/package.json`
+rewrites it. `@redocly/openapi-core` asks for js-yaml 4.3.0 exactly, below the
+line two advisories name, and `openapi-typescript` holds Redocly at a major that
+does not move; the entry forces 4.3.2 -- the same major, the fixed patch. What
+proves such an override is `npm run generate:api`, which CI runs before failing
+on a diff in `src/api/schema.ts`: a forced version the tool cannot load breaks
+the generator rather than the build, so the generator is what has to be asked.
+
+`tests/contract/test_dependency_override_contract.py` checks that the entry is
+still true -- that it pins a version rather than a range, and that the dependent
+resolves it. An override that has quietly stopped applying leaves the manifest
+reading as fixed while the vulnerable version is installed again.
+
 ## Measuring a large track
 
 ```bash
