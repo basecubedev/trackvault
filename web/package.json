@@ -25,6 +25,11 @@
     "react-dom": "19.2.0",
     "react-router-dom": "7.18.4"
   },
+  "overrides": {
+    "@redocly/openapi-core": {
+      "js-yaml": "4.3.2"
+    }
+  },
   "devDependencies": {
     "@eslint/js": "9.39.0",
     "@playwright/test": "1.57.0",
