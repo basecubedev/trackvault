@@ -26,9 +26,15 @@ Two allowances are not slack:
 
 | Directive | Why it is not `'self'` alone |
 | --- | --- |
-| `worker-src blob:` | MapLibre creates its tile worker from a blob URL |
 | `img-src ... data: blob:` | MapLibre builds glyph and pattern textures in memory |
 | `style-src ... 'unsafe-inline'` | MapLibre and ECharts set element style attributes |
+
+There used to be a third. MapLibre 5 built its tile worker from a blob URL, so
+the policy had to permit `worker-src blob:` -- a directive that allows a script
+assembled at runtime, which is exactly the shape `script-src 'self'` exists to
+refuse. MapLibre 6 serves the worker as an ordinary module from this origin, so
+the policy names `'self'` for workers and child contexts alike and the archive
+loads no script it did not ship.
 
 `style-src 'unsafe-inline'` is the weakest line here and is worth being honest
 about: it permits a style attribute, not a script, and removing it would mean
@@ -50,8 +56,8 @@ CONTENT_SECURITY_POLICY = "; ".join(
         "img-src 'self' data: blob:",
         "font-src 'self'",
         "connect-src 'self'",
-        "worker-src blob:",
-        "child-src blob:",
+        "worker-src 'self'",
+        "child-src 'self'",
         "frame-ancestors 'none'",
         "base-uri 'none'",
         "form-action 'none'",

@@ -129,8 +129,8 @@ Everything here is bundled into the assets the container serves.
 | `react` | 19.2.0 | User interface | MIT | <https://github.com/facebook/react> |
 | `react-dom` | 19.2.0 | Browser renderer for React | MIT | <https://github.com/facebook/react> |
 | `react-router-dom` | 7.18.4 | Client-side routing | MIT | <https://github.com/remix-run/react-router> |
-| `maplibre-gl` | 5.9.0 | MapLibre GL JS, the interactive track map | BSD-3-Clause | <https://github.com/maplibre/maplibre-gl-js> |
-| `echarts` | 5.6.0 | Apache ECharts: monthly chart and track profiles | Apache-2.0 | <https://github.com/apache/echarts> |
+| `maplibre-gl` | 6.10.0 | MapLibre GL JS, the interactive track map | BSD-3-Clause | <https://github.com/maplibre/maplibre-gl-js> |
+| `echarts` | 6.1.0 | Apache ECharts: monthly chart and track profiles | Apache-2.0 | <https://github.com/apache/echarts> |
 
 ## Browser — build and test
 
@@ -144,7 +144,7 @@ Everything here is bundled into the assets the container serves.
 | `@eslint/js` | 9.39.0 | ESLint's own recommended rules | MIT |
 | `eslint-plugin-react-hooks` | 6.1.1 | Hook rules | MIT |
 | `globals` | 16.5.0 | Environment globals for the linter | MIT |
-| `vitest` | 3.2.7 | Unit and component test runner | MIT |
+| `vitest` | 4.1.11 | Unit and component test runner | MIT |
 | `jsdom` | 27.0.0 | Browser environment for component tests | MIT |
 | `fake-indexeddb` | 6.2.5 | The one browser API `jsdom` does not implement, for the minimap cache tests | Apache-2.0 |
 | `@testing-library/react` | 16.3.0 | Component testing | MIT |

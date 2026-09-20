@@ -1,4 +1,4 @@
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MapCoverage } from '../api/client'
@@ -6,6 +6,7 @@ import type { HoverStore } from '../pages/TrackDetail/hover'
 import { boundsOf, type FeatureCollection } from './geojson'
 import { type Positioned, sampleUnderPointer } from './hover'
 import { basemapStyle, type MapTheme } from './style'
+import { pointAtBundledWorker } from './worker'
 
 /**
  * The track on a map, with or without a basemap behind it.
@@ -49,6 +50,7 @@ export function TrackMap({
 
   useEffect(() => {
     if (!container.current) return
+    pointAtBundledWorker(maplibregl)
     const instance = new maplibregl.Map({
       container: container.current,
       // A style object rather than a URL. It is composed from what this
@@ -89,12 +91,11 @@ export function TrackMap({
     // finishes loading -- including the fallback installed after a failure.
     instance.on('styledata', draw)
 
-    instance.on('error', (event: { error?: { status?: number } }) => {
+    instance.on('error', () => {
       // A package can be removed, or turn out to be damaged, while a page is
       // open. Losing it must cost the basemap and nothing else: the track, the
       // profile and the marker keep working over whatever is left.
       setBasemapFailed(true)
-      void event
     })
 
     instance.on('mousemove', (event) => {
@@ -125,7 +126,10 @@ export function TrackMap({
     if (!instance) return
     const source = instance.getSource<maplibregl.GeoJSONSource>('track')
     if (!source) return
-    source.setData(collection)
+    // MapLibre 6 made `setData` asynchronous. It is deliberately not awaited:
+    // the fit below reads the collection this effect already holds rather than
+    // the source, so nothing here depends on the worker having parsed it.
+    void source.setData(collection)
     const bounds = boundsOf(collection)
     if (bounds) instance.fitBounds(bounds, { padding: 40, duration: 0, maxZoom: 15 })
   }, [collection])

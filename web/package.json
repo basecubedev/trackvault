@@ -19,8 +19,8 @@
     "licenses": "node scripts/audit-licenses.mjs"
   },
   "dependencies": {
-    "echarts": "5.6.0",
-    "maplibre-gl": "5.9.0",
+    "echarts": "6.1.0",
+    "maplibre-gl": "6.10.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-router-dom": "7.18.4"
@@ -44,6 +44,6 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.66.0",
     "vite": "7.3.6",
-    "vitest": "3.2.7"
+    "vitest": "4.1.11"
   }
 }
