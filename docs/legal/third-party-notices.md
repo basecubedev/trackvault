@@ -150,7 +150,7 @@ Everything here is bundled into the assets the container serves.
 | `typescript-eslint` | 8.70.0 | Type-aware linting | MIT |
 | `eslint` | 9.39.0 | Linter | MIT |
 | `@eslint/js` | 9.39.0 | ESLint's own recommended rules | MIT |
-| `eslint-plugin-react-hooks` | 6.1.1 | Hook rules | MIT |
+| `eslint-plugin-react-hooks` | 7.1.1 | Hook rules | MIT |
 | `globals` | 17.12.0 | Environment globals for the linter | MIT |
 | `vitest` | 4.1.11 | Unit and component test runner | MIT |
 | `jsdom` | 27.0.0 | Browser environment for component tests | MIT |
