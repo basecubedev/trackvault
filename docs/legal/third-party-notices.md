@@ -107,7 +107,7 @@ staying in a repository that operator may never see.
 | Package | Version | Purpose | Licence | Upstream |
 | --- | --- | --- | --- | --- |
 | `fastapi` | 0.141.1 | FastAPI, the HTTP framework the API is projected through | MIT | <https://github.com/fastapi/fastapi> |
-| `pydantic` | 2.13.4 | Request and response validation | MIT | <https://github.com/pydantic/pydantic> |
+| `pydantic` | 2.13.5 | Request and response validation | MIT | <https://github.com/pydantic/pydantic> |
 | `pydantic-settings` | 2.15.0 | Reading `TRACKVAULT_*` configuration | MIT | <https://github.com/pydantic/pydantic-settings> |
 | `uvicorn` | 0.52.1 | ASGI server | BSD-3-Clause | <https://github.com/encode/uvicorn> |
 | `defusedxml` | 0.7.1 | Hardened XML parsing for untrusted GPX documents | Python-2.0 | <https://github.com/tiran/defusedxml> |
@@ -122,8 +122,8 @@ BSD, Apache-2.0, PSF-2.0 or a choice including one of those.
 | --- | --- | --- | --- |
 | `pytest` | 9.1.1 | Test runner | MIT |
 | `pytest-cov` | 7.1.0 | Coverage reporting | MIT |
-| `ruff` | 0.16.2 | Linter and formatter | MIT |
-| `mypy` | 2.3.0 | Type checker | MIT |
+| `ruff` | 0.16.8 | Linter and formatter | MIT |
+| `mypy` | 2.3.1 | Type checker | MIT |
 | `httpx2` | 2.13.0 | HTTP client for the Docker smoke tests | BSD-3-Clause |
 | `types-defusedxml` | 0.7.0.20260504 | Type stubs for `defusedxml` | Apache-2.0 |
 | `pyyaml` | 6.0.3 | Reading the workflow files in the release contract test | MIT |
