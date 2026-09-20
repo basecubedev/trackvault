@@ -41,11 +41,19 @@ dependencies this project actually needs arrived under, not every permissive
 licence in existence.
 
 Individual decisions that are narrower than a licence live in the policy's
-`reviewed` map. Today that is one entry:
+`reviewed` map. Today that is two decisions:
 
 | Package | Reviewed licence | Decision |
 | --- | --- | --- |
 | `pathspec` | MPL-2.0 | Build-time dependency of the linter, used unmodified and never shipped in the runtime image. MPL's file-level copyleft reaches modified MPL files, of which this repository has none. |
+| `lightningcss` | MPL-2.0 | Vite's CSS transformer, a direct dependency of the build tool since Vite 8. Same reasoning: used unmodified at build time, and the image copies `web/dist` rather than `node_modules`. |
+
+`lightningcss` occupies twelve entries in the policy rather than one, because
+the code arrives as a prebuilt binary and npm resolves a differently *named*
+package per platform. The audit reads what is installed, so the decision has to
+be recorded under each of those names or it would hold on the build machine and
+fail on somebody's laptop. It is one review; the eleven platform rows repeat it
+rather than adding to it.
 
 A review names the **licence** it was granted for, not only the package. What
 somebody read was a document, so an exception recorded against the name alone
@@ -136,8 +144,8 @@ Everything here is bundled into the assets the container serves.
 
 | Package | Version | Purpose | Licence |
 | --- | --- | --- | --- |
-| `vite` | 7.3.6 | Bundler and development server | MIT |
-| `@vitejs/plugin-react` | 5.0.4 | React support for Vite | MIT |
+| `vite` | 8.3.0 | Bundler and development server | MIT |
+| `@vitejs/plugin-react` | 6.1.1 | React support for Vite | MIT |
 | `typescript` | 5.9.3 | Type checker | Apache-2.0 |
 | `typescript-eslint` | 8.70.0 | Type-aware linting | MIT |
 | `eslint` | 9.39.0 | Linter | MIT |
