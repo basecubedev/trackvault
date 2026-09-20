@@ -31,6 +31,54 @@
     "Python-2.0"
   ],
   "reviewed": {
+    "lightningcss": {
+      "license": "MPL-2.0",
+      "reason": "Vite 8's CSS transformer, a direct dependency of the build tool. Used unmodified at build time and never shipped: the image copies `web/dist`, not `node_modules`. File-level copyleft reaches modified MPL files, of which this repository has none."
+    },
+    "lightningcss-android-arm64": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-darwin-arm64": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-darwin-x64": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-freebsd-x64": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-linux-arm-gnueabihf": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-linux-arm64-gnu": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-linux-arm64-musl": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-linux-x64-gnu": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-linux-x64-musl": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-win32-arm64-msvc": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
+    "lightningcss-win32-x64-msvc": {
+      "license": "MPL-2.0",
+      "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
+    },
     "pathspec": {
       "license": "MPL-2.0",
       "reason": "A build-time dependency of the linter, used unmodified and never shipped in the runtime image. File-level copyleft reaches modified MPL files, of which this repository has none."
