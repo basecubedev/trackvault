@@ -43,8 +43,14 @@ export function TrackMap({
   const container = useRef<HTMLDivElement | null>(null)
   const map = useRef<maplibregl.Map | null>(null)
   const marker = useRef<maplibregl.Marker | null>(null)
+  // Held in a ref for the same reason the chart holds its store: the MapLibre
+  // handlers are registered once per instance and read the samples the page is
+  // showing now, and re-creating the map to hand them a new array would throw
+  // away the basemap with it.
   const positions = useRef(samples)
-  positions.current = samples
+  useEffect(() => {
+    positions.current = samples
+  }, [samples])
   const [basemapFailed, setBasemapFailed] = useState(false)
   const style = useMemo(() => basemapStyle(coverage, theme), [coverage, theme])
 
