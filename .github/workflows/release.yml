@@ -76,7 +76,7 @@ jobs:
       # pulls tomorrow morning.
       - name: Decide tags and OCI labels
         id: metadata
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/trackvault
           tags: |
