@@ -97,7 +97,7 @@ jobs:
       # them, and a label stating an empty string is worse than no label because
       # it looks answered. `metadata-action` fills them from this run.
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
