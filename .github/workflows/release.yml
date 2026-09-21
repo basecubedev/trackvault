@@ -42,7 +42,7 @@ jobs:
       # Full history, tags included: the version is read out of the repository
       # rather than out of a file, and the default shallow fetch brings none.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
