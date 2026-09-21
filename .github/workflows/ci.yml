@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Full history, tags included. The release number is read out of the
           # repository by `hatch-vcs`, and the default shallow fetch brings no
@@ -74,7 +74,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Full history, tags included. The release number is read out of the
           # repository by `hatch-vcs`, and the default shallow fetch brings no
@@ -136,7 +136,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Full history, tags included. The release number is read out of the
           # repository by `hatch-vcs`, and the default shallow fetch brings no
@@ -181,7 +181,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Full history, tags included. The release number is read out of the
           # repository by `hatch-vcs`, and the default shallow fetch brings no
