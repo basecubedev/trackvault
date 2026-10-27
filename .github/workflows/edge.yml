@@ -40,7 +40,7 @@ jobs:
       # Full history, tags included: the version below is derived from the last
       # release tag plus the distance to it, and a shallow checkout has neither.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
