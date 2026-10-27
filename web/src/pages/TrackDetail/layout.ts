@@ -56,7 +56,7 @@ export function useTrackLayout(): TrackLayout {
           : await api.saveTrackLayout(toDocument(document)),
       )
     } catch (cause: unknown) {
-      throw new Error(`The layout could not be saved. ${describe(cause)}`)
+      throw new Error(`The layout could not be saved. ${describe(cause)}`, { cause })
     }
   }, [])
 
