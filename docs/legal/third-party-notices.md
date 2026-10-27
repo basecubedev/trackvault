@@ -157,7 +157,7 @@ Everything here is bundled into the assets the container serves.
 | `fake-indexeddb` | 6.2.5 | The one browser API `jsdom` does not implement, for the minimap cache tests | Apache-2.0 |
 | `@testing-library/react` | 16.3.3 | Component testing | MIT |
 | `@testing-library/user-event` | 14.6.7 | Simulating real user interaction in component tests | MIT |
-| `@testing-library/jest-dom` | 6.9.1 | Assertions about rendered markup | MIT |
+| `@testing-library/jest-dom` | 7.0.1 | Assertions about rendered markup | MIT |
 | `@playwright/test` | 1.63.0 | Browser end-to-end tests | Apache-2.0 |
 | `openapi-typescript` | 7.13.0 | Generates the API types from the backend schema | MIT |
 | `@types/node` | 26.6.1 | Type definitions for the Node build scripts | MIT |
