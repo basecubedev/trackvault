@@ -41,12 +41,13 @@ dependencies this project actually needs arrived under, not every permissive
 licence in existence.
 
 Individual decisions that are narrower than a licence live in the policy's
-`reviewed` map. Today that is two decisions:
+`reviewed` map. Today that is three decisions:
 
 | Package | Reviewed licence | Decision |
 | --- | --- | --- |
 | `pathspec` | MPL-2.0 | Build-time dependency of the linter, used unmodified and never shipped in the runtime image. MPL's file-level copyleft reaches modified MPL files, of which this repository has none. |
 | `lightningcss` | MPL-2.0 | Vite's CSS transformer, a direct dependency of the build tool since Vite 8. Same reasoning: used unmodified at build time, and the image copies `web/dist` rather than `node_modules`. |
+| `minimatch` | BlueOak-1.0.0 | Build-time dependency of the linter since ESLint 10, used unmodified and never shipped in the runtime image. The Blue Oak Model License is permissive without copyleft; its one condition, passing on the licence text with a copy, does not reach the image. |
 
 `lightningcss` occupies twelve entries in the policy rather than one, because
 the code arrives as a prebuilt binary and npm resolves a differently *named*
@@ -106,9 +107,9 @@ staying in a repository that operator may never see.
 
 | Package | Version | Purpose | Licence | Upstream |
 | --- | --- | --- | --- | --- |
-| `fastapi` | 0.141.1 | FastAPI, the HTTP framework the API is projected through | MIT | <https://github.com/fastapi/fastapi> |
-| `pydantic` | 2.13.5 | Request and response validation | MIT | <https://github.com/pydantic/pydantic> |
-| `pydantic-settings` | 2.15.0 | Reading `TRACKVAULT_*` configuration | MIT | <https://github.com/pydantic/pydantic-settings> |
+| `fastapi` | 0.143.2 | FastAPI, the HTTP framework the API is projected through | MIT | <https://github.com/fastapi/fastapi> |
+| `pydantic` | 2.14.1 | Request and response validation | MIT | <https://github.com/pydantic/pydantic> |
+| `pydantic-settings` | 2.16.0 | Reading `TRACKVAULT_*` configuration | MIT | <https://github.com/pydantic/pydantic-settings> |
 | `uvicorn` | 0.52.1 | ASGI server | BSD-3-Clause | <https://github.com/encode/uvicorn> |
 | `defusedxml` | 0.7.1 | Hardened XML parsing for untrusted GPX documents | Python-2.0 | <https://github.com/tiran/defusedxml> |
 
@@ -122,9 +123,9 @@ BSD, Apache-2.0, PSF-2.0 or a choice including one of those.
 | --- | --- | --- | --- |
 | `pytest` | 9.1.1 | Test runner | MIT |
 | `pytest-cov` | 7.1.0 | Coverage reporting | MIT |
-| `ruff` | 0.16.8 | Linter and formatter | MIT |
-| `mypy` | 2.3.1 | Type checker | MIT |
-| `httpx2` | 2.13.0 | HTTP client for the Docker smoke tests | BSD-3-Clause |
+| `ruff` | 0.17.1 | Linter and formatter | MIT |
+| `mypy` | 2.4.0 | Type checker | MIT |
+| `httpx2` | 2.13.1 | HTTP client for the Docker smoke tests | BSD-3-Clause |
 | `types-defusedxml` | 0.7.0.20260504 | Type stubs for `defusedxml` | Apache-2.0 |
 | `pyyaml` | 6.0.3 | Reading the workflow files in the release contract test | MIT |
 
@@ -148,16 +149,16 @@ Everything here is bundled into the assets the container serves.
 | `@vitejs/plugin-react` | 6.1.1 | React support for Vite | MIT |
 | `typescript` | 5.9.3 | Type checker | Apache-2.0 |
 | `typescript-eslint` | 8.70.0 | Type-aware linting | MIT |
-| `eslint` | 9.39.0 | Linter | MIT |
-| `@eslint/js` | 9.39.0 | ESLint's own recommended rules | MIT |
+| `eslint` | 10.0.1 | Linter | MIT |
+| `@eslint/js` | 10.0.1 | ESLint's own recommended rules | MIT |
 | `eslint-plugin-react-hooks` | 7.1.1 | Hook rules | MIT |
 | `globals` | 17.12.0 | Environment globals for the linter | MIT |
-| `vitest` | 4.1.11 | Unit and component test runner | MIT |
+| `vitest` | 5.0.1 | Unit and component test runner | MIT |
 | `jsdom` | 27.0.0 | Browser environment for component tests | MIT |
 | `fake-indexeddb` | 6.2.5 | The one browser API `jsdom` does not implement, for the minimap cache tests | Apache-2.0 |
 | `@testing-library/react` | 16.3.3 | Component testing | MIT |
 | `@testing-library/user-event` | 14.6.7 | Simulating real user interaction in component tests | MIT |
-| `@testing-library/jest-dom` | 6.9.1 | Assertions about rendered markup | MIT |
+| `@testing-library/jest-dom` | 7.0.1 | Assertions about rendered markup | MIT |
 | `@playwright/test` | 1.63.0 | Browser end-to-end tests | Apache-2.0 |
 | `openapi-typescript` | 7.13.0 | Generates the API types from the backend schema | MIT |
 | `@types/node` | 26.6.1 | Type definitions for the Node build scripts | MIT |

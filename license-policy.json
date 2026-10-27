@@ -79,6 +79,10 @@
       "license": "MPL-2.0",
       "reason": "One platform's prebuilt binary of `lightningcss`, reviewed with it. Listed per platform because the audit reads what is installed, and another machine installs another one of these."
     },
+    "minimatch": {
+      "license": "BlueOak-1.0.0",
+      "reason": "A build-time dependency of the linter since ESLint 10, used unmodified and never shipped in the runtime image. The Blue Oak Model License grants use, modification and distribution without copyleft; its one condition, passing on the licence text with a copy, does not reach the image."
+    },
     "pathspec": {
       "license": "MPL-2.0",
       "reason": "A build-time dependency of the linter, used unmodified and never shipped in the runtime image. File-level copyleft reaches modified MPL files, of which this repository has none."

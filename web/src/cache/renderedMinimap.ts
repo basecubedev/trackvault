@@ -48,7 +48,7 @@ async function reuseOrDraw(
 ): Promise<Blob> {
   // Before the expensive part, always. A lookup after the render would be a
   // cache that costs what it exists to save.
-  let kept: Blob | null = null
+  let kept: Blob | null
   try {
     kept = await cache.get(key)
   } catch {
